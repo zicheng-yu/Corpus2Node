@@ -24,6 +24,7 @@ from corpus2node.core.types import (
     ConceptNode,
     EdgeType,
     EvidenceChunk,
+    EvidenceRef,
     GraphArtifact,
     GraphEdge,
     TopicClusterNode,
@@ -58,6 +59,7 @@ def build_graph_artifact(
 
     assign_metrics(concepts, edges)
     compute_importance(concepts)
+    attach_evidence(concepts, chunks)
     clusters = detect_communities(concepts, edges)
 
     return GraphArtifact(session_id=session_id, concepts=concepts, topic_clusters=clusters, edges=edges)
@@ -351,6 +353,42 @@ def compute_importance(concepts: list[ConceptNode]) -> None:
         )
         coverage = concept.source_count / max_source
         concept.importance_score = round(min(1.0, 0.8 * structural + 0.2 * coverage), 4)
+
+
+def chunk_locator(chunk: EvidenceChunk) -> str:
+    """A human-citable locator for a chunk (page / timestamp / id)."""
+    if chunk.page_start is not None:
+        return f"第 {chunk.page_start} 页" if chunk.page_end in (None, chunk.page_start) else f"第 {chunk.page_start}-{chunk.page_end} 页"
+    if chunk.time_start is not None:
+        return f"{int(chunk.time_start // 60):02d}:{int(chunk.time_start % 60):02d}"
+    return chunk.chunk_id
+
+
+def attach_evidence(concepts: list[ConceptNode], chunks: list[EvidenceChunk], *, max_refs: int = 5) -> None:
+    """Link each concept to the source chunks that mention it (for citations)."""
+    terms_by_concept = {
+        c.concept_id: {t.lower() for t in {c.name, c.canonical_name, *c.aliases} if t}
+        for c in concepts
+    }
+    for concept in concepts:
+        terms = terms_by_concept[concept.concept_id]
+        refs: list[EvidenceRef] = []
+        for chunk in chunks:
+            lowered = chunk.text.lower()
+            if any(term in lowered for term in terms):
+                refs.append(
+                    EvidenceRef(
+                        chunk_id=chunk.chunk_id,
+                        source_id=chunk.source_id,
+                        source_type=chunk.source_type,
+                        locator=chunk_locator(chunk),
+                        snippet=chunk.text[:160],
+                        score=1.0,
+                    )
+                )
+                if len(refs) >= max_refs:
+                    break
+        concept.evidence_refs = refs
 
 
 def detect_communities(concepts: list[ConceptNode], edges: list[GraphEdge]) -> list[TopicClusterNode]:

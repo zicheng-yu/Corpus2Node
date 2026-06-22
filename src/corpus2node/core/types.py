@@ -260,6 +260,52 @@ class ExamDocument(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class RetrievalResult(BaseModel):
+    """A unified retrieval hit (chunk or concept) returned by the search layer."""
+
+    kind: str  # "chunk" | "concept"
+    ref_id: str
+    score: float = 0.0
+    title: str = ""
+    snippet: str = ""
+    locator: str = ""
+    source_id: str | None = None
+    source_type: SourceKind | None = None
+    concept_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatCitation(BaseModel):
+    """A numbered source the assistant's answer is grounded in."""
+
+    index: int
+    kind: str
+    ref_id: str
+    title: str = ""
+    snippet: str = ""
+    locator: str = ""
+    source_id: str | None = None
+    source_type: SourceKind | None = None
+
+
+class ChatTraceStep(BaseModel):
+    """One structured step of the agent's execution (for the debug panel)."""
+
+    step: int
+    type: str  # "tool_call" | "retrieval" | "answer"
+    tool: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
+    summary: str = ""
+    result_count: int = 0
+
+
+class ChatStreamEvent(BaseModel):
+    """An SSE event: type in {start, token, tool_call, retrieval, subgraph, citation, done, error}."""
+
+    type: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
 class ChatContextItem(BaseModel):
     context_type: str
     label: str = ""
@@ -272,6 +318,7 @@ class ChatMessage(BaseModel):
     role: str
     content: str
     context_items: list[ChatContextItem] = Field(default_factory=list)
+    citations: list[ChatCitation] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -326,11 +373,15 @@ class ChatRequest(BaseModel):
     session_id: UUID
     message: str = Field(min_length=1, max_length=8000)
     context_items: list[ChatContextItem] = Field(default_factory=list)
+    debug: bool = False
 
 
 class ChatResponse(BaseModel):
     chat: ChatDocument
     assistant_message: ChatMessage
+    citations: list[ChatCitation] = Field(default_factory=list)
+    trace: list[ChatTraceStep] = Field(default_factory=list)
+    subgraph: SubgraphResponse | None = None
 
 
 class RuntimeSettingField(BaseModel):
