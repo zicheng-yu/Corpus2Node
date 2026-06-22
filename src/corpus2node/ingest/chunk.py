@@ -6,7 +6,7 @@ separately; this module is the shared chunking step they feed into.
 from __future__ import annotations
 
 from corpus2node.core.types import EvidenceChunk, SourceKind
-from corpus2node.text import chunk_text, summarize_text
+from corpus2node.core.text import chunk_text, summarize_text
 
 
 def make_chunks(

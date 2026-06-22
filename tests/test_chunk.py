@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from corpus2node.core.types import SourceKind
 from corpus2node.ingest.chunk import make_chunks, make_chunks_from_blocks
-from corpus2node.text import chunk_text
+from corpus2node.core.text import chunk_text
 
 
 def test_chunk_text_windows_and_caps():

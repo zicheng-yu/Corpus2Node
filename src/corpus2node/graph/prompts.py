@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from corpus2node.core.types import EvidenceChunk
-from corpus2node.text import normalize_text
+from corpus2node.core.text import normalize_text
 
 GRAPH_SYSTEM_PROMPT = """\
 你是课程知识图谱抽取器。把课堂 slides / notes / transcript 的文本片段清洗为结构化知识点图候选。

@@ -17,7 +17,7 @@ from corpus2node.core.types import EdgeType, EvidenceChunk
 from corpus2node.graph.clean import VALID_RELATION_TYPES, looks_like_noise
 from corpus2node.graph.prompts import GRAPH_SYSTEM_PROMPT, build_graph_prompt, chunk_prompt_text
 from corpus2node.graph.schemas import ExtractedConcept, ExtractedRelation, GraphExtractionResult
-from corpus2node.text import canonicalize_term, normalize_text
+from corpus2node.core.text import canonicalize_term, normalize_text
 
 logger = logging.getLogger(__name__)
 

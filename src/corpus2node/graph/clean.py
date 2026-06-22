@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 from corpus2node.core.types import RelationType
-from corpus2node.text import is_reasonable_term
+from corpus2node.core.text import is_reasonable_term
 
 CONCEPT_STOPWORDS = {
     # PDF structural elements
