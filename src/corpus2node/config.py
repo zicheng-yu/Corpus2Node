@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     vector_store_provider: str = "local_cosine"  # local_cosine | chroma
     vector_store_path: str = str(ROOT_DIR / "artifacts" / "indexes")
 
+    # --- Graph extraction (batching + concurrency; not credentials) ---
+    extract_batch_max_chars: int = 5200
+    extract_batch_max_chunks: int = 8
+    extract_max_concurrency: int = 8
+
     # --- Kimi (PDF extraction via Files API; NOT a LangChain chat model) ---
     kimi_base_url: str = "https://api.moonshot.cn/v1"
     kimi_api_key: str = ""
