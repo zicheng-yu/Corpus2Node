@@ -86,8 +86,8 @@ class EvidenceChunk(BaseModel):
     summary: str
     keywords: list[str] = Field(default_factory=list)
     embedding: list[float] = Field(default_factory=list)
-    page_start: int | None = Field(default=None, exclude=True)
-    page_end: int | None = Field(default=None, exclude=True)
+    page_start: int | None = None
+    page_end: int | None = None
     time_start: float | None = None
     time_end: float | None = None
 
