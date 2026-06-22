@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
-from datetime import datetime
+from corpus2node.core.clock import utcnow
 from pathlib import Path
 
 from corpus2node.config import settings
@@ -32,7 +32,7 @@ def load() -> LLMSettings:
 
 def save(value: LLMSettings) -> LLMSettings:
     with _LOCK:
-        value.updated_at = datetime.utcnow()
+        value.updated_at = utcnow()
         _write(value)
         return value
 

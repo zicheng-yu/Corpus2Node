@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from corpus2node.core.clock import utcnow
+
 
 class SessionStatus(str, Enum):
     draft = "draft"
@@ -52,7 +54,7 @@ class SourceFile(BaseModel):
     content_type: str
     storage_path: str
     size_bytes: int
-    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    uploaded_at: datetime = Field(default_factory=utcnow)
     ingested: bool = False
     ingest_artifact_path: str | None = None
 
@@ -73,8 +75,8 @@ class CourseSession(BaseModel):
     status: SessionStatus = SessionStatus.draft
     source_files: list[SourceFile] = Field(default_factory=list)
     stats: SessionStats = Field(default_factory=SessionStats)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     error_message: str | None = None
 
 
@@ -97,7 +99,7 @@ class IngestArtifact(BaseModel):
     source_id: UUID
     source_kind: SourceKind
     chunks: list[EvidenceChunk] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -155,7 +157,7 @@ class GraphArtifact(BaseModel):
     concepts: list[ConceptNode] = Field(default_factory=list)
     topic_clusters: list[TopicClusterNode] = Field(default_factory=list)
     edges: list[GraphEdge] = Field(default_factory=list)
-    built_at: datetime = Field(default_factory=datetime.utcnow)
+    built_at: datetime = Field(default_factory=utcnow)
     course_meta: CourseGraphMeta | None = None
 
 
@@ -230,7 +232,7 @@ class NoteDocument(BaseModel):
     topic: str
     summary: str
     sections: list[NoteSection] = Field(default_factory=list)
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=utcnow)
 
 
 class ExamChoice(BaseModel):
@@ -257,7 +259,7 @@ class ExamDocument(BaseModel):
     title: str
     summary: str = ""
     questions: list[ExamQuestion] = Field(default_factory=list)
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=utcnow)
 
 
 class RetrievalResult(BaseModel):
@@ -319,14 +321,14 @@ class ChatMessage(BaseModel):
     content: str
     context_items: list[ChatContextItem] = Field(default_factory=list)
     citations: list[ChatCitation] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class ChatDocument(BaseModel):
     chat_id: str = Field(default_factory=lambda: str(uuid4()))
     session_id: UUID
     messages: list[ChatMessage] = Field(default_factory=list)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class UploadResponse(BaseModel):

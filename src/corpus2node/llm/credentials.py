@@ -6,6 +6,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from corpus2node.core.clock import utcnow
+
 
 class ProviderKind(str, Enum):
     """Wire protocol of a credential's endpoint. Both support a custom base_url."""
@@ -40,7 +42,7 @@ class ProviderCredential(BaseModel):
     base_url: str = ""
     api_key: str = ""
     default_model: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class PurposeBinding(BaseModel):
@@ -58,7 +60,7 @@ class LLMSettings(BaseModel):
 
     credentials: list[ProviderCredential] = Field(default_factory=list)
     bindings: dict[Purpose, PurposeBinding] = Field(default_factory=dict)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
     def credential(self, credential_id: str) -> ProviderCredential | None:
         return next((c for c in self.credentials if c.credential_id == credential_id), None)

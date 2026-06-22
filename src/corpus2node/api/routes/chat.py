@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from corpus2node.core.clock import utcnow
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -51,7 +51,7 @@ async def message(request: ChatRequest) -> ChatResponse:
     )
     assistant = ChatMessage(role="assistant", content=turn.answer, citations=turn.citations)
     chat.messages.append(assistant)
-    chat.updated_at = datetime.utcnow()
+    chat.updated_at = utcnow()
     local.save_chat(chat)
 
     return ChatResponse(

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from corpus2node.core.clock import utcnow
 from typing import TypedDict
 from uuid import UUID
 
@@ -64,7 +64,7 @@ def build_workflow(*, astructured: AStructured, embeddings: Embeddings, extract_
                 IngestArtifact(session_id=session_id, source_id=source.source_id, source_kind=source.kind, chunks=chunks)
             )
             source.ingested = True
-        session.updated_at = datetime.utcnow()
+        session.updated_at = utcnow()
         local.save_session(session)
         total = sum(len(artifact.chunks) for artifact in local.list_ingest_artifacts(session_id))
         return {"chunk_count": total}
@@ -128,7 +128,7 @@ async def run_workflow(
 
     session.status = SessionStatus.building_graph
     session.error_message = None
-    session.updated_at = datetime.utcnow()
+    session.updated_at = utcnow()
     local.save_session(session)
 
     workflow = build_workflow(astructured=astructured, embeddings=embeddings, extract_blocks=extract_blocks)
@@ -140,7 +140,7 @@ async def run_workflow(
         failed = local.load_session(session_id)
         failed.status = SessionStatus.failed
         failed.error_message = str(exc)
-        failed.updated_at = datetime.utcnow()
+        failed.updated_at = utcnow()
         local.save_session(failed)
         raise
 
@@ -152,7 +152,7 @@ async def run_workflow(
     session.stats.concept_count = len(graph.concepts)
     session.stats.relation_count = len(graph.edges)
     session.stats.cluster_count = len(graph.topic_clusters)
-    session.updated_at = datetime.utcnow()
+    session.updated_at = utcnow()
     local.save_session(session)
     return graph
 
