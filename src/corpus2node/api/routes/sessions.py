@@ -4,6 +4,7 @@ create session -> upload PDF -> /workflow/run -> /chat. Multimodal formats
 """
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -14,6 +15,7 @@ from corpus2node.core.types import CourseSession, SessionStatus, SourceFile, Sou
 from corpus2node.storage import local
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+logger = logging.getLogger("corpus2node.api.sessions")
 
 
 class CreateSessionRequest(BaseModel):
@@ -81,5 +83,6 @@ async def upload_source(session_id: UUID, file: UploadFile = File(...)) -> Uploa
     session.status = SessionStatus.uploaded
     session.updated_at = utcnow()
     local.save_session(session)
+    logger.info("uploaded %s (%d bytes) -> session %s", filename, len(data), session_id)
 
     return UploadResponse(session_id=session_id, source_id=source.source_id, kind=SourceKind.pdf, status=session.status)

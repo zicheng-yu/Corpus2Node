@@ -45,18 +45,24 @@ def load_context(session_id: UUID, embeddings: Embeddings) -> ChatContext:
 
 
 async def run_chat(query: str, ctx: ChatContext, *, model) -> ChatTurn:
+    logger.info("chat: query=%r", query[:80])
     agent = create_agent(model=model, tools=build_tools(ctx), system_prompt=SYSTEM_PROMPT)
     result = await agent.ainvoke({"messages": [HumanMessage(content=query)]})
     messages = result.get("messages", [])
     answer = _message_text(messages[-1]) if messages else ""
     trace = _trace_from_messages(messages)
     _ensure_grounding(ctx, query)
-    return ChatTurn(
+    turn = ChatTurn(
         answer=answer,
         citations=ctx.citations(),
         trace=trace,
         subgraph=ctx.subgraph or _fallback_subgraph(ctx),
     )
+    logger.info(
+        "chat: %d citations, %d trace steps, subgraph_nodes=%d",
+        len(turn.citations), len(turn.trace), len(turn.subgraph.nodes) if turn.subgraph else 0,
+    )
+    return turn
 
 
 async def stream_chat_events(query: str, ctx: ChatContext, *, model) -> AsyncIterator[ChatStreamEvent]:

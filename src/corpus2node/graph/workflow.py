@@ -67,6 +67,7 @@ def build_workflow(*, astructured: AStructured, embeddings: Embeddings, extract_
         session.updated_at = utcnow()
         local.save_session(session)
         total = sum(len(artifact.chunks) for artifact in local.list_ingest_artifacts(session_id))
+        logger.info("ingest: %d chunks from %d source(s)", total, len(pending))
         return {"chunk_count": total}
 
     async def extract(state: WorkflowState) -> dict[str, int]:
@@ -82,6 +83,7 @@ def build_workflow(*, astructured: AStructured, embeddings: Embeddings, extract_
             batch_max_chunks=settings.extract_batch_max_chunks,
         )
         _save_candidates(session_id, candidates)
+        logger.info("extract: %d concepts, %d relations", len(candidates.concepts), len(candidates.relations))
         return {"concept_count": len(candidates.concepts), "relation_count": len(candidates.relations)}
 
     async def build(state: WorkflowState) -> dict[str, int]:
@@ -92,6 +94,10 @@ def build_workflow(*, astructured: AStructured, embeddings: Embeddings, extract_
             build_graph_artifact, session_id, chunks, candidates, embeddings=embeddings
         )
         local.save_graph_artifact(graph)
+        logger.info(
+            "build: %d concepts, %d edges, %d clusters",
+            len(graph.concepts), len(graph.edges), len(graph.topic_clusters),
+        )
         return {
             "concept_count": len(graph.concepts),
             "relation_count": len(graph.edges),
@@ -120,6 +126,7 @@ async def run_workflow(
     session = local.load_session(session_id)
     if not session.source_files:
         raise ValueError("Session has no source files to process.")
+    logger.info("workflow start: session=%s, sources=%d", session_id, len(session.source_files))
 
     embeddings = embeddings or get_embeddings()
     if astructured is None:
@@ -154,6 +161,10 @@ async def run_workflow(
     session.stats.cluster_count = len(graph.topic_clusters)
     session.updated_at = utcnow()
     local.save_session(session)
+    logger.info(
+        "workflow done: session=%s concepts=%d edges=%d clusters=%d",
+        session_id, len(graph.concepts), len(graph.edges), len(graph.topic_clusters),
+    )
     return graph
 
 

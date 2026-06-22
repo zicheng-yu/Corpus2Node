@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Corpus2Node — 最小验证 Demo</title>
+  <style>
+    :root { --bg:#faf9f5; --fg:#2b2621; --accent:#bc6a3a; --border:#ddd5ca; }
+    * { box-sizing: border-box; }
+    body { font-family: Georgia, "Songti SC", serif; background: var(--bg); color: var(--fg);
+           margin: 0; padding: 16px; line-height: 1.5; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    h2 { font-size: 15px; margin: 0 0 8px; color: #1c1815; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 16px; }
+    input, textarea, button { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
+    button { background: var(--accent); color: #fff; border: none; cursor: pointer; }
+    button:hover { background: #9d552d; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    label { display: block; font-size: 12px; color: #6b6256; margin: 6px 0 2px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    pre { background: #1c1815; color: #e8e2d6; border-radius: 8px; padding: 10px; overflow: auto;
+          max-height: 360px; white-space: pre-wrap; word-break: break-word; font-family: Menlo, Monaco, monospace; font-size: 12px; }
+    .log .err { color: #ff9b8a; }
+    .log .ok { color: #9fd39f; }
+    .muted { color: #6b6256; font-size: 12px; }
+    code { background: #efeae0; padding: 1px 5px; border-radius: 999px; font-family: Menlo, monospace; font-size: 12px; }
+    .cite { border-left: 3px solid var(--accent); padding: 4px 8px; margin: 6px 0; font-size: 13px; }
+    #answer { min-height: 40px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Corpus2Node · 最小验证 Demo <span class="muted">(throwaway — 仅供人工验证流程与日志)</span></h1>
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>1 · 会话 & 资料</h2>
+        <div class="row">
+          <input id="course" placeholder="课程/语料标题" value="数据结构" />
+          <input id="lecture" placeholder="讲次/子集" value="树与查找" />
+          <button onclick="createSession()">建会话</button>
+        </div>
+        <div class="muted">session: <code id="sid">（未创建）</code></div>
+        <label>上传 PDF（最小 demo 仅支持 PDF）</label>
+        <div class="row">
+          <input id="file" type="file" accept="application/pdf" />
+          <button onclick="uploadFile()">上传</button>
+          <button onclick="runWorkflow()">运行（建图）</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>2 · 提问</h2>
+        <div class="row">
+          <input id="q" placeholder="例如：二叉搜索树是什么？" style="flex:1" value="二叉搜索树是什么？" />
+          <button onclick="ask(true)">流式</button>
+          <button onclick="ask(false)">非流式</button>
+        </div>
+        <h2 style="margin-top:12px">回答</h2>
+        <div id="answer" class="muted">（等待提问）</div>
+        <h2 style="margin-top:12px">引用 (citations)</h2>
+        <div id="citations" class="muted">—</div>
+        <h2 style="margin-top:12px">命中子图 (subgraph)</h2>
+        <div id="subgraph" class="muted">—</div>
+        <h2 style="margin-top:12px">执行轨迹 (trace)</h2>
+        <div id="trace" class="muted">—</div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h2>日志（append-only，报错会一直停留，可复制）</h2>
+        <div class="muted">每个动作、每条 SSE 事件、每个错误都记录在此，刷新页面才清空。</div>
+        <pre id="log" class="log"></pre>
+        <button onclick="document.getElementById('log').textContent=''">清空日志</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let sessionId = null;
+
+function log(msg, cls) {
+  const t = new Date().toLocaleTimeString();
+  const el = $('log');
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = `[${t}] ${msg}\n`;
+  el.appendChild(span);
+  el.scrollTop = el.scrollHeight;
+}
+window.addEventListener('error', (e) => log('JS error: ' + e.message, 'err'));
+window.addEventListener('unhandledrejection', (e) => log('Promise rejection: ' + (e.reason && e.reason.stack || e.reason), 'err'));
+
+async function api(method, path, body, isForm) {
+  log(`${method} ${path} ...`);
+  try {
+    const opts = { method };
+    if (isForm) { opts.body = body; }
+    else if (body !== undefined) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+    const resp = await fetch(path, opts);
+    const text = await resp.text();
+    if (!resp.ok) { log(`✗ ${resp.status} ${path}\n${text}`, 'err'); return null; }
+    log(`✓ ${resp.status} ${path}`, 'ok');
+    try { return JSON.parse(text); } catch { return text; }
+  } catch (err) {
+    log(`✗ fetch failed ${path}: ${err && err.stack || err}`, 'err');
+    return null;
+  }
+}
+
+async function createSession() {
+  const data = await api('POST', '/sessions', { course_title: $('course').value, lecture_title: $('lecture').value });
+  if (data) { sessionId = data.session_id; $('sid').textContent = sessionId; log('session created: ' + JSON.stringify(data)); }
+}
+
+async function uploadFile() {
+  if (!sessionId) return log('请先建会话', 'err');
+  const f = $('file').files[0];
+  if (!f) return log('请选择 PDF 文件', 'err');
+  const fd = new FormData(); fd.append('file', f);
+  const data = await api('POST', `/sessions/${sessionId}/sources`, fd, true);
+  if (data) log('uploaded: ' + JSON.stringify(data));
+}
+
+async function runWorkflow() {
+  if (!sessionId) return log('请先建会话', 'err');
+  log('运行 workflow（摄入→抽取→建图），可能耗时，请看终端日志…');
+  const data = await api('POST', '/workflow/run', { session_id: sessionId });
+  if (data) log('workflow done: ' + JSON.stringify(data), 'ok');
+}
+
+function renderTurn(citations, subgraph, trace) {
+  $('citations').innerHTML = (citations && citations.length)
+    ? citations.map(c => `<div class="cite">[${c.index}] <b>${c.title || c.ref_id}</b> <code>${c.kind}</code> ${c.locator || ''}<br><span class="muted">${(c.snippet||'').slice(0,160)}</span></div>`).join('')
+    : '—';
+  $('subgraph').innerHTML = (subgraph && subgraph.nodes && subgraph.nodes.length)
+    ? `中心: <code>${subgraph.center_concept_id}</code> · ${subgraph.nodes.length} 概念 / ${subgraph.edges.length} 关系<br>`
+      + subgraph.nodes.map(n => `<code>${n.label}</code>`).join(' ')
+    : '—';
+  $('trace').innerHTML = (trace && trace.length)
+    ? trace.map(s => `${s.step}. <b>${s.type}</b> ${s.tool ? '<code>'+s.tool+'</code>' : ''} ${s.summary||''}`).join('<br>')
+    : '—';
+}
+
+async function ask(stream) {
+  if (!sessionId) return log('请先建会话并建图', 'err');
+  const message = $('q').value;
+  $('answer').textContent = ''; $('answer').className = '';
+  $('citations').textContent = $('subgraph').textContent = $('trace').textContent = '…';
+  if (!stream) {
+    const data = await api('POST', '/chat/message', { session_id: sessionId, message, debug: true });
+    if (data) { $('answer').textContent = data.assistant_message.content; renderTurn(data.citations, data.subgraph, data.trace); }
+    return;
+  }
+  // streaming SSE over POST via fetch
+  log('POST /chat/stream (SSE) ...');
+  let citations = [], subgraph = null, trace = [];
+  try {
+    const resp = await fetch('/chat/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, message, debug: true }) });
+    if (!resp.ok) { log(`✗ ${resp.status} /chat/stream\n${await resp.text()}`, 'err'); return; }
+    const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    while (true) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf('\n\n')) >= 0) {
+        const raw = buf.slice(0, i); buf = buf.slice(i + 2);
+        const line = raw.replace(/^data: ?/, ''); if (!line) continue;
+        let ev; try { ev = JSON.parse(line); } catch { log('bad event: ' + line, 'err'); continue; }
+        log('event ' + ev.type + ': ' + JSON.stringify(ev.data).slice(0, 200));
+        if (ev.type === 'token') { $('answer').textContent += ev.data.text; }
+        else if (ev.type === 'citation') { citations.push(ev.data); renderTurn(citations, subgraph, trace); }
+        else if (ev.type === 'subgraph') { subgraph = ev.data; renderTurn(citations, subgraph, trace); }
+        else if (ev.type === 'tool_call' || ev.type === 'retrieval') { trace.push({ step: trace.length + 1, type: ev.type, tool: ev.data.tool, summary: JSON.stringify(ev.data) }); renderTurn(citations, subgraph, trace); }
+        else if (ev.type === 'error') { log('STREAM ERROR: ' + JSON.stringify(ev.data), 'err'); }
+        else if (ev.type === 'done') { log('stream done', 'ok'); }
+      }
+    }
+  } catch (err) { log('✗ stream failed: ' + (err && err.stack || err), 'err'); }
+}
+
+log('ready. 流程：建会话 → 上传 PDF → 运行 → 提问。报错会保留在此面板，也会出现在后端终端。');
+</script>
+</body>
+</html>
