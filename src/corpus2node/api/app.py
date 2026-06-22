@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from corpus2node import __version__
 from corpus2node.api.routes import chat as chat_routes
+from corpus2node.api.routes import sessions as sessions_routes
 from corpus2node.api.routes import settings as settings_routes
 from corpus2node.api.routes import workflow as workflow_routes
 from corpus2node.config import settings
@@ -19,6 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(sessions_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(workflow_routes.router)
 app.include_router(chat_routes.router)
