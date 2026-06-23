@@ -68,3 +68,11 @@ def test_get_subgraph_depth_and_node_cap():
 
     missing = search.get_subgraph(graph, "concept:nope", depth=1)
     assert missing.nodes == []
+
+
+def test_get_subgraph_resolves_center_by_name():
+    concepts = [_concept("二叉搜索树", "二叉搜索树", "树"), _concept("树结构", "树结构", "层次")]
+    edges = [GraphEdge(source="concept:二叉搜索树", target="concept:树结构", edge_type=EdgeType.relates_to, properties={})]
+    # pass the NAME, not the id — should still resolve
+    sg = search.get_subgraph(_graph(concepts, edges), "二叉搜索树", depth=1, max_nodes=20)
+    assert sg.nodes and sg.center_concept_id == "concept:二叉搜索树"

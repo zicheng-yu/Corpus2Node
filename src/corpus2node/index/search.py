@@ -92,7 +92,9 @@ def get_subgraph(
     graph: GraphArtifact, center_concept_id: str, *, depth: int = 1, max_nodes: int = 20
 ) -> SubgraphResponse:
     by_id = {concept.concept_id: concept for concept in graph.concepts}
-    if center_concept_id not in by_id:
+    # the LLM may pass a name/canonical instead of a concept_id — resolve it
+    center = center_concept_id if center_concept_id in by_id else (_resolve_concept_id(graph, center_concept_id) or "")
+    if center not in by_id:
         return SubgraphResponse(session_id=graph.session_id, center_concept_id=center_concept_id, nodes=[], edges=[])
 
     adjacency: dict[str, set[str]] = defaultdict(set)
@@ -100,8 +102,8 @@ def get_subgraph(
         adjacency[edge.source].add(edge.target)
         adjacency[edge.target].add(edge.source)
 
-    visited = {center_concept_id}
-    frontier = [center_concept_id]
+    visited = {center}
+    frontier = [center]
     for _ in range(max(0, depth)):
         nxt: list[str] = []
         for node in frontier:
@@ -128,7 +130,23 @@ def get_subgraph(
         for edge in graph.edges
         if edge.source in visited and edge.target in visited
     ]
-    return SubgraphResponse(session_id=graph.session_id, center_concept_id=center_concept_id, nodes=nodes, edges=edges)
+    return SubgraphResponse(session_id=graph.session_id, center_concept_id=center, nodes=nodes, edges=edges)
+
+
+def _resolve_concept_id(graph: GraphArtifact, query: str) -> str | None:
+    """Map a name/canonical/alias to a concept_id (the LLM rarely passes exact ids)."""
+    needle = (query or "").strip().lower()
+    if not needle:
+        return None
+    for concept in graph.concepts:
+        names = {concept.concept_id.lower(), concept.name.lower(), concept.canonical_name.lower()}
+        names.update(alias.lower() for alias in concept.aliases)
+        if needle in names:
+            return concept.concept_id
+    for concept in graph.concepts:  # loose substring fallback
+        if needle in concept.name.lower() or needle in concept.canonical_name.lower():
+            return concept.concept_id
+    return None
 
 
 def _rank(query_vec, items, k):

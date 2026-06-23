@@ -102,5 +102,7 @@ def _format(ctx: ChatContext, results: list[RetrievalResult]) -> str:
     for result in added:
         marker = ctx.index_of(result)
         locator = f"（{result.locator}）" if result.locator else ""
-        lines.append(f"[{marker}] {result.title}{locator}: {result.snippet}")
+        # surface concept_id so the agent can pass it to get_subgraph
+        ref = f" [concept_id={result.ref_id}]" if result.kind == "concept" else ""
+        lines.append(f"[{marker}] {result.title}{locator}{ref}: {result.snippet}")
     return "\n".join(lines)

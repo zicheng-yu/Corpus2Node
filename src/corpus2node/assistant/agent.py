@@ -56,7 +56,7 @@ async def run_chat(query: str, ctx: ChatContext, *, model) -> ChatTurn:
         answer=answer,
         citations=ctx.citations(),
         trace=trace,
-        subgraph=ctx.subgraph or _fallback_subgraph(ctx),
+        subgraph=_choose_subgraph(ctx, query),
     )
     logger.info(
         "chat: %d citations, %d trace steps, subgraph_nodes=%d",
@@ -91,7 +91,7 @@ async def stream_chat_events(query: str, ctx: ChatContext, *, model) -> AsyncIte
                     yield ChatStreamEvent(type="subgraph", data=ctx.subgraph.model_dump(mode="json"))
 
         _ensure_grounding(ctx, query)
-        subgraph = ctx.subgraph or _fallback_subgraph(ctx)
+        subgraph = _choose_subgraph(ctx, query)
         if subgraph is not None:
             yield ChatStreamEvent(type="subgraph", data=subgraph.model_dump(mode="json"))
         for citation in ctx.citations():
@@ -107,11 +107,22 @@ def _ensure_grounding(ctx: ChatContext, query: str) -> None:
         ctx.add(search.local_search(query, graph=ctx.graph, chunks=ctx.chunks, embeddings=ctx.embeddings, limit=ctx.chunk_limit))
 
 
-def _fallback_subgraph(ctx: ChatContext) -> SubgraphResponse | None:
+def _choose_subgraph(ctx: ChatContext, query: str) -> SubgraphResponse | None:
+    # a get_subgraph tool call can return an EMPTY subgraph (bad/unknown id); an empty
+    # SubgraphResponse is still truthy, so only keep it if it has nodes, else fall back.
+    if ctx.subgraph and ctx.subgraph.nodes:
+        return ctx.subgraph
+    return _fallback_subgraph(ctx, query)
+
+
+def _fallback_subgraph(ctx: ChatContext, query: str) -> SubgraphResponse | None:
     concept_ids = [result.ref_id for result in ctx.retrievals if result.kind == "concept"]
+    if not concept_ids:
+        # center on the concept most relevant to the question
+        hits = search.search_concepts(query, graph=ctx.graph, embeddings=ctx.embeddings, limit=1)
+        concept_ids = [hit.ref_id for hit in hits]
     if not concept_ids and ctx.graph.concepts:
-        top = max(ctx.graph.concepts, key=lambda concept: concept.importance_score)
-        concept_ids = [top.concept_id]
+        concept_ids = [max(ctx.graph.concepts, key=lambda c: c.importance_score).concept_id]
     if not concept_ids:
         return None
     return search.get_subgraph(

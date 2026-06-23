@@ -8,11 +8,12 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import PrivateAttr
 
-from corpus2node.assistant.agent import run_chat, stream_chat_events
+from corpus2node.assistant.agent import _choose_subgraph, run_chat, stream_chat_events
 from corpus2node.assistant.tools import ChatContext
 from corpus2node.graph.build import build_graph_artifact
 from corpus2node.graph.schemas import ExtractedConcept, ExtractedRelation, GraphExtractionResult
-from corpus2node.core.types import EvidenceChunk, SourceKind
+from corpus2node.core.types import EvidenceChunk, SourceKind, SubgraphResponse
+from corpus2node.index import search
 from corpus2node.index.embeddings import HashingEmbeddings
 
 EMB = HashingEmbeddings(dims=256)
@@ -97,3 +98,19 @@ def test_stream_emits_valid_event_schema():
     assert types[0] == "start" and types[-1] == "done"
     assert "token" in types
     assert "citation" in types  # grounding fallback produced at least one
+    assert "subgraph" in types  # subgraph always emitted (tool result or fallback)
+
+
+def test_choose_subgraph_falls_back_when_tool_returned_empty():
+    ctx = _context()
+    # simulate the agent calling get_subgraph with a bad id -> empty (but truthy) result
+    ctx.subgraph = SubgraphResponse(session_id=ctx.graph.session_id, center_concept_id="concept:nope", nodes=[], edges=[])
+    chosen = _choose_subgraph(ctx, "二叉搜索树")
+    assert chosen is not None and chosen.nodes  # fell back to a real subgraph
+
+
+def test_choose_subgraph_keeps_nonempty_tool_result():
+    ctx = _context()
+    good = search.get_subgraph(ctx.graph, ctx.graph.concepts[0].concept_id, depth=1, max_nodes=20)
+    ctx.subgraph = good
+    assert _choose_subgraph(ctx, "x") is good
