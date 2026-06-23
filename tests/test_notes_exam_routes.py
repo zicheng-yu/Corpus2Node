@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+import uuid
+
+from fastapi.testclient import TestClient
+
+from corpus2node.api.app import app
+from corpus2node.config import settings
+from corpus2node.core.types import (
+    ChatDocument,
+    ChatMessage,
+    CourseSession,
+    EvidenceChunk,
+    ExamChoice,
+    ExamDocument,
+    ExamQuestion,
+    IngestArtifact,
+    NoteDocument,
+    NoteSection,
+    SourceKind,
+)
+from corpus2node.graph.build import build_graph_artifact
+from corpus2node.graph.schemas import ExtractedConcept, GraphExtractionResult
+from corpus2node.index.embeddings import get_embeddings
+from corpus2node.storage import local
+
+client = TestClient(app)
+
+
+def _seed_graph() -> uuid.UUID:
+    settings.embed_provider = "hashing"  # dependency-free embeddings for routes
+    emb = get_embeddings()
+    session = CourseSession(course_title="c", lecture_title="l")
+    chunks = [
+        EvidenceChunk(
+            chunk_id="s-c0", source_id="s", source_type=SourceKind.pdf,
+            text="二叉搜索树 是 一种 树结构", summary="二叉搜索树", embedding=emb.embed_query("二叉搜索树"),
+        )
+    ]
+    local.save_session(session)
+    local.save_ingest_artifact(
+        IngestArtifact(session_id=session.session_id, source_id=uuid.uuid4(), source_kind=SourceKind.pdf, chunks=chunks)
+    )
+    candidates = GraphExtractionResult(
+        concepts=[ExtractedConcept(name="二叉搜索树", canonical_name="二叉搜索树", definition="用于查找的树结构")]
+    )
+    local.save_graph_artifact(build_graph_artifact(session.session_id, chunks, candidates, embeddings=emb))
+    return session.session_id
+
+
+def test_get_notes_and_exam_missing_are_404():
+    assert client.get(f"/notes/{uuid.uuid4()}").status_code == 404
+    assert client.get(f"/exam/{uuid.uuid4()}").status_code == 404
+
+
+def test_generate_without_llm_binding_is_400():
+    session_id = _seed_graph()  # graph exists but no Purpose bound → LLMConfigError → 400
+    assert client.post("/generate_notes", json={"session_id": str(session_id)}).status_code == 400
+    assert client.post(
+        "/generate_exam", json={"session_id": str(session_id), "question_count": 4}
+    ).status_code == 400
+
+
+def test_export_note_roundtrips_through_api():
+    session_id = uuid.uuid4()
+    local.save_note(
+        NoteDocument(
+            session_id=session_id, title="树笔记", topic="树", summary="总览",
+            sections=[NoteSection(title="二叉搜索树", content_md="- 高效查找")],
+        )
+    )
+    res = client.get(f"/export/{session_id}/markdown")
+    assert res.status_code == 200
+    assert "# 树笔记" in res.text
+    assert res.headers["content-type"].startswith("text/markdown")
+    # unknown format rejected
+    assert client.get(f"/export/{session_id}/docx").status_code == 400
+
+
+def test_export_exam_and_chat_through_api():
+    session_id = uuid.uuid4()
+    local.save_session(CourseSession(session_id=session_id, course_title="c", lecture_title="l"))
+    local.save_exam(
+        ExamDocument(
+            session_id=session_id, title="树测验", summary="s",
+            questions=[ExamQuestion(
+                question_type="single_choice", stem="Q?",
+                choices=[ExamChoice(choice_id="A", text="x")], answer="A", explanation="e",
+            )],
+        )
+    )
+    local.save_chat(
+        ChatDocument(session_id=session_id, messages=[ChatMessage(role="user", content="hi")])
+    )
+    exam_res = client.get(f"/export/{session_id}/exam/markdown")
+    assert exam_res.status_code == 200 and "树测验" in exam_res.text
+    chat_res = client.get(f"/export/{session_id}/chat/markdown")
+    assert chat_res.status_code == 200 and "对话记录" in chat_res.text

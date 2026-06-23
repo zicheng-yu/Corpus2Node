@@ -1,12 +1,22 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import clsx from "clsx";
-import { getGraph, getSession } from "../api/client";
+import { generateExam, getExam, getGraph, getNote, getSession } from "../api/client";
 import { ChatView } from "../components/chat/ChatView";
+import { NoteView } from "../components/notes/NoteView";
+import { ExamView } from "../components/notes/ExamView";
 import { SearchPanel } from "../components/search/SearchPanel";
 import { ConceptDrawer } from "../components/graph/ConceptDrawer";
 import { Skeleton } from "../components/primitives/Skeleton";
-import type { CourseSession, GraphArtifact, CourseGraphMeta } from "../types";
+import { useToast } from "../components/primitives/Toast";
+import type {
+  ChatContextItem,
+  CourseSession,
+  ExamDocument,
+  GraphArtifact,
+  CourseGraphMeta,
+  NoteDocument,
+} from "../types";
 import "./WorkspacePage.css";
 
 const ConceptGraph = lazy(() =>
@@ -31,11 +41,19 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [leftWidth, setLeftWidth] = useState(() => Number(localStorage.getItem("c2n:leftW")) || 320);
   const [rightWidth, setRightWidth] = useState(() => Number(localStorage.getItem("c2n:rightW")) || 420);
+  const [activeTab, setActiveTab] = useState<"chat" | "notes" | "exam">("chat");
+  const [note, setNote] = useState<NoteDocument | null>(null);
+  const [exam, setExam] = useState<ExamDocument | null>(null);
+  const [examGenerating, setExamGenerating] = useState(false);
+  const [pendingContext, setPendingContext] = useState<ChatContextItem | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     if (!id) return;
     getGraph(id).then(setGraph).catch(() => {});
     getSession(id).then((s) => setSession(s as CourseSession)).catch(() => {});
+    getNote(id).then(setNote).catch(() => setNote(null));
+    getExam(id).then(setExam).catch(() => setExam(null));
   }, [id]);
 
   function startResize(side: "left" | "right", event: React.MouseEvent) {
@@ -73,6 +91,24 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
   }, [conceptId]);
 
   if (!id) { navigate("/"); return null; }
+
+  async function handleGenerateExam(questionTypes: string[], questionCount: number) {
+    setExamGenerating(true);
+    try {
+      await generateExam({ session_id: id!, question_types: questionTypes, question_count: questionCount });
+      setExam(await getExam(id!));
+    } catch (error) {
+      toast(error instanceof Error ? `试卷生成失败：${error.message}` : "试卷生成失败", "error");
+    } finally {
+      setExamGenerating(false);
+    }
+  }
+
+  function askFromSelection(context: ChatContextItem) {
+    setPendingContext(context);
+    setActiveTab("chat");
+    setNotesCollapsed(false);
+  }
 
   const selectedConcept = conceptId
     ? graph?.concepts.find((c) => c.concept_id === conceptId) ?? null
@@ -307,18 +343,40 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
             </button>
-            <span className="ws-rail-label">对话</span>
+            <span className="ws-rail-label">面板</span>
           </div>
         ) : (
           <>
             <div className="ws-head">
-              <span className="ws-title">对话</span>
+              <div className="ws-tool-tabs">
+                <button
+                  type="button"
+                  className={clsx("ws-tool-tab", activeTab === "chat" && "ws-tool-tab-active")}
+                  onClick={() => setActiveTab("chat")}
+                >
+                  对话
+                </button>
+                <button
+                  type="button"
+                  className={clsx("ws-tool-tab", activeTab === "notes" && "ws-tool-tab-active")}
+                  onClick={() => setActiveTab("notes")}
+                >
+                  笔记
+                </button>
+                <button
+                  type="button"
+                  className={clsx("ws-tool-tab", activeTab === "exam" && "ws-tool-tab-active")}
+                  onClick={() => setActiveTab("exam")}
+                >
+                  试卷
+                </button>
+              </div>
               <div style={{ flex: 1 }} />
               <button
                 className="btn-icon"
                 onClick={() => setNotesCollapsed(true)}
                 type="button"
-                aria-label="折叠对话面板"
+                aria-label="折叠面板"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="m9 18 6-6-6-6" />
@@ -326,7 +384,32 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
               </button>
             </div>
             <div className="ws-notes-body">
-              <ChatView sessionId={id} selectedConcept={selectedConcept} />
+              {/* Chat stays mounted (hidden) so an in-flight stream / history survives tab switches */}
+              <div style={{ display: activeTab === "chat" ? "contents" : "none" }}>
+                <ChatView
+                  sessionId={id}
+                  selectedConcept={selectedConcept}
+                  pendingContext={pendingContext}
+                  onContextConsumed={() => setPendingContext(null)}
+                />
+              </div>
+              {activeTab === "notes" && (
+                <NoteView
+                  sessionId={id}
+                  initialNote={note}
+                  onNoteChange={setNote}
+                  onAskSelection={askFromSelection}
+                />
+              )}
+              {activeTab === "exam" && (
+                <ExamView
+                  sessionId={id}
+                  exam={exam}
+                  generating={examGenerating}
+                  onGenerate={handleGenerateExam}
+                  onAskSelection={askFromSelection}
+                />
+              )}
             </div>
           </>
         )}

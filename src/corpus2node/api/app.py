@@ -10,7 +10,10 @@ from fastapi.staticfiles import StaticFiles
 
 from corpus2node import __version__
 from corpus2node.api.routes import chat as chat_routes
+from corpus2node.api.routes import exam as exam_routes
+from corpus2node.api.routes import export as export_routes
 from corpus2node.api.routes import graph as graph_routes
+from corpus2node.api.routes import notes as notes_routes
 from corpus2node.api.routes import sessions as sessions_routes
 from corpus2node.api.routes import settings as settings_routes
 from corpus2node.api.routes import workflow as workflow_routes
@@ -47,6 +50,9 @@ app.include_router(settings_routes.router)
 app.include_router(workflow_routes.router)
 app.include_router(graph_routes.router)
 app.include_router(chat_routes.router)
+app.include_router(notes_routes.router)
+app.include_router(exam_routes.router)
+app.include_router(export_routes.router)
 
 
 @app.get("/health")

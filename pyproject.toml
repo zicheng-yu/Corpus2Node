@@ -34,6 +34,12 @@ ml = [
 audio = [
     "faster-whisper>=1.0",
 ]
+# PDF export (Markdown/txt/tex need no extras). Prefers wkhtmltopdf on PATH; xhtml2pdf is the fallback engine.
+export = [
+    "markdown>=3.5",
+    "pdfkit>=1.0",
+    "xhtml2pdf>=0.2.16",
+]
 
 [dependency-groups]
 dev = [
