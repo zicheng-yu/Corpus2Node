@@ -148,14 +148,6 @@ def semantic_merge(
     n = len(concepts)
     if n < 2:
         return concepts, identity
-    dims = len(concepts[0].embedding)
-    if dims == 0 or any(len(c.embedding) != dims for c in concepts):
-        return concepts, identity  # can't compare — leave untouched
-
-    matrix = np.asarray([c.embedding for c in concepts], dtype=float)
-    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    sim = (matrix / norms) @ (matrix / norms).T
 
     parent = list(range(n))
 
@@ -170,10 +162,29 @@ def semantic_merge(
         if ra != rb:
             parent[max(ra, rb)] = min(ra, rb)
 
-    for i in range(n):
-        for j in range(i + 1, n):
-            if sim[i, j] >= threshold and _name_compatible(concepts[i], concepts[j]):
-                union(i, j)
+    # 1) Deterministic: collapse concepts that share a display name or canonical
+    #    name (the "字典 ×4" case). Runs regardless of embeddings.
+    by_key: dict[str, int] = {}
+    for i, concept in enumerate(concepts):
+        for key in {canonicalize_term(concept.name), concept.canonical_name}:
+            if not key:
+                continue
+            if key in by_key:
+                union(by_key[key], i)
+            else:
+                by_key[key] = i
+
+    # 2) Semantic: collapse embedding-near concepts (with a name-compat guard).
+    dims = len(concepts[0].embedding)
+    if dims and all(len(c.embedding) == dims for c in concepts):
+        matrix = np.asarray([c.embedding for c in concepts], dtype=float)
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        sim = (matrix / norms) @ (matrix / norms).T
+        for i in range(n):
+            for j in range(i + 1, n):
+                if sim[i, j] >= threshold and _name_compatible(concepts[i], concepts[j]):
+                    union(i, j)
 
     groups: dict[int, list[int]] = defaultdict(list)
     for i in range(n):
@@ -262,7 +273,10 @@ def build_cooccurrence_edges(
     edges: list[GraphEdge] = []
     for (left, right), count in counts.items():
         close = _cosine(by_id[left].embedding, by_id[right].embedding) > COOCCUR_CLOSE_THRESHOLD
-        if count < 2 and not close:
+        # Thin the co-occurrence mesh: keep strong pairs (≥3 shared chunks) or
+        # medium pairs that are also embedding-near. Drops the long tail that
+        # turned the graph into a hairball.
+        if not (count >= 3 or (count >= 2 and close)):
             continue
         key: EdgeKey = (left, right, EdgeType.co_occurs_with.value, None)
         if key in existing_keys:

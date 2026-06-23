@@ -122,8 +122,8 @@ export function SearchPanel({ sessionId }: { sessionId: string }) {
             >
               <span className="concept-list-name">{concept.name}</span>
               <span className="concept-list-meta">
-                重要性 {Math.round(concept.importance_score * 100)}%
-                {concept.tags.length > 0 ? ` · ${concept.tags.slice(0, 2).join(" / ")}` : ""}
+                {Math.round(concept.importance_score * 100)}%
+                {concept.tags[0] ? ` · ${concept.tags[0]}` : ""}
               </span>
             </button>
           ))}
