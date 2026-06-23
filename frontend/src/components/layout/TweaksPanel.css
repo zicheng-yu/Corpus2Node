@@ -1,0 +1,83 @@
+.tweaks {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 260px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  z-index: 100;
+  overflow: hidden;
+  animation: tweaksIn 200ms var(--ease);
+}
+
+@keyframes tweaksIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.tweaks-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 10px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel-2);
+}
+
+.tweaks-head-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.tweaks-section {
+  padding: 14px;
+}
+
+.tweaks-section + .tweaks-section {
+  border-top: 1px solid var(--rule);
+}
+
+.tweaks-section-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-bottom: 8px;
+}
+
+.tweaks-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.radio-card {
+  padding: 8px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink-2);
+  transition: all var(--dur-fast);
+  text-align: left;
+  width: 100%;
+}
+
+.radio-card:hover {
+  border-color: var(--rule-strong);
+}
+
+.radio-card.active {
+  border-color: var(--accent);
+  background: var(--accent-ghost);
+  color: var(--ink);
+}

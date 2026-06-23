@@ -1,0 +1,46 @@
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--window-bg-color);
+  border: 1px solid var(--border-color);
+  font-family: var(--font-ui);
+}
+
+.file-row-icon { font-size: 20px; flex-shrink: 0; }
+
+.file-row-info { flex: 1; min-width: 0; }
+
+.file-row-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--heading-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-row-size { font-size: 12px; color: var(--control-text-color); }
+
+.file-row-progress-wrap {
+  height: 4px;
+  background: var(--side-bar-bg-color);
+  border-radius: var(--radius-pill);
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.file-row-progress-bar {
+  height: 100%;
+  background: var(--accent-color);
+  border-radius: var(--radius-pill);
+  transition: width 0.2s ease;
+}
+
+.file-row-status { flex-shrink: 0; font-size: 13px; }
+.file-row-status-done     { color: var(--color-success); }
+.file-row-status-failed   { color: var(--color-danger); }
+.file-row-status-uploading { color: var(--accent-color); }
+.file-row-status-queued   { color: var(--control-text-color); }
