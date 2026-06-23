@@ -47,9 +47,19 @@ def build_graph_artifact(
 ) -> GraphArtifact:
     """Turn extraction candidates + chunks into a finished, clustered GraphArtifact."""
     concepts = concepts_from_candidates(chunks, candidates)
+    raw_count = len(concepts)
     concepts = [c for c in concepts if not is_junk_concept(c.canonical_name)]
     if not concepts:
-        raise ValueError("No valid concepts remain after cleaning.")
+        reason = (
+            "extraction returned no concepts — check the chat model name and that it supports "
+            "structured/function-calling output (see terminal for swallowed batch errors)"
+            if not candidates.concepts
+            else "all concepts were filtered as junk — the source may be too sparse or noisy"
+        )
+        raise ValueError(
+            f"No valid concepts after cleaning "
+            f"(LLM extracted={len(candidates.concepts)}, built={raw_count}, kept=0): {reason}"
+        )
 
     _embed_concepts(concepts, embeddings)
     concepts, _remap = semantic_merge(concepts, threshold=SEMANTIC_MERGE_THRESHOLD)

@@ -29,7 +29,9 @@ def make_astructured(model) -> AStructured:
     """Bind a LangChain chat model to structured GraphExtractionResult output."""
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    structured = model.with_structured_output(GraphExtractionResult)
+    # function_calling is the most broadly supported across OpenAI-compatible
+    # vendors (DeepSeek/Kimi/etc.); strict json_schema is OpenAI-specific.
+    structured = model.with_structured_output(GraphExtractionResult, method="function_calling")
 
     async def _call(prompt: str) -> GraphExtractionResult:
         return await structured.ainvoke(
@@ -54,18 +56,32 @@ async def extract_graph_candidates(
         return GraphExtractionResult()
 
     semaphore = asyncio.Semaphore(max(1, max_concurrency))
+    errors: list[Exception] = []
 
     async def run(batch: list[EvidenceChunk]) -> GraphExtractionResult | None:
         async with semaphore:
             try:
                 return await astructured(build_graph_prompt(batch))
-            except Exception:  # one bad batch must not sink the whole extraction
+            except Exception as exc:  # one bad batch must not sink the whole extraction
                 logger.exception("graph extraction batch failed (%d chunks)", len(batch))
+                errors.append(exc)
                 return None
 
     logger.info("extracting graph from %d chunks in %d batches", len(usable), len(batches))
     results = await asyncio.gather(*(run(batch) for batch in batches))
-    return merge_results([result for result in results if result is not None])
+    collected = [result for result in results if result is not None]
+    if not collected and errors:
+        # every batch errored — surface the real cause instead of a vague downstream failure
+        raise RuntimeError(
+            f"all {len(batches)} extraction batches failed; last error: "
+            f"{type(errors[-1]).__name__}: {errors[-1]}"
+        )
+    merged = merge_results(collected)
+    logger.info(
+        "extract merged: %d concepts, %d relations (%d/%d batches ok)",
+        len(merged.concepts), len(merged.relations), len(collected), len(batches),
+    )
+    return merged
 
 
 def chunk_batches(
