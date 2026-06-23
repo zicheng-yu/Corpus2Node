@@ -45,7 +45,10 @@ def make_chunks_from_blocks(
     page_offset: int = 1,
     max_chars: int = 900,
 ) -> list[EvidenceChunk]:
-    """Chunk a sequence of text blocks (e.g. PDF pages), preserving block index as page."""
+    """Chunk a sequence of text blocks. Only record a page locator when the source
+    is genuinely multi-block (e.g. a paginated PDF); a single block (md/docx/txt or
+    a PDF that came back as one blob) must NOT label every chunk as "第1页"."""
+    paginated = len(blocks) > 1
     chunks: list[EvidenceChunk] = []
     for block_index, block in enumerate(blocks, start=page_offset):
         for piece in chunk_text(block, max_chars=max_chars):
@@ -59,8 +62,8 @@ def make_chunks_from_blocks(
                     summary=summarize_text(piece, max_sentences=1, max_chars=160),
                     keywords=[],
                     embedding=[],
-                    page_start=block_index,
-                    page_end=block_index,
+                    page_start=block_index if paginated else None,
+                    page_end=block_index if paginated else None,
                 )
             )
     return chunks

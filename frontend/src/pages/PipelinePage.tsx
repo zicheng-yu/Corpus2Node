@@ -9,31 +9,33 @@ import "./PipelinePage.css";
 const pipelineRunsInFlight = new Set<string>();
 
 // ── PipelineCanvas ────────────────────────────────────────────────────────────
+// Three tidy stages, all vertically centered on CY, no overlap: docs → chunks → dots.
 function PipelineCanvas({ phase, progress }: { phase: number; progress: number }) {
   const WIDTH = 900;
   const HEIGHT = 540;
+  const CY = 270;
   const tick = (progress / 100) * Math.min(1, (phase + 1) / 3);
 
-  const docs = useMemo(() => Array.from({ length: 3 }, (_, i) => ({ x: 100 + i * 120, y: 200 })), []);
+  const docs = useMemo(() => Array.from({ length: 3 }, (_, i) => ({ x: 70 + i * 92, y: CY })), []);
   const chunks = useMemo(
     () =>
-      Array.from({ length: 12 }, (_, i) => {
+      Array.from({ length: 8 }, (_, i) => {
         const col = i % 4;
         const row = Math.floor(i / 4);
-        return { x: 380 + col * 60, y: 150 + row * 70 };
+        return { x: 410 + col * 56, y: CY - 35 + row * 70 };
       }),
     [],
   );
   const dots = useMemo(
     () =>
-      // even two-ring layout so dots don't overlap or look skewed
-      Array.from({ length: 18 }, (_, i) => {
-        const ring = i < 7 ? 0 : 1;
-        const inRing = ring === 0 ? 7 : 11;
-        const idx = ring === 0 ? i : i - 7;
-        const r = ring === 0 ? 70 : 135;
+      // two even rings, centered on CY — a tidy cluster, not flung to a corner
+      Array.from({ length: 16 }, (_, i) => {
+        const ring = i < 6 ? 0 : 1;
+        const inRing = ring === 0 ? 6 : 10;
+        const idx = ring === 0 ? i : i - 6;
+        const r = ring === 0 ? 52 : 104;
         const angle = (idx / inRing) * Math.PI * 2 - Math.PI / 2;
-        return { x: 760 + Math.cos(angle) * r, y: 270 + Math.sin(angle) * r };
+        return { x: 745 + Math.cos(angle) * r, y: CY + Math.sin(angle) * r };
       }),
     [],
   );
@@ -45,10 +47,11 @@ function PipelineCanvas({ phase, progress }: { phase: number; progress: number }
 
   return (
     <svg className="viz-canvas" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="xMidYMid meet">
+      {/* doc → chunk lines (each doc fans to two chunks) */}
       {phase >= 1 &&
         docs.map((d, di) =>
-          chunks.slice(di * 4, di * 4 + 4).map((c, ci) => (
-            <line key={`dc-${di}-${ci}`} x1={d.x + 24} y1={d.y} x2={c.x} y2={c.y} stroke="var(--rule-strong)" strokeWidth="0.8" opacity={chunkOpacity * 0.6} />
+          chunks.slice(di * 2, di * 2 + 2).map((c, ci) => (
+            <line key={`dc-${di}-${ci}`} x1={d.x + 48} y1={d.y} x2={c.x - 18} y2={c.y} stroke="var(--rule-strong)" strokeWidth="0.8" opacity={chunkOpacity * 0.5} />
           )),
         )}
       {docs.map((d, i) => (
@@ -62,10 +65,11 @@ function PipelineCanvas({ phase, progress }: { phase: number; progress: number }
       {chunks.map((c, i) => (
         <rect key={i} x={c.x - 18} y={c.y - 10} width={36} height={20} rx="3" fill="var(--panel-2)" stroke="var(--rule-strong)" strokeWidth="1" opacity={chunkOpacity} />
       ))}
+      {/* chunk → dot lines */}
       {phase >= 2 &&
-        chunks.slice(0, 6).map((c, ci) =>
-          dots.slice(ci * 3, ci * 3 + 3).map((d, di) => (
-            <line key={`cd-${ci}-${di}`} x1={c.x + 18} y1={c.y} x2={d.x} y2={d.y} stroke="var(--rule-strong)" strokeWidth="0.6" opacity={dotOpacity * 0.5} />
+        chunks.map((c, ci) =>
+          dots.slice(ci * 2, ci * 2 + 2).map((d, di) => (
+            <line key={`cd-${ci}-${di}`} x1={c.x + 18} y1={c.y} x2={d.x} y2={d.y} stroke="var(--rule-strong)" strokeWidth="0.6" opacity={dotOpacity * 0.45} />
           )),
         )}
       {dots.map((d, i) => (

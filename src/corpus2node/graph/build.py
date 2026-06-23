@@ -409,7 +409,7 @@ def chunk_locator(chunk: EvidenceChunk) -> str:
         return f"第 {chunk.page_start} 页" if chunk.page_end in (None, chunk.page_start) else f"第 {chunk.page_start}-{chunk.page_end} 页"
     if chunk.time_start is not None:
         return f"{int(chunk.time_start // 60):02d}:{int(chunk.time_start % 60):02d}"
-    return chunk.chunk_id
+    return ""
 
 
 def attach_evidence(concepts: list[ConceptNode], chunks: list[EvidenceChunk], *, max_refs: int = 5) -> None:

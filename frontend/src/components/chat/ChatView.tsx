@@ -29,7 +29,6 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
   const [contexts, setContexts] = useState<ChatContextItem[]>([]);
   const [sending, setSending] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [debug, setDebug] = useState(false);
   const [live, setLive] = useState<LiveAnswer | null>(null);
   const [sourceNames, setSourceNames] = useState<Record<string, string>>({});
   const toast = useToast();
@@ -97,7 +96,7 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
 
     try {
       await streamChat(
-        { session_id: sessionId, message, context_items: sentContexts, debug },
+        { session_id: sessionId, message, context_items: sentContexts },
         (event) => {
           const data = event.data as Record<string, unknown>;
           if (event.type === "token") {
@@ -153,9 +152,6 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
       <div className="chat-header">
         <p className="chat-subtitle">基于图谱检索作答 · 回答可溯源</p>
         <div className="chat-actions">
-          <label className="chat-debug-toggle" title="显示执行轨迹（trace）">
-            <input type="checkbox" checked={debug} onChange={(e) => setDebug(e.target.checked)} /> 调试
-          </label>
           <Button variant="ghost" size="sm" onClick={handleClear} loading={clearing}>
             清空
           </Button>
@@ -221,7 +217,6 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
               </div>
               {live.citations.length > 0 && <CitationList citations={live.citations} sourceNames={sourceNames} />}
               {live.subgraph && live.subgraph.nodes.length > 0 && <SubgraphSummary subgraph={live.subgraph} />}
-              {debug && live.trace.length > 0 && <TraceList trace={live.trace} />}
             </div>
           )}
         </div>
@@ -300,19 +295,6 @@ function SubgraphSummary({ subgraph }: { subgraph: SubgraphResponse }) {
         ))}
       </div>
     </div>
-  );
-}
-
-function TraceList({ trace }: { trace: { type: string; tool?: string; summary: string }[] }) {
-  return (
-    <details className="chat-trace" open>
-      <summary>执行轨迹（{trace.length} 步）</summary>
-      {trace.map((step, i) => (
-        <div className="chat-trace-step" key={i}>
-          <code>{step.tool || step.type}</code> {step.summary}
-        </div>
-      ))}
-    </details>
   );
 }
 

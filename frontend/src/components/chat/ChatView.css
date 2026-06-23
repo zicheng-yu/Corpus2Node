@@ -137,9 +137,14 @@
 .chat-message-assistant .chat-message-body {
   border: none;
   background: transparent;
-  padding: 2px 0 2px 11px;
-  border-left: 2px solid var(--rule);
+  padding: 2px 0;
   white-space: normal;
+}
+
+/* thin divider between consecutive turns */
+.chat-message + .chat-message {
+  border-top: 1px solid var(--rule);
+  padding-top: var(--space-4);
 }
 
 /* user is a distinct accent-tinted bubble */

@@ -173,4 +173,4 @@ def _locator(chunk: EvidenceChunk) -> str:
         return f"第 {chunk.page_start} 页"
     if chunk.time_start is not None:
         return f"{int(chunk.time_start // 60):02d}:{int(chunk.time_start % 60):02d}"
-    return chunk.chunk_id
+    return ""  # non-paginated source — show the file name alone, not a fake page
