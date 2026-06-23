@@ -15,14 +15,14 @@ export function TopBar({ onOpenCmd, onOpenTweaks }: TopBarProps) {
       <Link to="/" className="brand">
         <span className="brand-mark" />
         <span className="brand-text">
-          course<span className="brand-accent">2</span>node
+          corpus<span className="brand-accent">2</span>node
         </span>
         <span className="brand-sub">knowledge graph</span>
       </Link>
 
       <nav className="topbar-nav">
         <Link to="/" className={clsx({ active: location.pathname === "/" })}>
-          课程
+          知识库
         </Link>
         <Link to="/new" className={clsx({ active: location.pathname === "/new" })}>
           新建

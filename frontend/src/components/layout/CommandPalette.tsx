@@ -11,7 +11,7 @@ interface CommandPaletteProps {
 
 const NAV_ITEMS = [
   { label: "首页", path: "/", icon: "⌂" },
-  { label: "新建课程", path: "/new", icon: "+" },
+  { label: "新建知识库", path: "/new", icon: "+" },
 ];
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
@@ -67,7 +67,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索课程、功能…"
+            placeholder="搜索知识库、功能…"
             aria-label="搜索"
           />
         </div>
@@ -95,7 +95,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
           {filteredSessions.length > 0 && (
             <>
-              <div className="cmdk-section-label">课程</div>
+              <div className="cmdk-section-label">知识库</div>
               {filteredSessions.map((s) => (
                 <div
                   key={s.session_id}

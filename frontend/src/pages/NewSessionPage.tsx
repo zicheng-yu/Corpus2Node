@@ -28,8 +28,8 @@ function formatBytes(n: number): string {
 let idCounter = 0;
 
 const STEP_INFO = [
-  { label: "课程信息", desc: "设置课程和讲座名称" },
-  { label: "上传文件", desc: "PDF 或音频文件" },
+  { label: "基本信息", desc: "设置知识库与资料集名称" },
+  { label: "上传资料", desc: "PDF / Word / PPT / 图片 / 音频…" },
   { label: "确认提交", desc: "核对后开始解析" },
 ];
 
@@ -146,8 +146,8 @@ export function NewSessionPage() {
       <div className="wizard">
         {/* Rail */}
         <aside className="wizard-rail">
-          <div className="wizard-rail-title">新建课程</div>
-          <div className="wizard-rail-sub">分三步上传并解析课程内容</div>
+          <div className="wizard-rail-title">新建知识库</div>
+          <div className="wizard-rail-sub">分三步导入并解析资料</div>
           <div className="wizard-steps">
             {STEP_INFO.map((info, i) => (
               <div
@@ -180,12 +180,12 @@ export function NewSessionPage() {
           {/* Step 0: Course info */}
           {step === 0 && (
             <>
-              <div className="wizard-h">课程信息</div>
-              <div className="wizard-hsub">设置课程名称和本讲标题</div>
+              <div className="wizard-h">基本信息</div>
+              <div className="wizard-hsub">设置知识库与资料集名称</div>
 
               {existingCourses.length > 0 && (
                 <div className="field">
-                  <label>已有课程（点击填入）</label>
+                  <label>已有知识库（点击填入）</label>
                   <div className="suggestions">
                     {existingCourses.map((c) => (
                       <button
@@ -202,10 +202,10 @@ export function NewSessionPage() {
               )}
 
               <div className="field">
-                <label htmlFor="courseTitle">课程名称</label>
+                <label htmlFor="courseTitle">知识库名称</label>
                 <input
                   id="courseTitle"
-                  placeholder="例：计算机网络原理"
+                  placeholder="例：入职手册 / 数据结构 / 项目X 文档"
                   value={courseTitle}
                   onChange={(e) => setCourseTitle(e.target.value)}
                   autoFocus
@@ -213,10 +213,10 @@ export function NewSessionPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="lectureTitle">讲座标题</label>
+                <label htmlFor="lectureTitle">资料集名称</label>
                 <input
                   id="lectureTitle"
-                  placeholder="例：第三讲 TCP 拥塞控制"
+                  placeholder="例：第一批资料 / 第三章 / 会议纪要"
                   value={lectureTitle}
                   onChange={(e) => setLectureTitle(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && canAdvance() && nextStep()}
@@ -336,10 +336,10 @@ export function NewSessionPage() {
               <div className="wizard-hsub">核对信息后点击开始解析</div>
 
               <div className="review-grid">
-                <div className="review-label">课程名称</div>
+                <div className="review-label">知识库名称</div>
                 <div className="review-value">{courseTitle}</div>
 
-                <div className="review-label">讲座标题</div>
+                <div className="review-label">资料集名称</div>
                 <div className="review-value">{lectureTitle}</div>
 
                 <div className="review-label">文件</div>

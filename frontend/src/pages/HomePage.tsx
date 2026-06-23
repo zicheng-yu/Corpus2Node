@@ -394,12 +394,12 @@ export function HomePage() {
   const handleDeleteCourse = (courseTitle: string) => {
     const count = sessions.filter((s) => s.course_title === courseTitle).length;
     setPending({
-      label: `确认删除课程「${courseTitle}」中的全部 ${count} 讲？此操作不可撤销。`,
+      label: `确认删除知识库「${courseTitle}」中的全部 ${count} 个资料集？此操作不可撤销。`,
       onConfirm: async () => {
         const toDelete = sessions.filter((s) => s.course_title === courseTitle);
         await Promise.all(toDelete.map((s) => deleteSession(s.session_id)));
         setSessions((prev) => prev.filter((s) => s.course_title !== courseTitle));
-        toast("课程已删除", "success");
+        toast("知识库已删除", "success");
       },
     });
   };
@@ -457,12 +457,12 @@ export function HomePage() {
       {/* Header */}
       <div className="home-head">
         <div className="home-head-left">
-          <div className="home-head-label">课程库 · LIBRARY</div>
+          <div className="home-head-label">知识库 · LIBRARY</div>
           <h1 className="home-title">
-            我的课程 / <em>notes</em>
+            我的知识库 / <em>graph</em>
           </h1>
           <p className="home-sub">
-            {sessions.length} 节课 · 累计 <b>{totalConcepts.toLocaleString()}</b> 个知识点，<b>{totalRelations.toLocaleString()}</b> 条关系
+            {sessions.length} 个资料集 · 累计 <b>{totalConcepts.toLocaleString()}</b> 个知识点，<b>{totalRelations.toLocaleString()}</b> 条关系
           </p>
         </div>
         <div className="home-head-actions">
@@ -481,7 +481,7 @@ export function HomePage() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
               <path d="M12 5v14M5 12h14" />
             </svg>
-            新建课程
+            新建知识库
           </button>
         </div>
       </div>
@@ -495,7 +495,7 @@ export function HomePage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索课程或讲座…"
+            placeholder="搜索知识库或资料集…"
           />
         </div>
 
@@ -514,7 +514,7 @@ export function HomePage() {
         </div>
 
         <div className="filter-group">
-          <span className="filter-label">课程</span>
+          <span className="filter-label">知识库</span>
           <select
             className="filter-select"
             value={courseFilter}
@@ -535,10 +535,10 @@ export function HomePage() {
         </div>
       ) : groups.size === 0 ? (
         <div className="home-empty">
-          <div className="home-empty-title">暂无课程</div>
+          <div className="home-empty-title">暂无知识库</div>
           {sessions.length === 0
-            ? "上传你的第一节课 PDF 或录音，开始构建知识点图谱。"
-            : "没有符合筛选条件的课程。"}
+            ? "上传你的第一份资料，开始构建知识图谱。"
+            : "没有符合筛选条件的知识库。"}
         </div>
       ) : (
         <div className="session-list">
@@ -549,12 +549,12 @@ export function HomePage() {
                   <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
                 <span className="session-group-name">{course}</span>
-                <span className="session-group-count">{rows.length} 讲</span>
+                <span className="session-group-count">{rows.length} 个资料集</span>
                 <button
                   className="btn btn-icon group-delete-btn"
                   onClick={(e) => { e.stopPropagation(); handleDeleteCourse(course); }}
-                  aria-label={`删除课程 ${course}`}
-                  title="删除整个课程"
+                  aria-label={`删除知识库 ${course}`}
+                  title="删除整个知识库"
                   type="button"
                 >
                   <TrashIcon />
@@ -625,8 +625,8 @@ function SessionRow({ session: s, onClick, onDelete }: { session: CourseSession;
       <button
         className="btn btn-icon row-delete-btn"
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        aria-label="删除此讲"
-        title="删除此讲"
+        aria-label="删除此资料集"
+        title="删除此资料集"
         type="button"
       >
         <TrashIcon />
