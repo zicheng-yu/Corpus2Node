@@ -93,9 +93,6 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
         ) : (
           <>
             <div className="ws-head">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-              </svg>
               <span className="ws-title">检索</span>
               <div style={{ flex: 1 }} />
               <button

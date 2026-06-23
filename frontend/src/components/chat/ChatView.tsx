@@ -259,18 +259,12 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
 function CitationList({ citations }: { citations: ChatCitation[] }) {
   return (
     <div className="chat-citations">
-      <div className="chat-citations-title">引用</div>
+      <div className="chat-citations-title">引用 · {citations.length}</div>
       {citations.map((c) => (
-        <div className="chat-citation" key={`${c.kind}-${c.ref_id}-${c.index}`}>
+        <div className="chat-citation" key={`${c.kind}-${c.ref_id}-${c.index}`} title={c.snippet}>
           <span className="chat-citation-index">[{c.index}]</span>
-          <span className="chat-citation-body">
-            <b>{c.title || c.ref_id}</b>
-            <span className="chat-citation-meta">
-              {c.kind === "concept" ? "概念" : "原文"}
-              {c.locator ? ` · ${c.locator}` : ""}
-            </span>
-            {c.snippet && <span className="chat-citation-snippet">{c.snippet.slice(0, 160)}</span>}
-          </span>
+          <span className="chat-citation-title-line">{c.title || c.ref_id}</span>
+          {c.locator && <span className="chat-citation-loc">{c.locator}</span>}
         </div>
       ))}
     </div>

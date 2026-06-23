@@ -123,21 +123,27 @@
 }
 
 .chat-message-body {
-  border: 1px solid var(--rule);
   border-radius: var(--radius-md);
-  padding: 9px 12px;
-  background: var(--panel);
   color: var(--ink-2);
   font-family: var(--font-ui);
   font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
+  line-height: 1.62;
 }
 
+/* assistant flows like a document: no card, plain on the panel */
 .chat-message-assistant .chat-message-body {
-  border-left: 3px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, var(--panel));
+  border: none;
+  background: transparent;
+  padding: 2px 0;
   white-space: normal;
+}
+
+/* user is a compact rounded bubble */
+.chat-message-user .chat-message-body {
+  border: 1px solid var(--rule);
+  background: var(--panel-2);
+  padding: 7px 11px;
+  white-space: pre-wrap;
 }
 
 .chat-message-contexts {
@@ -218,32 +224,37 @@
 
 .chat-citations,
 .chat-subgraph {
-  margin-top: 8px;
-  padding: 8px 10px;
+  margin-top: 6px;
+  padding: 6px 9px;
   background: var(--panel-2);
   border: 1px solid var(--rule);
-  border-radius: var(--radius-sm, 8px);
+  border-radius: var(--radius-md);
 }
 .chat-citations-title {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
-  color: var(--ink-3);
-  text-transform: uppercase;
+  color: var(--ink-4);
   letter-spacing: 0.04em;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
+/* one compact line per citation (no tall snippet block) */
 .chat-citation {
   display: flex;
   gap: 6px;
-  font-size: 13px;
-  padding: 3px 0;
-  border-top: 1px solid var(--rule);
+  align-items: baseline;
+  font-size: 12px;
+  padding: 1px 0;
 }
-.chat-citation:first-of-type { border-top: none; }
 .chat-citation-index { color: var(--accent); font-family: var(--font-mono); flex-shrink: 0; }
-.chat-citation-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.chat-citation-meta { font-size: 11px; color: var(--ink-4); }
-.chat-citation-snippet { font-size: 12px; color: var(--ink-3); }
+.chat-citation-title-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.chat-citation-loc { color: var(--ink-4); font-size: 11px; flex-shrink: 0; }
 
 .chat-subgraph-nodes { display: flex; flex-wrap: wrap; gap: 4px; }
 .chat-subgraph-node {

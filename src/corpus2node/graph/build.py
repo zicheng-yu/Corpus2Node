@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import re
 from collections import Counter, defaultdict
 from uuid import UUID
 
@@ -162,13 +163,13 @@ def semantic_merge(
         if ra != rb:
             parent[max(ra, rb)] = min(ra, rb)
 
-    # 1) Deterministic: collapse concepts that share a display name or canonical
-    #    name (the "字典 ×4" case). Runs regardless of embeddings.
+    # 1) Deterministic: collapse concepts that share a name key. Keys include the
+    #    canonical/display name, the name with any parenthetical stripped, and the
+    #    parenthetical abbreviation itself — so "抽象数据类型", "抽象数据类型（ADT）"
+    #    and a standalone "ADT" all merge. Runs regardless of embeddings.
     by_key: dict[str, int] = {}
     for i, concept in enumerate(concepts):
-        for key in {canonicalize_term(concept.name), concept.canonical_name}:
-            if not key:
-                continue
+        for key in _merge_keys(concept):
             if key in by_key:
                 union(by_key[key], i)
             else:
@@ -206,6 +207,29 @@ def semantic_merge(
     if len(merged) < n:
         logger.info("semantic merge collapsed %d concepts into %d", n, len(merged))
     return merged, remap
+
+
+_PARENS_RE = re.compile(r"[（(][^）)]*[）)]")
+_PAREN_CONTENT_RE = re.compile(r"[（(]([^）)]+)[）)]")
+
+
+def _merge_keys(concept: ConceptNode) -> set[str]:
+    """Name keys used to collapse synonyms/abbreviations deterministically."""
+    keys: set[str] = set()
+    for raw in (concept.name, concept.canonical_name):
+        if not raw:
+            continue
+        full = canonicalize_term(raw)
+        if full:
+            keys.add(full)
+        base = canonicalize_term(_PARENS_RE.sub("", raw))  # strip "（ADT）" → base name
+        if base:
+            keys.add(base)
+        for abbr in _PAREN_CONTENT_RE.findall(raw):  # "（ADT）" → "adt" as its own key
+            ab = canonicalize_term(abbr)
+            if len(ab) >= 2:
+                keys.add(ab)
+    return keys
 
 
 def _name_compatible(a: ConceptNode, b: ConceptNode) -> bool:

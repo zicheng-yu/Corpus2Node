@@ -15,8 +15,15 @@
   padding-bottom: var(--space-2);
 }
 
-.search-input-row .input {
+.search-input-row .input-wrap {
   flex: 1;
+}
+
+.search-input-row .input {
+  width: 100%;
+  height: 38px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
 }
 
 .search-filters {

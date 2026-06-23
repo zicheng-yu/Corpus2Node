@@ -51,6 +51,15 @@ def test_semantic_merge_collapses_same_display_name():
     assert remap[a.concept_id] == remap[b.concept_id]
 
 
+def test_semantic_merge_collapses_parenthetical_abbreviation():
+    # "抽象数据类型" and "抽象数据类型（ADT）" should merge even with orthogonal vecs
+    a = _concept("抽象数据类型", "抽象数据类型", [1.0, 0.0])
+    b = _concept("抽象数据类型 adt", "抽象数据类型（ADT）", [0.0, 1.0])
+    merged, remap = B.semantic_merge([a, b], threshold=0.99)
+    assert len(merged) == 1
+    assert remap[a.concept_id] == remap[b.concept_id]
+
+
 def test_semantic_merge_keeps_close_but_incompatible_names_apart():
     a = _concept("梯度下降", "梯度下降", [1.0, 0.0])
     b = _concept("牛顿法", "牛顿法", [1.0, 0.0])  # identical vec but no name overlap
