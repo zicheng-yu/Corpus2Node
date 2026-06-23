@@ -25,6 +25,27 @@ def _load_chat(session_id: UUID) -> ChatDocument:
         return ChatDocument(session_id=session_id)
 
 
+def _augment(message: str, request: ChatRequest) -> str:
+    """Fold selected context (concept / selection) into the query the agent sees.
+
+    The raw message is still what gets persisted/displayed; the agent receives the
+    context preamble so it knows exactly which concept the user means.
+    """
+    items = request.context_items
+    if not items:
+        return message
+    lines = ["[用户选中的上下文]"]
+    for item in items:
+        head = item.label or item.context_type
+        suffix = f"（concept_id={item.concept_id}）" if item.concept_id else ""
+        lines.append(f"- {head}{suffix}")
+        if item.content:
+            lines.append(f"  {item.content[:600]}")
+    lines.append("")
+    lines.append(f"[用户问题]\n{message}")
+    return "\n".join(lines)
+
+
 @router.get("/{session_id}")
 def get_history(session_id: UUID) -> ChatDocument:
     try:
@@ -49,7 +70,7 @@ async def message(request: ChatRequest) -> ChatResponse:
         embeddings = get_embeddings()
         ctx = chat_agent.load_context(request.session_id, embeddings)
         model = factory.build_chat_model(Purpose.chat)
-        turn = await chat_agent.run_chat(request.message, ctx, model=model)
+        turn = await chat_agent.run_chat(_augment(request.message, request), ctx, model=model)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Session or graph not found. Build the graph first.") from exc
     except LLMConfigError as exc:
@@ -89,7 +110,7 @@ async def stream(request: ChatRequest) -> StreamingResponse:
         # so the streamed turn is persisted just like POST /chat/message.
         answer_parts: list[str] = []
         citations: list[ChatCitation] = []
-        async for event in chat_agent.stream_chat_events(request.message, ctx, model=model):
+        async for event in chat_agent.stream_chat_events(_augment(request.message, request), ctx, model=model):
             if event.type == "token":
                 answer_parts.append(str(event.data.get("text", "")))
             elif event.type == "citation":

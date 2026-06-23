@@ -21,24 +21,42 @@ export function layoutWithForce(
     return { nodes: [{ ...nodes[0], position: { x: -NODE_CX, y: -NODE_CY } }], edges };
   }
 
-  // Fixed repulsion constant – independent of canvas size so the graph
-  // doesn't scatter for small N.
-  const k = 80;
-  const ITERATIONS = 120;
+  // Optimal node distance scales with N so a big graph spreads out (fixes the
+  // crowded blob) instead of packing at a fixed k.
+  const k = Math.min(320, Math.max(110, 34 * Math.sqrt(nodes.length)));
+  const ITERATIONS = 160;
 
-  // Initialize on a tight circle so iterations converge faster.
+  // Cluster key per node (topic-cluster color). Same-cluster nodes get a gentle
+  // pull toward their cluster centroid so classes cohere instead of scattering.
+  const clusterOf = (n: Node) => (n.data?.color as string) ?? "_";
+
+  // Seed nodes near their cluster's slot so clusters start separated.
+  const clusterKeys = Array.from(new Set(nodes.map(clusterOf)));
+  const clusterSeed = new Map(
+    clusterKeys.map((key, i) => {
+      const a = (i / Math.max(1, clusterKeys.length)) * Math.PI * 2;
+      return [key, { x: Math.cos(a) * k, y: Math.sin(a) * k }];
+    }),
+  );
   const pos = new Map<string, { x: number; y: number }>();
   nodes.forEach((n, i) => {
-    const angle = (i / nodes.length) * Math.PI * 2;
-    pos.set(n.id, {
-      x: Math.cos(angle) * k * 0.6,
-      y: Math.sin(angle) * k * 0.6,
-    });
+    const seed = clusterSeed.get(clusterOf(n))!;
+    pos.set(n.id, { x: seed.x + Math.cos(i) * 12, y: seed.y + Math.sin(i) * 12 });
   });
 
   for (let iter = 0; iter < ITERATIONS; iter++) {
     const disp = new Map<string, { x: number; y: number }>();
     nodes.forEach((n) => disp.set(n.id, { x: 0, y: 0 }));
+
+    // Per-cluster centroids (recomputed each iteration).
+    const cSum = new Map<string, { x: number; y: number; n: number }>();
+    nodes.forEach((n) => {
+      const key = clusterOf(n);
+      const p = pos.get(n.id)!;
+      const acc = cSum.get(key) ?? { x: 0, y: 0, n: 0 };
+      acc.x += p.x; acc.y += p.y; acc.n += 1;
+      cSum.set(key, acc);
+    });
 
     // Repulsion between every pair
     for (let i = 0; i < nodes.length; i++) {
@@ -76,11 +94,23 @@ export function layoutWithForce(
       disp.get(e.target)!.y += ny;
     });
 
-    // Gravity toward origin – stronger than typical to keep graph compact
+    // Cluster cohesion: pull each node gently toward its cluster centroid so
+    // same-class nodes group together (counters over-dispersion).
+    nodes.forEach((n) => {
+      const acc = cSum.get(clusterOf(n))!;
+      const cx = acc.x / acc.n;
+      const cy = acc.y / acc.n;
+      const p = pos.get(n.id)!;
+      disp.get(n.id)!.x += (cx - p.x) * 0.10;
+      disp.get(n.id)!.y += (cy - p.y) * 0.10;
+    });
+
+    // Weak gravity toward origin keeps the whole graph framed (fitView handles
+    // the final viewport), without crushing everything into a blob.
     nodes.forEach((n) => {
       const p = pos.get(n.id)!;
-      disp.get(n.id)!.x -= p.x * 0.20;
-      disp.get(n.id)!.y -= p.y * 0.20;
+      disp.get(n.id)!.x -= p.x * 0.04;
+      disp.get(n.id)!.y -= p.y * 0.04;
     });
 
     // Apply displacement with temperature cooling
@@ -202,12 +232,12 @@ export function layoutWithCluster(
   const footprints = innerRadii.map((r) => r + NODE_PAD);
   const maxFootprint = Math.max(...footprints);
 
-  // Distance from origin to each cluster center:
-  // two adjacent clusters must not overlap → distance ≥ footprint₁ + footprint₂.
-  // Use the worst-case pair (both at maxFootprint) plus generous padding.
-  const CLUSTER_PADDING = 5;
+  // Distance from origin to each cluster center. Adjacent centers on the ring are
+  // 2·R·sin(π/numClusters) apart; require that ≥ 2·maxFootprint so clusters just
+  // avoid overlap — tight for few clusters, correct for many (was a loose 2× blowup).
+  const CLUSTER_PADDING = 40;
   const clusterCenterR =
-    numClusters <= 1 ? 0 : maxFootprint * 2 + CLUSTER_PADDING;
+    numClusters <= 1 ? 0 : maxFootprint / Math.sin(Math.PI / numClusters) + CLUSTER_PADDING;
 
   const pos = new Map<string, { x: number; y: number }>();
 

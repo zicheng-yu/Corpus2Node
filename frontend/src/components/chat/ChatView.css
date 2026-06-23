@@ -7,7 +7,7 @@
 
 .chat-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
 }
@@ -200,6 +200,14 @@
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* keep the composer visible while messages scroll */
+.chat-composer {
+  position: sticky;
+  bottom: 0;
+  background: var(--panel);
+  padding-top: var(--space-2);
 }
 
 /* ── streaming + evidence ─────────────────────────────────────────────── */

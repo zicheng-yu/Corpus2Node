@@ -143,10 +143,7 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
   return (
     <div className="chat-view">
       <div className="chat-header">
-        <div>
-          <h2 className="chat-title">对话</h2>
-          <p className="chat-subtitle">基于知识图谱检索作答，每个回答都带可溯源引用</p>
-        </div>
+        <p className="chat-subtitle">基于图谱检索作答 · 回答可溯源</p>
         <div className="chat-actions">
           <label className="chat-debug-toggle" title="显示执行轨迹（trace）">
             <input type="checkbox" checked={debug} onChange={(e) => setDebug(e.target.checked)} /> 调试
