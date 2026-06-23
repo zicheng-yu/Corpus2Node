@@ -18,7 +18,7 @@ from langchain_core.embeddings import Embeddings
 from langgraph.graph import END, START, StateGraph
 
 from corpus2node.config import settings
-from corpus2node.core.types import GraphArtifact, IngestArtifact, SessionStatus, SourceFile, SourceKind
+from corpus2node.core.types import GraphArtifact, IngestArtifact, SessionStatus, SourceFile
 from corpus2node.graph.build import build_graph_artifact
 from corpus2node.graph.extract import AStructured, extract_graph_candidates, make_astructured
 from corpus2node.graph.schemas import GraphExtractionResult
@@ -42,13 +42,9 @@ class WorkflowState(TypedDict):
 
 
 def default_extract_blocks(source: SourceFile) -> list[str]:
-    if source.kind == SourceKind.pdf:
-        from corpus2node.ingest.pdf_kimi import extract_pdf_blocks
+    from corpus2node.ingest.adapters import extract_blocks_for
 
-        return extract_pdf_blocks(source.filename, source.storage_path)
-    raise RuntimeError(
-        f"No ingest adapter for source kind '{source.kind.value}' yet (PDF only for now)."
-    )
+    return extract_blocks_for(source)
 
 
 def build_workflow(*, astructured: AStructured, embeddings: Embeddings, extract_blocks: ExtractBlocks):

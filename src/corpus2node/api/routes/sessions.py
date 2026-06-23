@@ -5,13 +5,15 @@ create session -> upload PDF -> /workflow/run -> /chat. Multimodal formats
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from corpus2node.core.clock import utcnow
-from corpus2node.core.types import CourseSession, SessionStatus, SourceFile, SourceKind, UploadResponse
+from corpus2node.core.types import CourseSession, SessionStatus, SourceFile, UploadResponse
+from corpus2node.ingest import adapters
 from corpus2node.storage import local
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -61,10 +63,14 @@ async def upload_source(session_id: UUID, file: UploadFile = File(...)) -> Uploa
         raise HTTPException(status_code=404, detail="Session not found.") from exc
 
     filename = file.filename or "upload"
-    if not filename.lower().endswith(".pdf"):
+    ext = Path(filename).suffix.lower()
+    if ext not in adapters.SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail="Minimal demo accepts PDF only; multimodal formats (ppt/word/md/images) are coming.",
+            detail=(
+                f"Unsupported file type {ext!r}. Supported: "
+                f"{', '.join(sorted(adapters.SUPPORTED_EXTENSIONS))}（图片/音频稍后支持）."
+            ),
         )
 
     data = await file.read()
@@ -72,10 +78,11 @@ async def upload_source(session_id: UUID, file: UploadFile = File(...)) -> Uploa
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
     path = local.write_upload(session_id, filename, data)
 
+    kind = adapters.kind_for(filename)
     source = SourceFile(
-        kind=SourceKind.pdf,
+        kind=kind,
         filename=filename,
-        content_type=file.content_type or "application/pdf",
+        content_type=file.content_type or "application/octet-stream",
         storage_path=str(path),
         size_bytes=len(data),
     )
@@ -83,6 +90,6 @@ async def upload_source(session_id: UUID, file: UploadFile = File(...)) -> Uploa
     session.status = SessionStatus.uploaded
     session.updated_at = utcnow()
     local.save_session(session)
-    logger.info("uploaded %s (%d bytes) -> session %s", filename, len(data), session_id)
+    logger.info("uploaded %s (%d bytes, kind=%s) -> session %s", filename, len(data), kind.value, session_id)
 
-    return UploadResponse(session_id=session_id, source_id=source.source_id, kind=SourceKind.pdf, status=session.status)
+    return UploadResponse(session_id=session_id, source_id=source.source_id, kind=kind, status=session.status)

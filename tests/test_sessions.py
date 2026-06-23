@@ -34,9 +34,17 @@ def test_upload_pdf_adds_source():
     assert session["source_files"][0]["filename"] == "lecture.pdf"
 
 
-def test_upload_rejects_non_pdf():
+def test_upload_markdown_adds_document_source():
+    session_id = client.post("/sessions", json={"course_title": "DS", "lecture_title": "Trees"}).json()["session_id"]
+    files = {"file": ("notes.md", "# 树\n\n二叉搜索树用于查找。".encode("utf-8"), "text/markdown")}
+    response = client.post(f"/sessions/{session_id}/sources", files=files)
+    assert response.status_code == 200
+    assert response.json()["kind"] == "document"
+
+
+def test_upload_rejects_unsupported_type():
     session_id = client.post("/sessions", json={"course_title": "X", "lecture_title": "Y"}).json()["session_id"]
-    files = {"file": ("notes.txt", b"hello", "text/plain")}
+    files = {"file": ("malware.exe", b"\x00\x01", "application/octet-stream")}
     response = client.post(f"/sessions/{session_id}/sources", files=files)
     assert response.status_code == 400
 

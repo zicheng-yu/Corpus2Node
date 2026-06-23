@@ -24,6 +24,8 @@ class SessionStatus(str, Enum):
 class SourceKind(str, Enum):
     pdf = "pdf"
     audio = "audio"
+    document = "document"  # txt/md/docx/pptx/csv/json/yaml
+    image = "image"
 
 
 class NodeType(str, Enum):

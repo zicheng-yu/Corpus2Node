@@ -18,6 +18,9 @@ dependencies = [
     "langgraph>=1.0",
     "numpy>=1.26",      # vector math (embeddings, semantic merge)
     "networkx>=3.2",    # centrality + community detection (graph build)
+    "python-docx>=1.1", # .docx ingestion
+    "python-pptx>=1.0", # .pptx ingestion
+    "pyyaml>=6.0",      # .yaml/.yml ingestion
 ]
 
 [project.optional-dependencies]
