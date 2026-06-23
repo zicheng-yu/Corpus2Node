@@ -1,0 +1,313 @@
+.workspace {
+  display: grid;
+  grid-template-columns: 320px 1fr 420px;
+  gap: 0;
+  height: calc(100vh - 56px);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.workspace.search-collapsed {
+  grid-template-columns: 48px 1fr 420px;
+}
+
+.workspace.notes-collapsed {
+  grid-template-columns: 320px 1fr 48px;
+}
+
+.workspace.search-collapsed.notes-collapsed {
+  grid-template-columns: 48px 1fr 48px;
+}
+
+/* Columns */
+.ws-col {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--rule);
+  background: var(--panel);
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.ws-col-graph {
+  background: var(--bg);
+  border-right: 1px solid var(--rule);
+}
+
+.ws-col-notes {
+  border-right: 0;
+  border-left: 1px solid var(--rule);
+}
+
+/* Column header */
+.ws-head {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--rule);
+  flex-shrink: 0;
+}
+
+.ws-title {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-head-course {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-left: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-tool-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  background: var(--panel-2);
+}
+
+.ws-tool-tab {
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 5px 14px;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 160ms var(--ease), color 160ms var(--ease), box-shadow 160ms var(--ease);
+}
+
+.ws-tool-tab:hover {
+  color: var(--ink);
+}
+
+.ws-tool-tab-active {
+  color: var(--ink);
+  background: var(--panel);
+  box-shadow: var(--shadow-1);
+}
+
+/* Collapsed rail */
+.ws-rail {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 0;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.ws-rail-label {
+  writing-mode: vertical-rl;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Graph area */
+.ws-graph-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.graph-bg {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, var(--rule) 1px, transparent 1px);
+  background-size: 22px 22px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.graph-head {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.graph-head > * {
+  pointer-events: auto;
+}
+
+.graph-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--rule);
+  font-family: var(--font-serif);
+  font-size: 14px;
+  box-shadow: var(--shadow-1);
+  color: var(--ink-2);
+}
+
+.breadcrumb-link {
+  cursor: pointer;
+  transition: color var(--dur-fast);
+}
+
+.breadcrumb-link:hover {
+  color: var(--accent);
+}
+
+.graph-stats {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  display: flex;
+  gap: 14px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  background: var(--panel);
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-1);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.graph-controls {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  display: flex;
+  gap: 4px;
+  background: var(--panel);
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-1);
+  z-index: 3;
+}
+
+/* Drawer reopen toggle */
+.drawer-reopen-btn {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  z-index: 5;
+  width: 28px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-1);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
+}
+
+.drawer-reopen-btn:hover {
+  color: var(--accent);
+  background: var(--accent-ghost);
+  border-color: rgba(184, 93, 48, 0.18);
+}
+
+/* Notes column body */
+.ws-notes-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-5) var(--space-7);
+}
+
+.ws-exam-placeholder {
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  background:
+    radial-gradient(circle at 15% 20%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 32%),
+    var(--panel-2);
+  color: var(--ink-2);
+}
+
+.ws-exam-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--accent);
+  border: 1px solid var(--rule);
+  margin-bottom: var(--space-4);
+}
+
+.ws-exam-placeholder h2 {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-serif);
+  font-size: 21px;
+  color: var(--ink);
+}
+
+.ws-exam-placeholder p {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--control-text-color);
+}
+
+.note-title {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  margin-bottom: var(--space-2);
+  line-height: 1.2;
+}
+
+.note-summary {
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  color: var(--ink-2);
+  line-height: 1.65;
+  padding: 14px 16px;
+  background: var(--panel-2);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin: var(--space-4) 0 var(--space-6);
+}
+
+/* Search column body */
+.ws-search-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-3);
+}

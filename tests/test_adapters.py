@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
 import pytest
 
+from corpus2node.config import settings
 from corpus2node.core.types import SourceFile, SourceKind
 from corpus2node.ingest import adapters
 
@@ -76,3 +78,25 @@ def test_kind_for_maps_extensions():
     assert adapters.kind_for("a.docx") == SourceKind.document
     assert adapters.kind_for("a.png") == SourceKind.image
     assert adapters.kind_for("a.mp3") == SourceKind.audio
+
+
+def test_image_and_audio_are_registered():
+    assert ".png" in adapters.SUPPORTED_EXTENSIONS
+    assert ".mp3" in adapters.SUPPORTED_EXTENSIONS
+
+
+def test_image_adapter_requires_kimi_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "kimi_api_key", "")  # force unconfigured -> no network
+    p = tmp_path / "a.png"
+    p.write_bytes(b"\x89PNG\r\n")
+    with pytest.raises(RuntimeError):
+        adapters.extract_blocks_for(_src("a.png", p))
+
+
+def test_audio_adapter_clear_error_without_faster_whisper(tmp_path):
+    if importlib.util.find_spec("faster_whisper") is not None:
+        pytest.skip("faster-whisper installed; the not-installed path can't be exercised")
+    p = tmp_path / "a.mp3"
+    p.write_bytes(b"\x00\x01")
+    with pytest.raises(RuntimeError):
+        adapters.extract_blocks_for(_src("a.mp3", p))

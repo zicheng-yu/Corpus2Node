@@ -42,6 +42,14 @@ def test_upload_markdown_adds_document_source():
     assert response.json()["kind"] == "document"
 
 
+def test_upload_image_accepted():
+    session_id = client.post("/sessions", json={"course_title": "X", "lecture_title": "Y"}).json()["session_id"]
+    files = {"file": ("diagram.png", b"\x89PNG\r\n", "image/png")}
+    response = client.post(f"/sessions/{session_id}/sources", files=files)
+    assert response.status_code == 200
+    assert response.json()["kind"] == "image"
+
+
 def test_upload_rejects_unsupported_type():
     session_id = client.post("/sessions", json={"course_title": "X", "lecture_title": "Y"}).json()["session_id"]
     files = {"file": ("malware.exe", b"\x00\x01", "application/octet-stream")}

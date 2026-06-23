@@ -24,9 +24,8 @@ def extract_blocks_for(source: SourceFile) -> list[str]:
     ext = Path(source.filename).suffix.lower()
     adapter = _ADAPTERS.get(ext)
     if adapter is None:
-        hint = " (image/audio ingestion is coming)" if ext in _IMAGE_EXTS | _AUDIO_EXTS else ""
         raise RuntimeError(
-            f"Unsupported file type {ext!r}{hint}. Supported now: {', '.join(sorted(_ADAPTERS))}."
+            f"Unsupported file type {ext!r}. Supported: {', '.join(sorted(_ADAPTERS))}."
         )
     blocks = [block for block in adapter(source.filename, source.storage_path) if normalize_text(block)]
     if not blocks:
@@ -114,6 +113,18 @@ def _read_pdf(filename: str, path: str) -> list[str]:
     return extract_pdf_blocks(filename, path)
 
 
+def _read_image(filename: str, path: str) -> list[str]:
+    from corpus2node.ingest.image_kimi import describe_image
+
+    return describe_image(filename, path)
+
+
+def _read_audio(filename: str, path: str) -> list[str]:
+    from corpus2node.ingest.audio_whisper import transcribe_audio
+
+    return transcribe_audio(filename, path)
+
+
 _ADAPTERS = {
     ".pdf": _read_pdf,
     ".txt": _read_text,
@@ -125,6 +136,8 @@ _ADAPTERS = {
     ".json": _read_json,
     ".yaml": _read_yaml,
     ".yml": _read_yaml,
+    **{ext: _read_image for ext in _IMAGE_EXTS},
+    **{ext: _read_audio for ext in _AUDIO_EXTS},
 }
 
 SUPPORTED_EXTENSIONS = frozenset(_ADAPTERS)

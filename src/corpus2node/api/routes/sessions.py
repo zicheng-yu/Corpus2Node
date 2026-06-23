@@ -55,6 +55,16 @@ def get_session(session_id: UUID) -> CourseSession:
         raise HTTPException(status_code=404, detail="Session not found.") from exc
 
 
+@router.delete("/{session_id}")
+def delete_session(session_id: UUID) -> dict[str, bool]:
+    try:
+        local.load_session(session_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Session not found.") from exc
+    local.delete_session(session_id)
+    return {"ok": True}
+
+
 @router.post("/{session_id}/sources")
 async def upload_source(session_id: UUID, file: UploadFile = File(...)) -> UploadResponse:
     try:

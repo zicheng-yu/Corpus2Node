@@ -34,6 +34,36 @@
   <div class="grid">
     <div>
       <div class="card">
+        <h2>0 · 模型配置（凭据 &amp; 绑定，免 curl）</h2>
+        <div class="muted">密钥只回显掩码。<b>graph</b>（建图抽取）和 <b>chat</b>（问答）必须各绑一个凭据。PDF 抽取的 Kimi key 仍走 <code>.env</code> 的 <code>KIMI_API_KEY</code>。</div>
+        <label>已有凭据</label>
+        <div id="creds" class="muted">—</div>
+        <label>当前绑定</label>
+        <div id="binds" class="muted">—</div>
+        <button onclick="loadSettings()">刷新</button>
+        <hr style="border:none;border-top:1px solid var(--border);margin:10px 0" />
+        <label>新增凭据</label>
+        <div class="row">
+          <input id="c_label" placeholder="标签 如 deepseek" />
+          <select id="c_kind"><option value="openai">openai 兼容</option><option value="anthropic">anthropic</option></select>
+        </div>
+        <div class="row"><input id="c_base" placeholder="base_url 如 https://api.deepseek.com" style="flex:1" /></div>
+        <div class="row">
+          <input id="c_key" type="password" placeholder="api_key (sk-...)" style="flex:1" />
+          <input id="c_model" placeholder="默认模型 如 deepseek-v4-pro" />
+        </div>
+        <button onclick="addCredential()">保存凭据</button>
+        <hr style="border:none;border-top:1px solid var(--border);margin:10px 0" />
+        <label>绑定用途</label>
+        <div class="row">
+          <select id="b_purpose"><option>graph</option><option>chat</option><option>critic</option><option>exam</option></select>
+          <select id="b_cred"></select>
+          <input id="b_model" placeholder="模型（留空=用凭据默认）" />
+          <button onclick="bindPurpose()">绑定</button>
+        </div>
+        <button onclick="quickBind()">一键把 graph + chat 绑到所选凭据</button>
+      </div>
+      <div class="card">
         <h2>1 · 会话 & 资料</h2>
         <div class="row">
           <input id="course" placeholder="课程/语料标题" value="数据结构" />
@@ -179,7 +209,44 @@ async function ask(stream) {
   } catch (err) { log('✗ stream failed: ' + (err && err.stack || err), 'err'); }
 }
 
-log('ready. 流程：建会话 → 上传 PDF → 运行 → 提问。报错会保留在此面板，也会出现在后端终端。');
+// ---- 模型配置面板 ----
+async function loadSettings() {
+  const s = await api('GET', '/settings/llm');
+  if (!s) return;
+  $('creds').innerHTML = s.credentials.length
+    ? s.credentials.map(c => `<div><code>${c.credential_id}</code> ${c.label} · ${c.kind} · ${c.default_model || '(无默认模型)'} · key ${c.api_key_preview || '—'}</div>`).join('')
+    : '（暂无，请在下面新增）';
+  $('binds').innerHTML = s.bindings.length
+    ? s.bindings.map(b => `<div>${b.purpose} → <code>${b.credential_id}</code> ${b.model || ''} ${b.resolved ? '<span class="ok">✓</span>' : '<span class="err">✗ 凭据缺失</span>'}</div>`).join('')
+    : '<span class="err">（暂无绑定 — 至少绑 graph 和 chat，否则建图/问答会报错）</span>';
+  $('b_cred').innerHTML = s.credentials.map(c => `<option value="${c.credential_id}">${c.label} (${c.credential_id})</option>`).join('');
+}
+
+async function addCredential() {
+  const body = { label: $('c_label').value, kind: $('c_kind').value, base_url: $('c_base').value, api_key: $('c_key').value, default_model: $('c_model').value };
+  if (!body.label || !body.api_key) return log('标签和 api_key 必填', 'err');
+  const r = await api('POST', '/settings/llm/credentials', body);
+  if (r) { log('凭据已保存', 'ok'); $('c_key').value = ''; loadSettings(); }
+}
+
+async function bindPurpose() {
+  const purpose = $('b_purpose').value;
+  if (!$('b_cred').value) return log('请先选择凭据', 'err');
+  const r = await api('PUT', `/settings/llm/bindings/${purpose}`, { credential_id: $('b_cred').value, model: $('b_model').value });
+  if (r) { log(`已绑定 ${purpose}`, 'ok'); loadSettings(); }
+}
+
+async function quickBind() {
+  const cred = $('b_cred').value;
+  if (!cred) return log('请先选择凭据', 'err');
+  for (const purpose of ['graph', 'chat']) {
+    await api('PUT', `/settings/llm/bindings/${purpose}`, { credential_id: cred, model: $('b_model').value });
+  }
+  log('已把 graph + chat 绑到 ' + cred, 'ok'); loadSettings();
+}
+
+log('ready. 流程：模型配置 → 建会话 → 上传 PDF → 运行 → 提问。报错会保留在此面板，也会出现在后端终端。');
+loadSettings();
 </script>
 </body>
 </html>

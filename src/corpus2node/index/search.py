@@ -152,11 +152,16 @@ def _resolve_concept_id(graph: GraphArtifact, query: str) -> str | None:
 def _rank(query_vec, items, k):
     if not items or k <= 0:
         return []
+    query = np.asarray(query_vec, dtype=float)
+    # guard against an embedding-provider change between build and query: a dim
+    # mismatch would otherwise raise on the matmul. Degrade to no results.
+    items = [(obj, vec) for obj, vec in items if len(vec) == query.shape[0]]
+    if not items:
+        return []
     matrix = np.asarray([vector for _, vector in items], dtype=float)
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     unit = matrix / norms
-    query = np.asarray(query_vec, dtype=float)
     query_norm = float(np.linalg.norm(query)) or 1.0
     scores = unit @ (query / query_norm)
     order = np.argsort(-scores)[:k]
