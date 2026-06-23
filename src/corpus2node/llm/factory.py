@@ -9,6 +9,7 @@ from corpus2node.llm.credentials import (
     PURPOSE_FALLBACK,
     LLMSettings,
     ProviderCredential,
+    ProviderKind,
     Purpose,
     PurposeBinding,
 )
@@ -33,6 +34,16 @@ def resolve(purpose: Purpose, value: LLMSettings) -> tuple[PurposeBinding, Provi
             f"Binding for '{purpose.value}' references missing credential '{binding.credential_id}'."
         )
     return binding, credential
+
+
+def structured_output_method(purpose: Purpose, *, value: LLMSettings | None = None) -> str:
+    """Pick a with_structured_output method by provider.
+
+    OpenAI-compatible vendors (DeepSeek/Kimi/...) reliably support JSON mode but not
+    always a forced tool_choice (thinking models reject it); Anthropic uses tools.
+    """
+    _, credential = resolve(purpose, value or store.load())
+    return "function_calling" if credential.kind == ProviderKind.anthropic else "json_mode"
 
 
 def build_chat_model(purpose: Purpose, *, value: LLMSettings | None = None, **overrides: Any):

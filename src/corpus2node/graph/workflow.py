@@ -130,7 +130,8 @@ async def run_workflow(
 
     embeddings = embeddings or get_embeddings()
     if astructured is None:
-        astructured = make_astructured(factory.build_chat_model(Purpose.graph))
+        method = factory.structured_output_method(Purpose.graph)
+        astructured = make_astructured(factory.build_chat_model(Purpose.graph), method=method)
     extract_blocks = extract_blocks or default_extract_blocks
 
     session.status = SessionStatus.building_graph

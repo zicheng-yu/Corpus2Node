@@ -35,6 +35,8 @@ async def run(request: WorkflowRunRequest) -> WorkflowRunResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     session = local.load_session(request.session_id)
     return WorkflowRunResponse(

@@ -25,13 +25,18 @@ logger = logging.getLogger(__name__)
 AStructured = Callable[[str], Awaitable[GraphExtractionResult]]
 
 
-def make_astructured(model) -> AStructured:
-    """Bind a LangChain chat model to structured GraphExtractionResult output."""
+def make_astructured(model, *, method: str = "json_mode") -> AStructured:
+    """Bind a LangChain chat model to structured GraphExtractionResult output.
+
+    Default ``json_mode`` (response_format=json_object) is what the donor used and works
+    with OpenAI-compatible vendors *regardless of thinking/reasoning mode*. DeepSeek's V4
+    thinking models reject a forced tool_choice, so function_calling is reserved for
+    Anthropic (chosen by ``factory.structured_output_method``). The prompts already specify
+    the exact JSON shape, so json_mode parses cleanly into the schema.
+    """
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    # function_calling is the most broadly supported across OpenAI-compatible
-    # vendors (DeepSeek/Kimi/etc.); strict json_schema is OpenAI-specific.
-    structured = model.with_structured_output(GraphExtractionResult, method="function_calling")
+    structured = model.with_structured_output(GraphExtractionResult, method=method)
 
     async def _call(prompt: str) -> GraphExtractionResult:
         return await structured.ainvoke(
