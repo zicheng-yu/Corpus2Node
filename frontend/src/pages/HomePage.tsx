@@ -551,6 +551,17 @@ export function HomePage() {
                 <span className="session-group-name">{course}</span>
                 <span className="session-group-count">{rows.length} 个资料集</span>
                 <button
+                  className="btn btn-icon group-add-btn"
+                  onClick={(e) => { e.stopPropagation(); navigate(`/new?course=${encodeURIComponent(course)}`); }}
+                  aria-label={`向知识库 ${course} 新增资料集`}
+                  title="新增资料集"
+                  type="button"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+                <button
                   className="btn btn-icon group-delete-btn"
                   onClick={(e) => { e.stopPropagation(); handleDeleteCourse(course); }}
                   aria-label={`删除知识库 ${course}`}

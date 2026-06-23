@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { createSession, uploadSourceWithProgress, listSessions } from "../api/client";
 import type { FileEntry } from "../components/upload/FileRow";
@@ -34,8 +34,10 @@ const STEP_INFO = [
 ];
 
 export function NewSessionPage() {
+  const [searchParams] = useSearchParams();
+  const presetCourse = searchParams.get("course") ?? "";
   const [step, setStep] = useState(0);
-  const [courseTitle, setCourseTitle] = useState("");
+  const [courseTitle, setCourseTitle] = useState(presetCourse);
   const [lectureTitle, setLectureTitle] = useState("");
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [uploading, setUploading] = useState(false);

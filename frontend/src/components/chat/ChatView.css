@@ -246,24 +246,37 @@
   letter-spacing: 0.04em;
   margin-bottom: 4px;
 }
-/* one compact line per citation (no tall snippet block) */
+/* source card: WHERE (file · page) + a short excerpt to distinguish repeats */
 .chat-citation {
   display: flex;
   gap: 6px;
-  align-items: baseline;
   font-size: 12px;
-  padding: 1px 0;
+  padding: 4px 0;
+  border-top: 1px solid var(--rule);
 }
+.chat-citation:first-of-type { border-top: none; }
 .chat-citation-index { color: var(--accent); font-family: var(--font-mono); flex-shrink: 0; }
-.chat-citation-title-line {
-  flex: 1;
+.chat-citation-main { min-width: 0; flex: 1; }
+.chat-citation-src { display: flex; gap: 6px; align-items: baseline; }
+.chat-citation-where {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink-2);
+  font-weight: 600;
 }
 .chat-citation-loc { color: var(--ink-4); font-size: 11px; flex-shrink: 0; }
+.chat-citation-snippet {
+  margin-top: 1px;
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 .chat-subgraph-nodes { display: flex; flex-wrap: wrap; gap: 4px; }
 .chat-subgraph-node {

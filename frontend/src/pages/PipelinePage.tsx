@@ -7,12 +7,12 @@ import type { CourseSession } from "../types";
 import "./PipelinePage.css";
 
 const pipelineRunsInFlight = new Set<string>();
+// latest counts per in-flight run, so re-entering the page can show progress
+const pipelineProgress = new Map<string, { chunk: number | null; concept: number | null; relation: number | null; cluster: number | null }>();
 
 // ── PipelineCanvas ────────────────────────────────────────────────────────────
 // Three tidy stages, all vertically centered on CY, no overlap: docs → chunks → dots.
 function PipelineCanvas({ phase, progress }: { phase: number; progress: number }) {
-  const WIDTH = 900;
-  const HEIGHT = 540;
   const CY = 270;
   const tick = (progress / 100) * Math.min(1, (phase + 1) / 3);
 
@@ -46,7 +46,7 @@ function PipelineCanvas({ phase, progress }: { phase: number; progress: number }
   const edgeOpacity = phase >= 3 ? Math.min(1, (tick - 0.8) * 5) : 0;
 
   return (
-    <svg className="viz-canvas" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="xMidYMid meet">
+    <svg className="viz-canvas" viewBox="0 110 900 320" preserveAspectRatio="xMidYMid meet">
       {/* doc → chunk lines (each doc fans to two chunks) */}
       {phase >= 1 &&
         docs.map((d, di) =>
@@ -122,8 +122,34 @@ export function PipelinePage() {
   // Drive the pipeline from REAL backend step events (SSE). Skip re-running a
   // session that's already built (fixes re-entering re-runs the pipeline).
   useEffect(() => {
-    if (!id || triggered.current || pipelineRunsInFlight.has(id)) return;
+    if (!id || triggered.current) return;
     triggered.current = true;
+
+    // A run for this session is already in flight (we left the page and came
+    // back): DON'T re-run. Poll for the graph and continue once it's ready, so
+    // the background run finishes and we never duplicate the work.
+    if (pipelineRunsInFlight.has(id)) {
+      setRunState("running");
+      setPhase(3); // a run is mid-flight; show later-stage progress
+      const cached = pipelineProgress.get(id);
+      if (cached) setCounts(cached);
+      getSession(id).then((s) => setSession(s as CourseSession)).catch(() => {});
+      const poll = setInterval(async () => {
+        const p = pipelineProgress.get(id);
+        if (p) setCounts(p);
+        try {
+          const g = await getGraph(id);
+          if (g && g.concepts.length > 0) {
+            clearInterval(poll);
+            navigate(`/session/${id}`);
+          }
+        } catch {
+          /* not ready yet */
+        }
+      }, 1500);
+      return () => clearInterval(poll);
+    }
+
     pipelineRunsInFlight.add(id); // claim synchronously to avoid duplicate runs
 
     (async () => {
@@ -145,6 +171,11 @@ export function PipelinePage() {
         }
 
         setRunState("running");
+        const acc: Counts = { chunk: null, concept: null, relation: null, cluster: null };
+        const push = () => {
+          setCounts({ ...acc });
+          pipelineProgress.set(id, { ...acc });
+        };
         await streamWorkflow(id, (event) => {
           const data = event.data as Record<string, number | string | boolean>;
           if (event.type === "start") {
@@ -153,29 +184,25 @@ export function PipelinePage() {
             const node = String(data.node ?? "");
             if (node === "ingest") {
               setPhase(2);
-              setCounts((c) => ({ ...c, chunk: Number(data.chunk_count ?? c.chunk ?? 0) }));
+              acc.chunk = Number(data.chunk_count ?? acc.chunk ?? 0);
+              push();
             } else if (node === "extract") {
               setPhase(3);
-              setCounts((c) => ({
-                ...c,
-                concept: Number(data.concept_count ?? c.concept ?? 0),
-                relation: Number(data.relation_count ?? c.relation ?? 0),
-              }));
+              acc.concept = Number(data.concept_count ?? acc.concept ?? 0);
+              acc.relation = Number(data.relation_count ?? acc.relation ?? 0);
+              push();
             } else if (node === "build") {
-              setCounts((c) => ({
-                ...c,
-                concept: Number(data.concept_count ?? c.concept ?? 0),
-                relation: Number(data.relation_count ?? c.relation ?? 0),
-                cluster: Number(data.cluster_count ?? c.cluster ?? 0),
-              }));
+              acc.concept = Number(data.concept_count ?? acc.concept ?? 0);
+              acc.relation = Number(data.relation_count ?? acc.relation ?? 0);
+              acc.cluster = Number(data.cluster_count ?? acc.cluster ?? 0);
+              push();
             }
           } else if (event.type === "done") {
-            setCounts({
-              chunk: Number(data.chunk_count ?? 0),
-              concept: Number(data.concept_count ?? 0),
-              relation: Number(data.relation_count ?? 0),
-              cluster: Number(data.cluster_count ?? 0),
-            });
+            acc.chunk = Number(data.chunk_count ?? acc.chunk ?? 0);
+            acc.concept = Number(data.concept_count ?? 0);
+            acc.relation = Number(data.relation_count ?? 0);
+            acc.cluster = Number(data.cluster_count ?? 0);
+            push();
             setPhase(4);
             setRunState("done");
             setTimeout(() => navigate(`/session/${id}`), data.cached ? 0 : 900);
@@ -191,6 +218,7 @@ export function PipelinePage() {
         toast("图谱构建失败，详见错误信息", "error");
       } finally {
         pipelineRunsInFlight.delete(id);
+        pipelineProgress.delete(id);
       }
     })();
   }, [id, navigate, toast]);

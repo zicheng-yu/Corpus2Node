@@ -260,22 +260,25 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
 }
 
 function CitationList({ citations, sourceNames }: { citations: ChatCitation[]; sourceNames: Record<string, string> }) {
-  // Show WHERE a citation comes from (file · page, or concept), not its content.
-  function label(c: ChatCitation): { where: string; tag: string } {
-    if (c.kind === "concept") return { where: c.title || c.ref_id, tag: "概念" };
-    const file = (c.source_id && sourceNames[c.source_id]) || "原文";
-    return { where: file, tag: c.locator || "" };
-  }
+  // rag-graph style: each source is a card — WHERE it is (file · page / concept)
+  // as the header, plus a short excerpt so same-file repeats are distinguishable.
   return (
     <div className="chat-citations">
       <div className="chat-citations-title">引用 · {citations.length}</div>
       {citations.map((c) => {
-        const { where, tag } = label(c);
+        const isConcept = c.kind === "concept";
+        const where = isConcept ? c.title || c.ref_id : (c.source_id && sourceNames[c.source_id]) || "原文";
+        const tag = isConcept ? "概念" : c.locator || "";
         return (
-          <div className="chat-citation" key={`${c.kind}-${c.ref_id}-${c.index}`} title={c.snippet || where}>
+          <div className="chat-citation" key={`${c.kind}-${c.ref_id}-${c.index}`}>
             <span className="chat-citation-index">[{c.index}]</span>
-            <span className="chat-citation-title-line">{where}</span>
-            {tag && <span className="chat-citation-loc">{tag}</span>}
+            <div className="chat-citation-main">
+              <div className="chat-citation-src">
+                <span className="chat-citation-where">{where}</span>
+                {tag && <span className="chat-citation-loc">{tag}</span>}
+              </div>
+              {c.snippet && <div className="chat-citation-snippet">{c.snippet.slice(0, 90)}</div>}
+            </div>
           </div>
         );
       })}
