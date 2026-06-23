@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
-import { getSession, streamWorkflow } from "../api/client";
+import { getGraph, getSession, streamWorkflow } from "../api/client";
 import { useToast } from "../components/primitives/Toast";
 import type { CourseSession } from "../types";
 import "./PipelinePage.css";
@@ -26,10 +26,14 @@ function PipelineCanvas({ phase, progress }: { phase: number; progress: number }
   );
   const dots = useMemo(
     () =>
+      // even two-ring layout so dots don't overlap or look skewed
       Array.from({ length: 18 }, (_, i) => {
-        const angle = (i / 18) * Math.PI * 2;
-        const r = 80 + ((i * 13) % 40);
-        return { x: 720 + Math.cos(angle) * r * 0.6, y: 270 + Math.sin(angle) * r };
+        const ring = i < 7 ? 0 : 1;
+        const inRing = ring === 0 ? 7 : 11;
+        const idx = ring === 0 ? i : i - 7;
+        const r = ring === 0 ? 70 : 135;
+        const angle = (idx / inRing) * Math.PI * 2 - Math.PI / 2;
+        return { x: 760 + Math.cos(angle) * r, y: 270 + Math.sin(angle) * r };
       }),
     [],
   );
@@ -116,23 +120,27 @@ export function PipelinePage() {
   useEffect(() => {
     if (!id || triggered.current || pipelineRunsInFlight.has(id)) return;
     triggered.current = true;
+    pipelineRunsInFlight.add(id); // claim synchronously to avoid duplicate runs
 
     (async () => {
-      let sess: CourseSession | null = null;
       try {
-        sess = (await getSession(id)) as CourseSession;
-        setSession(sess);
-      } catch {
-        /* ignore — stream will surface errors */
-      }
-      if (sess && sess.status === "graph_ready") {
-        navigate(`/session/${id}`); // already built → straight to workspace
-        return;
-      }
+        // Skip if a graph already exists (robust against stale building_graph status).
+        try {
+          const g = await getGraph(id);
+          if (g && g.concepts.length > 0) {
+            navigate(`/session/${id}`);
+            return;
+          }
+        } catch {
+          /* no graph yet → build it */
+        }
+        try {
+          setSession((await getSession(id)) as CourseSession);
+        } catch {
+          /* ignore — stream will surface errors */
+        }
 
-      pipelineRunsInFlight.add(id);
-      setRunState("running");
-      try {
+        setRunState("running");
         await streamWorkflow(id, (event) => {
           const data = event.data as Record<string, number | string | boolean>;
           if (event.type === "start") {

@@ -183,19 +183,19 @@ async def stream_workflow(
         raise ValueError("Session has no source files to process.")
 
     # Already built → don't re-run (fixes "re-entering re-runs the pipeline").
-    if session.status == SessionStatus.graph_ready:
-        try:
-            graph = local.load_graph_artifact(session_id)
-            yield {"type": "done", "data": {
-                "chunk_count": session.stats.chunk_count,
-                "concept_count": len(graph.concepts),
-                "relation_count": len(graph.edges),
-                "cluster_count": len(graph.topic_clusters),
-                "cached": True,
-            }}
-            return
-        except FileNotFoundError:
-            pass  # status says ready but no artifact — fall through and rebuild
+    # Key on graph EXISTENCE, not status (status can be a stale building_graph).
+    try:
+        graph = local.load_graph_artifact(session_id)
+        yield {"type": "done", "data": {
+            "chunk_count": session.stats.chunk_count,
+            "concept_count": len(graph.concepts),
+            "relation_count": len(graph.edges),
+            "cluster_count": len(graph.topic_clusters),
+            "cached": True,
+        }}
+        return
+    except FileNotFoundError:
+        pass  # no graph yet — build it
 
     extract_blocks = extract_blocks or default_extract_blocks
     session.status = SessionStatus.building_graph

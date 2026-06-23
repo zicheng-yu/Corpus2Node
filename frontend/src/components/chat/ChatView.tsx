@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { clearChat, getChat, streamChat } from "../../api/client";
+import { clearChat, getChat, getSession, streamChat } from "../../api/client";
 import type { ChatCitation, ChatContextItem, ChatDocument, ConceptNode, SubgraphResponse } from "../../types";
 import { Markdown } from "../notes/Markdown";
 import { Button } from "../primitives/Button";
@@ -31,12 +31,20 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
   const [clearing, setClearing] = useState(false);
   const [debug, setDebug] = useState(false);
   const [live, setLive] = useState<LiveAnswer | null>(null);
+  const [sourceNames, setSourceNames] = useState<Record<string, string>>({});
   const toast = useToast();
 
   useEffect(() => {
     getChat(sessionId)
       .then(setChat)
       .catch(() => setChat({ chat_id: "", session_id: sessionId, messages: [], updated_at: "" }));
+  }, [sessionId]);
+
+  // map source_id -> filename so citations can show WHERE (file · page), not content
+  useEffect(() => {
+    getSession(sessionId)
+      .then((s) => setSourceNames(Object.fromEntries(s.source_files.map((f) => [f.source_id, f.filename]))))
+      .catch(() => {});
   }, [sessionId]);
 
   useEffect(() => {
@@ -193,7 +201,7 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
                 {message.role === "assistant" ? <Markdown>{message.content}</Markdown> : message.content}
               </div>
               {message.role === "assistant" && message.citations && message.citations.length > 0 && (
-                <CitationList citations={message.citations} />
+                <CitationList citations={message.citations} sourceNames={sourceNames} />
               )}
               {message.context_items.length > 0 && (
                 <div className="chat-message-contexts">
@@ -211,7 +219,7 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
               <div className="chat-message-body">
                 {live.text ? <Markdown>{live.text}</Markdown> : <span className="chat-typing">检索中…</span>}
               </div>
-              {live.citations.length > 0 && <CitationList citations={live.citations} />}
+              {live.citations.length > 0 && <CitationList citations={live.citations} sourceNames={sourceNames} />}
               {live.subgraph && live.subgraph.nodes.length > 0 && <SubgraphSummary subgraph={live.subgraph} />}
               {debug && live.trace.length > 0 && <TraceList trace={live.trace} />}
             </div>
@@ -256,17 +264,26 @@ export function ChatView({ sessionId, selectedConcept, pendingContext, onContext
   );
 }
 
-function CitationList({ citations }: { citations: ChatCitation[] }) {
+function CitationList({ citations, sourceNames }: { citations: ChatCitation[]; sourceNames: Record<string, string> }) {
+  // Show WHERE a citation comes from (file · page, or concept), not its content.
+  function label(c: ChatCitation): { where: string; tag: string } {
+    if (c.kind === "concept") return { where: c.title || c.ref_id, tag: "概念" };
+    const file = (c.source_id && sourceNames[c.source_id]) || "原文";
+    return { where: file, tag: c.locator || "" };
+  }
   return (
     <div className="chat-citations">
       <div className="chat-citations-title">引用 · {citations.length}</div>
-      {citations.map((c) => (
-        <div className="chat-citation" key={`${c.kind}-${c.ref_id}-${c.index}`} title={c.snippet}>
-          <span className="chat-citation-index">[{c.index}]</span>
-          <span className="chat-citation-title-line">{c.title || c.ref_id}</span>
-          {c.locator && <span className="chat-citation-loc">{c.locator}</span>}
-        </div>
-      ))}
+      {citations.map((c) => {
+        const { where, tag } = label(c);
+        return (
+          <div className="chat-citation" key={`${c.kind}-${c.ref_id}-${c.index}`} title={c.snippet || where}>
+            <span className="chat-citation-index">[{c.index}]</span>
+            <span className="chat-citation-title-line">{where}</span>
+            {tag && <span className="chat-citation-loc">{tag}</span>}
+          </div>
+        );
+      })}
     </div>
   );
 }

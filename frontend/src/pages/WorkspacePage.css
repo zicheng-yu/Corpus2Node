@@ -259,7 +259,9 @@
 /* Notes column body */
 .ws-notes-body {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden; /* clip at panel edge; tables/code scroll on their own */
   padding: var(--space-5) var(--space-5) var(--space-7);
 }
 

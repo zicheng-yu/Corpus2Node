@@ -107,11 +107,13 @@
 
 .chat-message-list {
   display: grid;
-  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr); /* allow children to shrink + wrap */
+  gap: var(--space-4);
 }
 
 .chat-message {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
 }
 
@@ -121,6 +123,7 @@
   color: var(--ink-4);
   text-transform: uppercase;
 }
+.chat-message-user .chat-message-role { color: var(--accent); }
 
 .chat-message-body {
   border-radius: var(--radius-md);
@@ -134,14 +137,15 @@
 .chat-message-assistant .chat-message-body {
   border: none;
   background: transparent;
-  padding: 2px 0;
+  padding: 2px 0 2px 11px;
+  border-left: 2px solid var(--rule);
   white-space: normal;
 }
 
-/* user is a compact rounded bubble */
+/* user is a distinct accent-tinted bubble */
 .chat-message-user .chat-message-body {
-  border: 1px solid var(--rule);
-  background: var(--panel-2);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--rule));
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
   padding: 7px 11px;
   white-space: pre-wrap;
 }

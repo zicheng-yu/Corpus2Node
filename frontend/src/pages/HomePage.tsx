@@ -591,6 +591,8 @@ function SessionRow({ session: s, onClick, onDelete }: { session: CourseSession;
   const date = new Date(s.updated_at).toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
   const hasPdf = s.source_files.some((f) => f.kind === "pdf");
   const hasAudio = s.source_files.some((f) => f.kind === "audio");
+  const hasDoc = s.source_files.some((f) => f.kind === "document");
+  const hasImage = s.source_files.some((f) => f.kind === "image");
 
   return (
     <div className="session-row" onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onClick()}>
@@ -610,6 +612,18 @@ function SessionRow({ session: s, onClick, onDelete }: { session: CourseSession;
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
               音频
+            </span>
+          )}
+          {hasDoc && (
+            <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              文档
+            </span>
+          )}
+          {hasImage && (
+            <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.5-3.5L9 20"/></svg>
+              图片
             </span>
           )}
         </div>
