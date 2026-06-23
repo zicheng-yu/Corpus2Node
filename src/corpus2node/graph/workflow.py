@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from corpus2node.core.clock import utcnow
 from typing import TypedDict
 from uuid import UUID
@@ -163,6 +163,79 @@ async def run_workflow(
         session_id, len(graph.concepts), len(graph.edges), len(graph.topic_clusters),
     )
     return graph
+
+
+_NODE_STAGE = {"ingest": "ingest", "extract": "extract", "build": "build"}
+
+
+async def stream_workflow(
+    session_id: UUID,
+    *,
+    astructured: AStructured,
+    embeddings: Embeddings,
+    extract_blocks: ExtractBlocks | None = None,
+) -> AsyncIterator[dict]:
+    """Run the pipeline, yielding a real event after each node so the UI reflects
+    actual progress (instead of a fake 0→done jump). Idempotent: a session that's
+    already graph_ready emits the existing counts without re-running."""
+    session = local.load_session(session_id)
+    if not session.source_files:
+        raise ValueError("Session has no source files to process.")
+
+    # Already built → don't re-run (fixes "re-entering re-runs the pipeline").
+    if session.status == SessionStatus.graph_ready:
+        try:
+            graph = local.load_graph_artifact(session_id)
+            yield {"type": "done", "data": {
+                "chunk_count": session.stats.chunk_count,
+                "concept_count": len(graph.concepts),
+                "relation_count": len(graph.edges),
+                "cluster_count": len(graph.topic_clusters),
+                "cached": True,
+            }}
+            return
+        except FileNotFoundError:
+            pass  # status says ready but no artifact — fall through and rebuild
+
+    extract_blocks = extract_blocks or default_extract_blocks
+    session.status = SessionStatus.building_graph
+    session.error_message = None
+    session.updated_at = utcnow()
+    local.save_session(session)
+    logger.info("workflow stream start: session=%s", session_id)
+
+    workflow = build_workflow(astructured=astructured, embeddings=embeddings, extract_blocks=extract_blocks)
+    state0 = {"session_id": str(session_id), "chunk_count": 0, "concept_count": 0, "relation_count": 0, "cluster_count": 0}
+    try:
+        yield {"type": "start", "data": {}}
+        async for update in workflow.astream(state0, stream_mode="updates"):
+            for node, delta in update.items():
+                yield {"type": "step", "data": {"node": _NODE_STAGE.get(node, node), **(delta or {})}}
+    except Exception as exc:
+        failed = local.load_session(session_id)
+        failed.status = SessionStatus.failed
+        failed.error_message = str(exc)
+        failed.updated_at = utcnow()
+        local.save_session(failed)
+        logger.exception("workflow stream failed: session=%s", session_id)
+        yield {"type": "error", "data": {"message": str(exc)}}
+        return
+
+    graph = local.load_graph_artifact(session_id)
+    final = local.load_session(session_id)
+    final.status = SessionStatus.graph_ready
+    final.error_message = None
+    final.stats.concept_count = len(graph.concepts)
+    final.stats.relation_count = len(graph.edges)
+    final.stats.cluster_count = len(graph.topic_clusters)
+    final.updated_at = utcnow()
+    local.save_session(final)
+    yield {"type": "done", "data": {
+        "chunk_count": final.stats.chunk_count,
+        "concept_count": len(graph.concepts),
+        "relation_count": len(graph.edges),
+        "cluster_count": len(graph.topic_clusters),
+    }}
 
 
 def _ingest_source(source: SourceFile, extract_blocks: ExtractBlocks, embeddings: Embeddings):

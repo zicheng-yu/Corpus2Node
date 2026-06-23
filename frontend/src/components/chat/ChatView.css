@@ -278,3 +278,36 @@
   color: var(--accent);
   margin-right: 4px;
 }
+
+/* ── width containment: only tables/code scroll, never the whole panel ──── */
+.chat-view,
+.chat-message-list,
+.chat-message,
+.chat-message-body {
+  min-width: 0;
+  max-width: 100%;
+}
+.chat-message-body {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.chat-message-body :is(p, li, h1, h2, h3, h4) {
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.chat-message-body :is(pre, code) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.chat-message-body pre {
+  overflow-x: auto;
+}
+/* tables scroll on their own, not the page */
+.chat-message-body table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  font-size: 12px;
+}

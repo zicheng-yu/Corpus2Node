@@ -29,12 +29,42 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
   const [notesCollapsed, setNotesCollapsed] = useState(false);
   const [drillCoreId, setDrillCoreId] = useState<string | null>(null);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
+  const [leftWidth, setLeftWidth] = useState(() => Number(localStorage.getItem("c2n:leftW")) || 320);
+  const [rightWidth, setRightWidth] = useState(() => Number(localStorage.getItem("c2n:rightW")) || 420);
 
   useEffect(() => {
     if (!id) return;
     getGraph(id).then(setGraph).catch(() => {});
     getSession(id).then((s) => setSession(s as CourseSession)).catch(() => {});
   }, [id]);
+
+  function startResize(side: "left" | "right", event: React.MouseEvent) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startW = side === "left" ? leftWidth : rightWidth;
+    const onMove = (ev: MouseEvent) => {
+      const delta = ev.clientX - startX;
+      if (side === "left") {
+        const w = Math.min(560, Math.max(240, startW + delta));
+        setLeftWidth(w);
+        localStorage.setItem("c2n:leftW", String(w));
+      } else {
+        const w = Math.min(640, Math.max(300, startW - delta));
+        setRightWidth(w);
+        localStorage.setItem("c2n:rightW", String(w));
+      }
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }
 
   useEffect(() => {
     if (conceptId) {
@@ -67,13 +97,22 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
     ? graph?.concepts.find((c) => c.concept_id === drillCoreId)?.name ?? drillCoreId
     : null;
 
+  const leftCol = searchCollapsed ? 48 : leftWidth;
+  const rightCol = notesCollapsed ? 48 : rightWidth;
+
   return (
-    <div className={clsx("workspace", {
-      "search-collapsed": searchCollapsed,
-      "notes-collapsed": notesCollapsed,
-    })}>
+    <div
+      className={clsx("workspace", {
+        "search-collapsed": searchCollapsed,
+        "notes-collapsed": notesCollapsed,
+      })}
+      style={{ gridTemplateColumns: `${leftCol}px 1fr ${rightCol}px` }}
+    >
       {/* Left: Search */}
       <div className="ws-col">
+        {!searchCollapsed && (
+          <div className="ws-resize-handle ws-resize-right" onMouseDown={(e) => startResize("left", e)} />
+        )}
         {searchCollapsed ? (
           <div
             className="ws-rail"
@@ -251,6 +290,9 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
 
       {/* Right: Study tools */}
       <div className="ws-col ws-col-notes">
+        {!notesCollapsed && (
+          <div className="ws-resize-handle ws-resize-left" onMouseDown={(e) => startResize("right", e)} />
+        )}
         {notesCollapsed ? (
           <div
             className="ws-rail"

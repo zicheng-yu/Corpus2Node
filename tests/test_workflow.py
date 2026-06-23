@@ -5,7 +5,7 @@ from pathlib import Path
 
 from corpus2node.core.types import CourseSession, SessionStatus, SourceFile, SourceKind
 from corpus2node.graph.schemas import ExtractedConcept, ExtractedRelation, GraphExtractionResult
-from corpus2node.graph.workflow import run_workflow
+from corpus2node.graph.workflow import run_workflow, stream_workflow
 from corpus2node.index.embeddings import HashingEmbeddings
 from corpus2node.storage import local
 
@@ -80,6 +80,38 @@ def test_workflow_end_to_end_offline():
     assert reloaded.stats.chunk_count > 0
     assert reloaded.stats.concept_count >= 2
     assert all(source.ingested for source in reloaded.source_files)
+
+
+def test_stream_workflow_emits_step_events():
+    session = _make_session()
+    fixture_text = FIXTURE.read_text(encoding="utf-8")
+
+    async def fake_astructured(prompt: str) -> GraphExtractionResult:
+        return _fake_candidates()
+
+    async def collect():
+        events = []
+        async for event in stream_workflow(
+            session.session_id,
+            astructured=fake_astructured,
+            embeddings=HashingEmbeddings(dims=128),
+            extract_blocks=lambda src: [fixture_text],
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(collect())
+    types = [e["type"] for e in events]
+    assert types[0] == "start" and types[-1] == "done"
+    nodes = [e["data"]["node"] for e in events if e["type"] == "step"]
+    assert nodes == ["ingest", "extract", "build"]  # real per-node progress
+    done = events[-1]["data"]
+    assert done["concept_count"] >= 2 and done["cluster_count"] >= 1
+
+    # re-running an already-built session is idempotent (cached, no re-run)
+    cached = asyncio.run(collect())
+    assert cached[-1]["type"] == "done" and cached[-1]["data"].get("cached") is True
+    assert len(cached) == 1
 
 
 def test_workflow_requires_sources():

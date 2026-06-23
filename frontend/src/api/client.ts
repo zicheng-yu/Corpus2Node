@@ -100,6 +100,48 @@ export function runWorkflow(sessionId: string): Promise<WorkflowRunResponse> {
   return postJson<WorkflowRunResponse>("/workflow/run", { session_id: sessionId });
 }
 
+export interface WorkflowEvent {
+  type: "start" | "step" | "done" | "error" | string;
+  data: Record<string, unknown>;
+}
+
+/** Stream the offline pipeline over SSE; onEvent fires per node (start/step/done/error). */
+export async function streamWorkflow(
+  sessionId: string,
+  onEvent: (event: WorkflowEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${BASE}/workflow/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    throw new ApiError(response.status, (await response.text()) || `HTTP ${response.status}`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf("\n\n")) >= 0) {
+      const raw = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const line = raw.replace(/^data: ?/, "").trim();
+      if (!line) continue;
+      try {
+        onEvent(JSON.parse(line) as WorkflowEvent);
+      } catch {
+        // ignore malformed line
+      }
+    }
+  }
+}
+
 // ── Graph / search / subgraph ─────────────────────────────────────────────────
 
 export async function getGraph(sessionId: string): Promise<GraphArtifact> {

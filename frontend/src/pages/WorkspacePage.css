@@ -41,6 +41,22 @@
   border-left: 1px solid var(--rule);
 }
 
+/* Drag-to-resize handles (left col right edge, right col left edge) */
+.ws-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: 6;
+  cursor: col-resize;
+  transition: background var(--dur-fast);
+}
+.ws-resize-handle:hover {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.ws-resize-right { right: 0; }
+.ws-resize-left { left: 0; }
+
 /* Column header */
 .ws-head {
   height: 46px;

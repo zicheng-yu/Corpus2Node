@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
-import { getSession, runWorkflow } from "../api/client";
+import { getSession, streamWorkflow } from "../api/client";
 import { useToast } from "../components/primitives/Toast";
-import type { CourseSession, WorkflowRunResponse } from "../types";
+import type { CourseSession } from "../types";
 import "./PipelinePage.css";
 
 const pipelineRunsInFlight = new Set<string>();
@@ -84,15 +84,22 @@ const STAGES = [
   { label: "构建图谱", detail: "建立关系网络" },
 ];
 
-type RunState = "running" | "done" | "failed";
+type RunState = "checking" | "running" | "done" | "failed";
+
+interface Counts {
+  chunk: number | null;
+  concept: number | null;
+  relation: number | null;
+  cluster: number | null;
+}
 
 export function PipelinePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const toast = useToast();
   const [session, setSession] = useState<CourseSession | null>(null);
-  const [runState, setRunState] = useState<RunState>("running");
-  const [result, setResult] = useState<WorkflowRunResponse | null>(null);
+  const [runState, setRunState] = useState<RunState>("checking");
+  const [counts, setCounts] = useState<Counts>({ chunk: null, concept: null, relation: null, cluster: null });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [phase, setPhase] = useState(0);
   const [tick, setTick] = useState(0);
@@ -104,44 +111,80 @@ export function PipelinePage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Indeterminate phase advance while running (no sub-step events from a sync call)
-  useEffect(() => {
-    if (runState !== "running") return;
-    const interval = setInterval(() => setPhase((p) => Math.min(2, p + 1)), 2500);
-    return () => clearInterval(interval);
-  }, [runState]);
-
-  // Load session header
-  useEffect(() => {
-    if (!id) return;
-    getSession(id).then((s) => setSession(s as CourseSession)).catch(() => {});
-  }, [id]);
-
-  // Run the workflow once (synchronous: ingest -> extract -> build)
+  // Drive the pipeline from REAL backend step events (SSE). Skip re-running a
+  // session that's already built (fixes re-entering re-runs the pipeline).
   useEffect(() => {
     if (!id || triggered.current || pipelineRunsInFlight.has(id)) return;
     triggered.current = true;
-    pipelineRunsInFlight.add(id);
 
-    runWorkflow(id)
-      .then((res) => {
-        setResult(res);
-        setPhase(4);
-        setRunState("done");
-        setTimeout(() => navigate(`/session/${id}`), 900);
-      })
-      .catch((e) => {
+    (async () => {
+      let sess: CourseSession | null = null;
+      try {
+        sess = (await getSession(id)) as CourseSession;
+        setSession(sess);
+      } catch {
+        /* ignore — stream will surface errors */
+      }
+      if (sess && sess.status === "graph_ready") {
+        navigate(`/session/${id}`); // already built → straight to workspace
+        return;
+      }
+
+      pipelineRunsInFlight.add(id);
+      setRunState("running");
+      try {
+        await streamWorkflow(id, (event) => {
+          const data = event.data as Record<string, number | string | boolean>;
+          if (event.type === "start") {
+            setPhase(0);
+          } else if (event.type === "step") {
+            const node = String(data.node ?? "");
+            if (node === "ingest") {
+              setPhase(2);
+              setCounts((c) => ({ ...c, chunk: Number(data.chunk_count ?? c.chunk ?? 0) }));
+            } else if (node === "extract") {
+              setPhase(3);
+              setCounts((c) => ({
+                ...c,
+                concept: Number(data.concept_count ?? c.concept ?? 0),
+                relation: Number(data.relation_count ?? c.relation ?? 0),
+              }));
+            } else if (node === "build") {
+              setCounts((c) => ({
+                ...c,
+                concept: Number(data.concept_count ?? c.concept ?? 0),
+                relation: Number(data.relation_count ?? c.relation ?? 0),
+                cluster: Number(data.cluster_count ?? c.cluster ?? 0),
+              }));
+            }
+          } else if (event.type === "done") {
+            setCounts({
+              chunk: Number(data.chunk_count ?? 0),
+              concept: Number(data.concept_count ?? 0),
+              relation: Number(data.relation_count ?? 0),
+              cluster: Number(data.cluster_count ?? 0),
+            });
+            setPhase(4);
+            setRunState("done");
+            setTimeout(() => navigate(`/session/${id}`), data.cached ? 0 : 900);
+          } else if (event.type === "error") {
+            setErrorMsg(String(data.message ?? "处理失败"));
+            setRunState("failed");
+            toast("图谱构建失败，详见错误信息", "error");
+          }
+        });
+      } catch (e) {
         setErrorMsg(String(e));
         setRunState("failed");
         toast("图谱构建失败，详见错误信息", "error");
-      })
-      .finally(() => pipelineRunsInFlight.delete(id));
+      } finally {
+        pipelineRunsInFlight.delete(id);
+      }
+    })();
   }, [id, navigate, toast]);
 
   const progress = Math.min(100, tick % 100);
-  const stats = session?.stats;
-  const conceptCount = result?.concept_count ?? stats?.concept_count ?? "—";
-  const chunkCount = result?.chunk_count ?? stats?.chunk_count ?? "—";
+  const fmt = (v: number | null) => (v == null ? "—" : v);
 
   return (
     <div className="pipeline-page">
@@ -150,13 +193,15 @@ export function PipelinePage() {
           <h1 className="pipeline-h">{session?.lecture_title ?? "处理中…"}</h1>
           <p className="pipeline-hsub">{session?.course_title ?? ""}</p>
         </div>
-        {runState === "running" && (
+        {(runState === "running" || runState === "checking") && (
           <div className="pipeline-live-badge">
             <span className="pipeline-live-dot" />
             正在解析
           </div>
         )}
       </div>
+
+      <p className="pipeline-hint">耗时取决于资料量与模型</p>
 
       <div className="stage-track">
         {STAGES.map((s, i) => {
@@ -183,22 +228,19 @@ export function PipelinePage() {
       <div className="pipeline-viz">
         <PipelineCanvas phase={phase} progress={progress} />
         <div className="viz-counters">
-          <span>片段 <b>{chunkCount}</b></span>
-          <span>概念 <b>{conceptCount}</b></span>
-          <span>关系 <b>{result?.relation_count ?? "—"}</b></span>
+          <span>片段 <b>{fmt(counts.chunk)}</b></span>
+          <span>概念 <b>{fmt(counts.concept)}</b></span>
+          <span>关系 <b>{fmt(counts.relation)}</b></span>
+          <span>社区 <b>{fmt(counts.cluster)}</b></span>
         </div>
-        <div className="viz-label">PIPELINE · {runState === "running" ? "LIVE" : runState.toUpperCase()}</div>
+        <div className="viz-label">PIPELINE · {runState === "running" || runState === "checking" ? "LIVE" : runState.toUpperCase()}</div>
       </div>
 
-      <div className="log-strip">
-        <div className="log-row"><span className="log-ts">·</span><span className="log-info">同步运行：摄入 → 抽取 → 建图（耗时取决于资料量与模型，详见后端终端日志）</span></div>
-        {runState === "done" && (
-          <div className="log-row"><span className="log-ts">✓</span><span className="log-ok">完成：{result?.concept_count} 概念 / {result?.relation_count} 关系 / {result?.cluster_count} 社区，正在进入工作区…</span></div>
-        )}
-        {runState === "failed" && (
-          <div className="log-row"><span className="log-ts">✗</span><span className="log-warn">失败：{errorMsg}</span></div>
-        )}
-      </div>
+      {runState === "done" && (
+        <div className="log-strip">
+          <div className="log-row"><span className="log-ts">✓</span><span className="log-ok">完成：{counts.concept} 概念 / {counts.relation} 关系 / {counts.cluster} 社区，正在进入工作区…</span></div>
+        </div>
+      )}
 
       {runState === "failed" && <div className="pipeline-error">{errorMsg ?? "处理失败，请重试。"}</div>}
 

@@ -21,9 +21,22 @@ export function layoutWithForce(
     return { nodes: [{ ...nodes[0], position: { x: -NODE_CX, y: -NODE_CY } }], edges };
   }
 
+  // Isolated nodes (no edges) get pulled far out by repulsion alone, blowing up
+  // the bounding box so fitView shrinks the whole graph. Keep them OUT of the
+  // force sim and tile them compactly beside the connected core instead.
+  const degree = new Map<string, number>();
+  nodes.forEach((n) => degree.set(n.id, 0));
+  edges.forEach((e) => {
+    degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
+    degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
+  });
+  const core = nodes.filter((n) => (degree.get(n.id) ?? 0) > 0);
+  const isolated = nodes.filter((n) => (degree.get(n.id) ?? 0) === 0);
+  const sim = core.length >= 2 ? core : nodes; // if nothing connected, lay all out as grid below
+
   // Optimal node distance scales with N so a big graph spreads out (fixes the
   // crowded blob) instead of packing at a fixed k.
-  const k = Math.min(320, Math.max(110, 34 * Math.sqrt(nodes.length)));
+  const k = Math.min(320, Math.max(110, 34 * Math.sqrt(sim.length)));
   const ITERATIONS = 160;
 
   // Cluster key per node (topic-cluster color). Same-cluster nodes get a gentle
@@ -31,7 +44,7 @@ export function layoutWithForce(
   const clusterOf = (n: Node) => (n.data?.color as string) ?? "_";
 
   // Seed nodes near their cluster's slot so clusters start separated.
-  const clusterKeys = Array.from(new Set(nodes.map(clusterOf)));
+  const clusterKeys = Array.from(new Set(sim.map(clusterOf)));
   const clusterSeed = new Map(
     clusterKeys.map((key, i) => {
       const a = (i / Math.max(1, clusterKeys.length)) * Math.PI * 2;
@@ -39,18 +52,18 @@ export function layoutWithForce(
     }),
   );
   const pos = new Map<string, { x: number; y: number }>();
-  nodes.forEach((n, i) => {
+  sim.forEach((n, i) => {
     const seed = clusterSeed.get(clusterOf(n))!;
     pos.set(n.id, { x: seed.x + Math.cos(i) * 12, y: seed.y + Math.sin(i) * 12 });
   });
 
   for (let iter = 0; iter < ITERATIONS; iter++) {
     const disp = new Map<string, { x: number; y: number }>();
-    nodes.forEach((n) => disp.set(n.id, { x: 0, y: 0 }));
+    sim.forEach((n) => disp.set(n.id, { x: 0, y: 0 }));
 
     // Per-cluster centroids (recomputed each iteration).
     const cSum = new Map<string, { x: number; y: number; n: number }>();
-    nodes.forEach((n) => {
+    sim.forEach((n) => {
       const key = clusterOf(n);
       const p = pos.get(n.id)!;
       const acc = cSum.get(key) ?? { x: 0, y: 0, n: 0 };
@@ -59,25 +72,25 @@ export function layoutWithForce(
     });
 
     // Repulsion between every pair
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const pU = pos.get(nodes[i].id)!;
-        const pV = pos.get(nodes[j].id)!;
+    for (let i = 0; i < sim.length; i++) {
+      for (let j = i + 1; j < sim.length; j++) {
+        const pU = pos.get(sim[i].id)!;
+        const pV = pos.get(sim[j].id)!;
         const dx = pU.x - pV.x;
         const dy = pU.y - pV.y;
         const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
         const f = (k * k) / dist;
         const nx = (dx / dist) * f;
         const ny = (dy / dist) * f;
-        disp.get(nodes[i].id)!.x += nx;
-        disp.get(nodes[i].id)!.y += ny;
-        disp.get(nodes[j].id)!.x -= nx;
-        disp.get(nodes[j].id)!.y -= ny;
+        disp.get(sim[i].id)!.x += nx;
+        disp.get(sim[i].id)!.y += ny;
+        disp.get(sim[j].id)!.x -= nx;
+        disp.get(sim[j].id)!.y -= ny;
       }
     }
 
     // Attraction along edges (spring)
-    const nodeById = new Map(nodes.map((n) => [n.id, n]));
+    const nodeById = new Map(sim.map((n) => [n.id, n]));
     edges.forEach((e) => {
       if (!nodeById.has(e.source) || !nodeById.has(e.target)) return;
       const pU = pos.get(e.source)!;
@@ -96,7 +109,7 @@ export function layoutWithForce(
 
     // Cluster cohesion: pull each node gently toward its cluster centroid so
     // same-class nodes group together (counters over-dispersion).
-    nodes.forEach((n) => {
+    sim.forEach((n) => {
       const acc = cSum.get(clusterOf(n))!;
       const cx = acc.x / acc.n;
       const cy = acc.y / acc.n;
@@ -107,7 +120,7 @@ export function layoutWithForce(
 
     // Weak gravity toward origin keeps the whole graph framed (fitView handles
     // the final viewport), without crushing everything into a blob.
-    nodes.forEach((n) => {
+    sim.forEach((n) => {
       const p = pos.get(n.id)!;
       disp.get(n.id)!.x -= p.x * 0.04;
       disp.get(n.id)!.y -= p.y * 0.04;
@@ -115,7 +128,7 @@ export function layoutWithForce(
 
     // Apply displacement with temperature cooling
     const t = Math.max(2, ((ITERATIONS - iter) / ITERATIONS) * 28);
-    nodes.forEach((n) => {
+    sim.forEach((n) => {
       const d = disp.get(n.id)!;
       const p = pos.get(n.id)!;
       const len = Math.sqrt(d.x * d.x + d.y * d.y);
@@ -126,10 +139,28 @@ export function layoutWithForce(
     });
   }
 
+  // Tile isolated nodes in a compact grid just beneath the connected core, so
+  // they stay near the graph instead of being flung out.
+  if (core.length >= 2 && isolated.length > 0) {
+    let minX = Infinity, maxX = -Infinity, maxY = -Infinity, minY = Infinity;
+    for (const n of sim) {
+      const p = pos.get(n.id)!;
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    }
+    const spacing = 95;
+    const cols = Math.max(1, Math.min(isolated.length, Math.round((maxX - minX) / spacing) || 1));
+    const startX = (minX + maxX) / 2 - ((cols - 1) * spacing) / 2;
+    const startY = maxY + spacing;
+    isolated.forEach((n, i) => {
+      pos.set(n.id, { x: startX + (i % cols) * spacing, y: startY + Math.floor(i / cols) * spacing });
+    });
+  }
+
   return {
     nodes: nodes.map((n) => ({
       ...n,
-      position: { x: pos.get(n.id)!.x - NODE_CX, y: pos.get(n.id)!.y - NODE_CY },
+      position: { x: (pos.get(n.id)?.x ?? 0) - NODE_CX, y: (pos.get(n.id)?.y ?? 0) - NODE_CY },
     })),
     edges,
   };
