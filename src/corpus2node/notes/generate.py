@@ -22,6 +22,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 
+from corpus2node import prompt_store
 from corpus2node.core.clock import utcnow
 from corpus2node.core.text import normalize_text
 from corpus2node.core.types import (
@@ -174,10 +175,11 @@ def _ensure_callers(
         return section_caller, summary_caller
     model = factory.build_chat_model(Purpose.graph)
     method = factory.structured_output_method(Purpose.graph)
+    custom = prompt_store.custom_block("notes")
     if section_caller is None:
-        section_caller = make_structured(model, LLMNoteSection, system=SECTION_SYSTEM_PROMPT, method=method)
+        section_caller = make_structured(model, LLMNoteSection, system=SECTION_SYSTEM_PROMPT + custom, method=method)
     if summary_caller is None:
-        summary_struct = make_structured(model, LLMNoteSummary, system=SUMMARY_SYSTEM_PROMPT, method=method)
+        summary_struct = make_structured(model, LLMNoteSummary, system=SUMMARY_SYSTEM_PROMPT + custom, method=method)
 
         async def summary_caller(prompt: str) -> str:
             return (await summary_struct(prompt)).summary

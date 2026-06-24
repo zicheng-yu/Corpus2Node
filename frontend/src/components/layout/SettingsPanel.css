@@ -350,3 +350,49 @@
   font-family: var(--font-ui);
   font-size: 12px;
 }
+
+/* prompts */
+.set-prompt-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.set-prompt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.set-prompt-field span {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.set-prompt-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 56px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.set-prompt-field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.set-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}

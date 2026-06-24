@@ -14,6 +14,7 @@ from corpus2node.api.routes import exam as exam_routes
 from corpus2node.api.routes import export as export_routes
 from corpus2node.api.routes import graph as graph_routes
 from corpus2node.api.routes import notes as notes_routes
+from corpus2node.api.routes import prompts as prompts_routes
 from corpus2node.api.routes import sessions as sessions_routes
 from corpus2node.api.routes import settings as settings_routes
 from corpus2node.api.routes import workflow as workflow_routes
@@ -47,6 +48,7 @@ async def on_unhandled_error(request: Request, exc: Exception) -> JSONResponse:
 
 app.include_router(sessions_routes.router)
 app.include_router(settings_routes.router)
+app.include_router(prompts_routes.router)
 app.include_router(workflow_routes.router)
 app.include_router(graph_routes.router)
 app.include_router(chat_routes.router)

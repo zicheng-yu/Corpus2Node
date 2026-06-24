@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
-import { bindPurpose, clearBinding, deleteCredential, getLlmSettings, upsertCredential } from "../../api/client";
-import type { LLMSettingsView, LlmPurpose, ProviderKind } from "../../types";
+import {
+  bindPurpose,
+  clearBinding,
+  deleteCredential,
+  getLlmSettings,
+  getPromptSettings,
+  savePromptSettings,
+  upsertCredential,
+} from "../../api/client";
+import type { LLMSettingsView, LlmPurpose, PromptSettings, ProviderKind } from "../../types";
 import { Button } from "../primitives/Button";
 import { useToast } from "../primitives/Toast";
 import "./SettingsPanel.css";
@@ -90,13 +98,60 @@ function AppearanceSettings({ graphStyle, setGraphStyle }: { graphStyle: string;
   );
 }
 
-// ── Prompts (reserved) ──────────────────────────────────────────────────────
+// ── Prompts ─────────────────────────────────────────────────────────────────
+const PROMPT_FIELDS: Array<{ key: keyof PromptSettings; label: string; placeholder: string }> = [
+  { key: "global_instructions", label: "全局（对话 / 笔记 / 试卷 都生效）", placeholder: "例：统一用简体中文、语气专业、专有名词保留英文原词…" },
+  { key: "chat", label: "对话助手", placeholder: "例：先给结论再展开；多用类比解释难点…" },
+  { key: "notes", label: "笔记生成", placeholder: "例：每节末尾补一条「一句话记忆」…" },
+  { key: "exam", label: "试卷生成", placeholder: "例：偏应用与理解题，少考死记硬背…" },
+];
+
 function PromptsSettings() {
+  const [value, setValue] = useState<PromptSettings | null>(null);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    getPromptSettings().then(setValue).catch(() => toast("加载提示词失败", "error"));
+  }, [toast]);
+
+  if (!value) return <div className="set-loading">加载中…</div>;
+
+  async function save() {
+    if (!value) return;
+    setSaving(true);
+    try {
+      setValue(await savePromptSettings(value));
+      toast("提示词已保存", "success");
+    } catch (e) {
+      toast(`保存失败：${String(e)}`, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="set-section">
       <h3 className="set-section-title">提示词设置</h3>
-      <p className="set-section-desc">自定义建图抽取、问答、出卷与笔记的系统提示词。</p>
-      <div className="set-placeholder">即将推出</div>
+      <p className="set-section-desc">
+        系统内置提示词保持不变；这里写的内容会作为「补充偏好」追加到对应场景的系统提示词之后，不会覆盖结构化输出与引用要求。建图抽取与质检为保证可靠性不受此影响。
+      </p>
+      <div className="set-prompt-fields">
+        {PROMPT_FIELDS.map((field) => (
+          <label className="set-prompt-field" key={field.key}>
+            <span>{field.label}</span>
+            <textarea
+              rows={3}
+              value={value[field.key]}
+              placeholder={field.placeholder}
+              onChange={(e) => setValue((cur) => ({ ...(cur as PromptSettings), [field.key]: e.target.value }))}
+            />
+          </label>
+        ))}
+      </div>
+      <div className="set-prompt-actions">
+        <Button size="sm" loading={saving} onClick={save}>保存提示词</Button>
+      </div>
     </section>
   );
 }

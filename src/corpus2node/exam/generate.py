@@ -19,6 +19,7 @@ import logging
 import math
 from collections.abc import Awaitable, Callable
 
+from corpus2node import prompt_store
 from corpus2node.core.text import normalize_text
 from corpus2node.core.types import (
     ConceptNode,
@@ -155,7 +156,7 @@ def _ensure_callers(
     if exam_caller is None:
         model = factory.build_chat_model(Purpose.exam)
         method = factory.structured_output_method(Purpose.exam)
-        exam_caller = make_structured(model, LLMExamDocument, system=EXAM_SYSTEM_PROMPT, method=method)
+        exam_caller = make_structured(model, LLMExamDocument, system=EXAM_SYSTEM_PROMPT + prompt_store.custom_block("exam"), method=method)
     if verify and solve_caller is None:
         model = factory.build_chat_model(Purpose.critic)  # critic falls back to graph
         method = factory.structured_output_method(Purpose.critic)

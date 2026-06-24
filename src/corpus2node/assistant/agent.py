@@ -15,6 +15,7 @@ from langchain.agents import create_agent
 from langchain_core.embeddings import Embeddings
 from langchain_core.messages import HumanMessage
 
+from corpus2node import prompt_store
 from corpus2node.assistant.tools import ChatContext, build_tools
 from corpus2node.core.types import ChatCitation, ChatStreamEvent, ChatTraceStep, SubgraphResponse
 from corpus2node.index import search
@@ -46,7 +47,7 @@ def load_context(session_id: UUID, embeddings: Embeddings) -> ChatContext:
 
 async def run_chat(query: str, ctx: ChatContext, *, model) -> ChatTurn:
     logger.info("chat: query=%r", query[:80])
-    agent = create_agent(model=model, tools=build_tools(ctx), system_prompt=SYSTEM_PROMPT)
+    agent = create_agent(model=model, tools=build_tools(ctx), system_prompt=SYSTEM_PROMPT + prompt_store.custom_block("chat"))
     result = await agent.ainvoke({"messages": [HumanMessage(content=query)]})
     messages = result.get("messages", [])
     answer = _message_text(messages[-1]) if messages else ""
@@ -67,7 +68,7 @@ async def run_chat(query: str, ctx: ChatContext, *, model) -> ChatTurn:
 
 async def stream_chat_events(query: str, ctx: ChatContext, *, model) -> AsyncIterator[ChatStreamEvent]:
     yield ChatStreamEvent(type="start", data={"query": query})
-    agent = create_agent(model=model, tools=build_tools(ctx), system_prompt=SYSTEM_PROMPT)
+    agent = create_agent(model=model, tools=build_tools(ctx), system_prompt=SYSTEM_PROMPT + prompt_store.custom_block("chat"))
     answer_parts: list[str] = []
     try:
         async for event in agent.astream_events({"messages": [HumanMessage(content=query)]}, version="v2"):

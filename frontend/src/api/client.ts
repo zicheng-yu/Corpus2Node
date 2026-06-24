@@ -11,6 +11,7 @@ import type {
   LLMSettingsView,
   LlmPurpose,
   NoteDocument,
+  PromptSettings,
   SearchResponse,
   SubgraphResponse,
   UploadResponse,
@@ -228,6 +229,20 @@ export async function clearBinding(purpose: LlmPurpose): Promise<LLMSettingsView
   return readJson<LLMSettingsView>(
     await fetch(`${BASE}/settings/llm/bindings/${purpose}`, { method: "DELETE" }),
   );
+}
+
+// ── Prompt settings (custom instructions appended to built-in system prompts) ──
+
+export async function getPromptSettings(): Promise<PromptSettings> {
+  return readJson<PromptSettings>(await fetch(`${BASE}/settings/prompts`));
+}
+
+export function savePromptSettings(payload: PromptSettings): Promise<PromptSettings> {
+  return fetch(`${BASE}/settings/prompts`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then((r) => readJson<PromptSettings>(r));
 }
 
 // ── Notes / Exam (streaming generation; survives navigation via server-side jobs) ─
