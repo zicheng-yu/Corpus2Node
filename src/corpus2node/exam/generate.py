@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 ExamCaller = Callable[[str], Awaitable[LLMExamDocument]]
 SolveCaller = Callable[[str], Awaitable[SolvedAnswer]]
+OnQuestion = Callable[[ExamQuestion], None]  # progressive streaming hook (verified questions)
 
 OVERASK = 1.4
 GROUNDING_CHUNK_LIMIT = 3
@@ -62,6 +63,7 @@ async def generate_exam(
     embeddings=None,
     verify: bool = True,
     max_rounds: int = 2,
+    on_question: OnQuestion | None = None,
 ) -> ExamDocument:
     graph = local.load_graph_artifact(request.session_id)
     session = local.load_session(request.session_id)
@@ -123,6 +125,8 @@ async def generate_exam(
 
         for question in candidates:
             accepted.append(question)
+            if on_question is not None:
+                on_question(question)
             if len(accepted) >= request.question_count:
                 break
         logger.info(

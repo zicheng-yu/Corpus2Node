@@ -3,7 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ToastProvider } from "./components/primitives/Toast";
 import { AppShell } from "./components/layout/AppShell";
 import { CommandPalette } from "./components/layout/CommandPalette";
-import { TweaksPanel } from "./components/layout/TweaksPanel";
+import { SettingsPanel } from "./components/layout/SettingsPanel";
 import { HomePage } from "./pages/HomePage";
 import { NewSessionPage } from "./pages/NewSessionPage";
 import { PipelinePage } from "./pages/PipelinePage";
@@ -15,7 +15,7 @@ const WorkspacePage = lazy(() =>
 
 function AppInner() {
   const [cmdOpen, setCmdOpen] = useState(false);
-  const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [graphStyle, setGraphStyle] = useState<string>(() => localStorage.getItem("c2n:graphStyle") ?? "force");
 
   // Force default theme
@@ -43,7 +43,7 @@ function AppInner() {
     <>
       <AppShell
         onOpenCmd={() => setCmdOpen(true)}
-        onOpenTweaks={() => setTweaksOpen((v) => !v)}
+        onOpenSettings={() => setSettingsOpen((v) => !v)}
       >
         <Routes>
           <Route path="/" element={<HomePage />} />
@@ -62,9 +62,9 @@ function AppInner() {
       </AppShell>
 
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
-      <TweaksPanel
-        open={tweaksOpen}
-        onClose={() => setTweaksOpen(false)}
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
         graphStyle={graphStyle}
         setGraphStyle={setGraphStyle}
       />

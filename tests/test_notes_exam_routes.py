@@ -96,3 +96,36 @@ def test_export_exam_and_chat_through_api():
     assert exam_res.status_code == 200 and "树测验" in exam_res.text
     chat_res = client.get(f"/export/{session_id}/chat/markdown")
     assert chat_res.status_code == 200 and "对话记录" in chat_res.text
+
+
+def test_notes_attach_stream_idle_then_replays_saved_note():
+    session_id = uuid.uuid4()
+    idle = client.get(f"/notes/{session_id}/stream")  # no job, no note → idle
+    assert idle.status_code == 200 and '"idle"' in idle.text
+
+    local.save_note(
+        NoteDocument(
+            session_id=session_id, title="流式笔记", topic="x", summary="s",
+            sections=[NoteSection(title="S", content_md="- a")],
+        )
+    )
+    done = client.get(f"/notes/{session_id}/stream")  # note exists → replayed as done
+    assert done.status_code == 200 and '"done"' in done.text and "流式笔记" in done.text
+
+
+def test_exam_attach_stream_idle_then_replays_saved_exam():
+    session_id = uuid.uuid4()
+    idle = client.get(f"/exam/{session_id}/stream")
+    assert idle.status_code == 200 and '"idle"' in idle.text
+
+    local.save_exam(
+        ExamDocument(
+            session_id=session_id, title="流式试卷", summary="s",
+            questions=[ExamQuestion(
+                question_type="single_choice", stem="Q?",
+                choices=[ExamChoice(choice_id="A", text="x")], answer="A", explanation="e",
+            )],
+        )
+    )
+    done = client.get(f"/exam/{session_id}/stream")
+    assert done.status_code == 200 and '"done"' in done.text and "流式试卷" in done.text

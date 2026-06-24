@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
-import { bindPurpose, deleteCredential, deleteSession, getLlmSettings, listSessions, upsertCredential } from "../api/client";
-import type { CourseSession, LLMSettingsView, LlmPurpose, ProviderKind, SessionStatus } from "../types";
+import { deleteSession, listSessions } from "../api/client";
+import type { CourseSession, SessionStatus } from "../types";
 import { useToast } from "../components/primitives/Toast";
 import "./HomePage.css";
 
@@ -109,257 +109,6 @@ function ConfirmModal({
   );
 }
 
-const PURPOSES: LlmPurpose[] = ["graph", "chat", "critic", "exam"];
-
-function DeploymentSettingsModal({ onClose }: { onClose: () => void }) {
-  const [settings, setSettings] = useState<LLMSettingsView | null>(null);
-  const [loading, setLoading] = useState(true);
-  const toast = useToast();
-
-  // new-credential form
-  const [label, setLabel] = useState("");
-  const [kind, setKind] = useState<ProviderKind>("openai");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [defaultModel, setDefaultModel] = useState("");
-
-  // binding form
-  const [bindCred, setBindCred] = useState("");
-  const [bindModel, setBindModel] = useState("");
-
-  const load = useCallback(async () => {
-    try {
-      const s = await getLlmSettings();
-      setSettings(s);
-      setBindCred((cur) => cur || s.credentials[0]?.credential_id || "");
-    } catch {
-      toast("加载模型设置失败", "error");
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    load().finally(() => setLoading(false));
-  }, [load]);
-
-  async function addCredential() {
-    if (!label.trim() || !apiKey.trim()) {
-      toast("标签和 API Key 必填", "error");
-      return;
-    }
-    try {
-      const s = await upsertCredential({
-        label: label.trim(),
-        kind,
-        base_url: baseUrl.trim(),
-        api_key: apiKey.trim(),
-        default_model: defaultModel.trim(),
-      });
-      setSettings(s);
-      setApiKey("");
-      setLabel("");
-      setBindCred((cur) => cur || s.credentials[s.credentials.length - 1]?.credential_id || "");
-      toast("凭据已保存", "success");
-    } catch (e) {
-      toast(`保存失败：${String(e)}`, "error");
-    }
-  }
-
-  async function removeCredential(id: string) {
-    try {
-      setSettings(await deleteCredential(id));
-    } catch (e) {
-      toast(`删除失败：${String(e)}`, "error");
-    }
-  }
-
-  async function bind(purpose: LlmPurpose) {
-    if (!bindCred) {
-      toast("请先选择凭据", "error");
-      return;
-    }
-    try {
-      setSettings(await bindPurpose(purpose, { credential_id: bindCred, model: bindModel.trim() }));
-      toast(`已绑定 ${purpose}`, "success");
-    } catch (e) {
-      toast(`绑定失败：${String(e)}`, "error");
-    }
-  }
-
-  async function quickBindGraphChat() {
-    if (!bindCred) {
-      toast("请先选择凭据", "error");
-      return;
-    }
-    try {
-      let latest: LLMSettingsView | null = null;
-      for (const p of ["graph", "chat"] as LlmPurpose[]) {
-        latest = await bindPurpose(p, { credential_id: bindCred, model: bindModel.trim() });
-      }
-      if (latest) setSettings(latest);
-      toast("已把 graph + chat 绑定到所选凭据", "success");
-    } catch (e) {
-      toast(`绑定失败：${String(e)}`, "error");
-    }
-  }
-
-  const bindingByPurpose = new Map((settings?.bindings ?? []).map((b) => [b.purpose, b]));
-
-  return (
-    <div className="settings-overlay" onClick={onClose}>
-      <div className="settings-dialog" onClick={(event) => event.stopPropagation()}>
-        <div className="settings-head">
-          <div>
-            <p className="settings-kicker">MODELS</p>
-            <h2>模型配置</h2>
-            <p>暂存多个 API 凭据（OpenAI 兼容 / Anthropic），再把 graph / chat / critic / exam 绑定到某个凭据+模型。密钥仅以掩码回显。</p>
-          </div>
-          <button className="settings-close" type="button" onClick={onClose} aria-label="关闭设置">×</button>
-        </div>
-
-        {loading ? (
-          <div className="settings-loading">加载设置中…</div>
-        ) : (
-          <>
-            <div className="settings-warning">
-              图片/PDF 解析（Kimi）、Embedding、语音转写仍由后端 <code>.env</code> 配置；此面板只管 graph/chat/critic/exam 这类对话模型。
-            </div>
-
-            {/* Credentials */}
-            <div className="settings-list">
-              <section className="settings-group is-open">
-                <div className="settings-group-toggle" style={{ cursor: "default" }}>
-                  <span className="settings-group-copy">
-                    <span className="settings-group-title">已有凭据</span>
-                    <span className="settings-group-description">已保存的 API Key（掩码显示），可删除。</span>
-                  </span>
-                  <span className="settings-group-count">{settings?.credentials.length ?? 0} 个</span>
-                </div>
-                <div className="settings-row-list">
-                  {(settings?.credentials ?? []).length === 0 && (
-                    <div className="settings-row" style={{ color: "var(--ink-3)" }}>暂无凭据，请在下方新增。</div>
-                  )}
-                  {(settings?.credentials ?? []).map((c) => (
-                    <div className="settings-row" key={c.credential_id} style={{ alignItems: "center" }}>
-                      <span className="settings-row-copy">
-                        <span className="settings-row-title">
-                          {c.label} <em>{c.kind}</em>
-                        </span>
-                        <span className="settings-row-key">
-                          {c.credential_id} · {c.default_model || "(无默认模型)"} · key {c.api_key_preview || "—"}
-                        </span>
-                      </span>
-                      <button className="btn btn-outline btn-sm" type="button" onClick={() => removeCredential(c.credential_id)}>删除</button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              {/* Bindings */}
-              <section className="settings-group is-open">
-                <div className="settings-group-toggle" style={{ cursor: "default" }}>
-                  <span className="settings-group-copy">
-                    <span className="settings-group-title">用途绑定</span>
-                    <span className="settings-group-description">graph 用于建图抽取，chat 用于问答；二者至少各绑一个。</span>
-                  </span>
-                </div>
-                <div className="settings-row-list">
-                  {PURPOSES.map((p) => {
-                    const b = bindingByPurpose.get(p);
-                    return (
-                      <div className="settings-row" key={p}>
-                        <span className="settings-row-copy">
-                          <span className="settings-row-title">{p}</span>
-                          <span className="settings-row-key">
-                            {b ? `${b.credential_id} · ${b.model || "(默认)"} ${b.resolved ? "✓" : "✗ 凭据缺失"}` : "未绑定"}
-                          </span>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            </div>
-
-            {/* Add credential */}
-            <div className="settings-list">
-              <section className="settings-group is-open">
-                <div className="settings-group-toggle" style={{ cursor: "default" }}>
-                  <span className="settings-group-copy">
-                    <span className="settings-group-title">新增凭据</span>
-                  </span>
-                </div>
-                <div className="settings-row-list">
-                  <label className="settings-row">
-                    <span className="settings-row-copy"><span className="settings-row-title">标签</span></span>
-                    <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="如 deepseek" autoComplete="off" />
-                  </label>
-                  <label className="settings-row">
-                    <span className="settings-row-copy"><span className="settings-row-title">类型</span></span>
-                    <select value={kind} onChange={(e) => setKind(e.target.value as ProviderKind)}>
-                      <option value="openai">openai 兼容</option>
-                      <option value="anthropic">anthropic</option>
-                    </select>
-                  </label>
-                  <label className="settings-row">
-                    <span className="settings-row-copy"><span className="settings-row-title">base_url</span></span>
-                    <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com" autoComplete="off" />
-                  </label>
-                  <label className="settings-row">
-                    <span className="settings-row-copy"><span className="settings-row-title">api_key</span></span>
-                    <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." autoComplete="off" />
-                  </label>
-                  <label className="settings-row">
-                    <span className="settings-row-copy"><span className="settings-row-title">默认模型</span></span>
-                    <input value={defaultModel} onChange={(e) => setDefaultModel(e.target.value)} placeholder="如 deepseek-v4-flash" autoComplete="off" />
-                  </label>
-                  <div className="settings-row">
-                    <span className="settings-row-copy" />
-                    <button className="btn btn-accent btn-sm" type="button" onClick={addCredential}>保存凭据</button>
-                  </div>
-                </div>
-              </section>
-
-              {/* Bind a purpose */}
-              <section className="settings-group is-open">
-                <div className="settings-group-toggle" style={{ cursor: "default" }}>
-                  <span className="settings-group-copy">
-                    <span className="settings-group-title">绑定用途</span>
-                  </span>
-                </div>
-                <div className="settings-row-list">
-                  <label className="settings-row">
-                    <span className="settings-row-copy"><span className="settings-row-title">凭据</span></span>
-                    <select value={bindCred} onChange={(e) => setBindCred(e.target.value)}>
-                      {(settings?.credentials ?? []).map((c) => (
-                        <option key={c.credential_id} value={c.credential_id}>{c.label} ({c.credential_id})</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="settings-row">
-                    <span className="settings-row-copy"><span className="settings-row-title">模型（留空=用默认）</span></span>
-                    <input value={bindModel} onChange={(e) => setBindModel(e.target.value)} placeholder="如 deepseek-v4-flash" autoComplete="off" />
-                  </label>
-                  <div className="settings-row" style={{ gap: 8, flexWrap: "wrap" }}>
-                    <span className="settings-row-copy" />
-                    {PURPOSES.map((p) => (
-                      <button key={p} className="btn btn-outline btn-sm" type="button" onClick={() => bind(p)}>绑定 {p}</button>
-                    ))}
-                    <button className="btn btn-accent btn-sm" type="button" onClick={quickBindGraphChat}>一键 graph + chat</button>
-                  </div>
-                </div>
-              </section>
-            </div>
-
-            <div className="settings-actions">
-              <button className="btn btn-accent btn-sm" type="button" onClick={onClose}>完成</button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── HomePage ──────────────────────────────────────────────────────────────────
 export function HomePage() {
   const [sessions, setSessions] = useState<CourseSession[]>([]);
@@ -369,7 +118,6 @@ export function HomePage() {
   const [courseFilter, setCourseFilter] = useState<string>("all");
   const [pending, setPending] = useState<{ label: string; onConfirm: () => Promise<void> } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -466,13 +214,6 @@ export function HomePage() {
           </p>
         </div>
         <div className="home-head-actions">
-          <button
-            className="btn btn-outline"
-            onClick={() => setSettingsOpen(true)}
-            type="button"
-          >
-            模型配置
-          </button>
           <button
             className="btn btn-accent"
             onClick={() => navigate("/new")}
@@ -593,7 +334,6 @@ export function HomePage() {
         />
       )}
 
-      {settingsOpen && <DeploymentSettingsModal onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

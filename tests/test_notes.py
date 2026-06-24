@@ -87,6 +87,30 @@ def test_generate_notes_happy_path_cleans_and_numbers_and_persists():
     assert local.load_session(session_id).status == SessionStatus.notes_ready
 
 
+def test_generate_notes_streams_sections_via_callback():
+    session_id = _setup_graph()
+    streamed: list[tuple[str, str]] = []
+
+    async def section_caller(prompt: str) -> LLMNoteSection:
+        return LLMNoteSection(title="二叉搜索树", content_md="- 高效查找", concept_ids=[])
+
+    async def summary_caller(prompt: str) -> str:
+        return "总览"
+
+    asyncio.run(
+        generate_notes(
+            GenerateNotesRequest(session_id=session_id),
+            section_caller=section_caller,
+            summary_caller=summary_caller,
+            embeddings=EMB,
+            max_repair_rounds=0,
+            on_section=lambda title, content: streamed.append((title, content)),
+        )
+    )
+    assert streamed, "on_section should fire progressively for each section"
+    assert all(isinstance(title, str) and isinstance(content, str) for title, content in streamed)
+
+
 def test_coverage_critic_fills_uncovered_core_concepts():
     session_id = _setup_graph()
     graph = local.load_graph_artifact(session_id)

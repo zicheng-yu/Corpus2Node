@@ -1,93 +1,126 @@
-import { useEffect, useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import type { ChatContextItem, NoteDocument } from "../../types";
-import { generateNotes, getNote } from "../../api/client";
+import { attachNotesStream, streamGenerateNotes, type GenStreamEvent } from "../../api/client";
 import { Markdown } from "./Markdown";
 import { ExportMenu } from "./ExportMenu";
 import { Button } from "../primitives/Button";
 import { useToast } from "../primitives/Toast";
+import "./panel.css";
 import "./NoteView.css";
+
+interface StreamSection {
+  index: number;
+  title: string;
+  content_md: string;
+}
 
 export function NoteView({
   sessionId,
-  initialNote,
-  onNoteChange,
   onAskSelection,
 }: {
   sessionId: string;
-  initialNote: NoteDocument | null;
-  onNoteChange?: (note: NoteDocument) => void;
   onAskSelection?: (context: ChatContextItem) => void;
 }) {
-  const [note, setNote] = useState<NoteDocument | null>(initialNote);
+  const [note, setNote] = useState<NoteDocument | null>(null);
+  const [sections, setSections] = useState<StreamSection[]>([]);
   const [generating, setGenerating] = useState(false);
   const [selectedText, setSelectedText] = useState("");
   const toast = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
 
+  function handleEvent(event: GenStreamEvent) {
+    if (event.type === "section") {
+      setGenerating(true);
+      const index = Number(event.data.index);
+      setSections((current) =>
+        current.some((s) => s.index === index)
+          ? current
+          : [...current, { index, title: String(event.data.title ?? ""), content_md: String(event.data.content_md ?? "") }].sort(
+              (a, b) => a.index - b.index,
+            ),
+      );
+    } else if (event.type === "done") {
+      setNote(event.data.note as NoteDocument);
+      setSections([]);
+      setGenerating(false);
+    } else if (event.type === "error") {
+      setGenerating(false);
+      toastRef.current(`笔记生成失败：${String(event.data?.message ?? "")}`, "error");
+    }
+    // "idle" → no note yet, nothing in flight
+  }
+
+  // Attach on mount: replays an in-flight job (fixes blank-on-reentry) or the saved note.
   useEffect(() => {
-    setNote(initialNote);
-  }, [initialNote]);
+    const controller = new AbortController();
+    setNote(null);
+    setSections([]);
+    setGenerating(false);
+    attachNotesStream(sessionId, handleEvent, controller.signal).catch(() => {});
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   async function handleGenerate() {
+    setNote(null);
+    setSections([]);
     setGenerating(true);
     try {
-      await generateNotes({ session_id: sessionId });
-      const fresh = await getNote(sessionId);
-      setNote(fresh);
-      onNoteChange?.(fresh);
+      await streamGenerateNotes(sessionId, handleEvent);
     } catch (error) {
-      toast(error instanceof Error ? `笔记生成失败：${error.message}` : "笔记生成失败", "error");
-    } finally {
       setGenerating(false);
+      toast(error instanceof Error ? `笔记生成失败：${error.message}` : "笔记生成失败", "error");
     }
   }
 
   function captureSelection(event: SyntheticEvent) {
     if ((event.target as HTMLElement).closest("button")) return;
-    const selection = window.getSelection();
-    const text = selection?.toString().trim() ?? "";
+    const text = window.getSelection()?.toString().trim() ?? "";
     setSelectedText(text.length >= 2 ? text.slice(0, 2200) : "");
   }
 
   function askSelection() {
     if (!selectedText) return;
-    onAskSelection?.({
-      context_type: "note_selection",
-      label: "笔记选区",
-      content: selectedText,
-    });
+    onAskSelection?.({ context_type: "note_selection", label: "笔记选区", content: selectedText });
     setSelectedText("");
+  }
+
+  if (generating) {
+    return (
+      <div className="panel-stream">
+        <div className="panel-stream-status">
+          <span className="panel-spinner" /> 正在生成笔记…（已完成 {sections.length} 节）
+        </div>
+        {sections.map((section) => (
+          <div key={section.index} className="note-section">
+            <h3 className="note-section-title">{section.title}</h3>
+            <Markdown>{section.content_md}</Markdown>
+          </div>
+        ))}
+      </div>
+    );
   }
 
   if (!note) {
     return (
-      <div className="note-generate">
-        <div>
-          <p className="note-generate-title">根据当前图数据库生成笔记</p>
-          <p className="note-generate-label">
-            将使用当前图谱中的知识点、聚类和关系生成结构化课堂笔记。
-          </p>
-        </div>
-        <Button onClick={handleGenerate} loading={generating}>生成图谱笔记</Button>
+      <div className="panel-empty">
+        <p className="panel-empty-title">根据当前图谱生成笔记</p>
+        <p className="panel-empty-desc">按聚类与核心概念分章，落地原文引用，并对核心概念做覆盖检查。</p>
+        <Button size="sm" onClick={handleGenerate}>生成图谱笔记</Button>
       </div>
     );
   }
 
   return (
     <div className="note-view" onMouseUp={captureSelection} onKeyUp={captureSelection}>
-      <div className="note-view-header">
-        <div>
-          <h2 className="note-view-title">{note.title}</h2>
-          <p className="note-view-subtitle">由当前知识图谱生成</p>
-        </div>
-        <div className="note-view-actions">
+      <div className="panel-bar">
+        <span className="panel-bar-title">{note.title}</span>
+        <div className="panel-bar-actions">
           {selectedText && onAskSelection && (
-            <Button variant="ghost" size="sm" onClick={askSelection}>
-              询问选区
-            </Button>
+            <button className="panel-mini-btn" type="button" onClick={askSelection}>询问选区</button>
           )}
-          <Button variant="ghost" size="sm" onClick={handleGenerate} loading={generating}>
-            重新生成
-          </Button>
+          <button className="panel-mini-btn" type="button" onClick={handleGenerate}>重新生成</button>
           <ExportMenu sessionId={sessionId} />
         </div>
       </div>

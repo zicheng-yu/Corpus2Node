@@ -39,7 +39,7 @@ from corpus2node.index.embeddings import get_embeddings
 from corpus2node.llm import factory
 from corpus2node.llm.credentials import Purpose
 from corpus2node.llm.structured import make_structured
-from corpus2node.notes.markdown import coerce_note_sections, number_sections
+from corpus2node.notes.markdown import clean_section_markdown, coerce_note_sections, number_sections
 from corpus2node.notes.prompts import (
     SECTION_SYSTEM_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
@@ -53,6 +53,14 @@ logger = logging.getLogger(__name__)
 
 SectionCaller = Callable[[str], Awaitable[LLMNoteSection]]
 SummaryCaller = Callable[[str], Awaitable[str]]
+OnSection = Callable[[str, str], None]  # (title, content_md) — progressive streaming hook
+
+
+def _emit_section(on_section: OnSection | None, llm_section: LLMNoteSection) -> None:
+    if on_section is None:
+        return
+    title = normalize_text(getattr(llm_section, "title", "")) or "学习笔记"
+    on_section(title, clean_section_markdown(getattr(llm_section, "title", ""), getattr(llm_section, "content_md", "")))
 
 CORE_CONCEPT_LIMIT = 15
 SECTION_MAX_CONCEPTS = 12
@@ -68,6 +76,7 @@ async def generate_notes(
     summary_caller: SummaryCaller | None = None,
     embeddings=None,
     max_repair_rounds: int = 1,
+    on_section: OnSection | None = None,
 ) -> NoteDocument:
     graph = local.load_graph_artifact(request.session_id)
     session = local.load_session(request.session_id)
@@ -103,6 +112,7 @@ async def generate_notes(
             covered_concepts=covered_names,
         )
         llm_section = await section_caller(prompt)
+        _emit_section(on_section, llm_section)
         raw_sections.append((llm_section, [_reference(chunk) for chunk in grounding]))
         covered_ids.update(concept.concept_id for concept in concepts)
         covered_names.extend(concept.name for concept in concepts)
@@ -120,6 +130,7 @@ async def generate_notes(
         covered_ids=covered_ids,
         covered_names=covered_names,
         max_rounds=max_repair_rounds,
+        on_section=on_section,
     )
 
     refs_by_index = {index: refs for index, (_, refs) in enumerate(raw_sections)}
@@ -187,6 +198,7 @@ async def _coverage_repair(
     covered_ids: set[str],
     covered_names: list[str],
     max_rounds: int,
+    on_section: OnSection | None = None,
 ) -> None:
     """Detect uncovered core concepts (deterministic) and fill them with bounded LLM passes."""
     core = _core_concepts(graph)
@@ -213,6 +225,7 @@ async def _coverage_repair(
             covered_concepts=covered_names,
         )
         llm_section = await section_caller(prompt)
+        _emit_section(on_section, llm_section)
         raw_sections.append((llm_section, [_reference(chunk) for chunk in grounding]))
         covered_ids.update(concept.concept_id for concept in concepts)
         covered_names.extend(concept.name for concept in concepts)

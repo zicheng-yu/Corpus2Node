@@ -5,13 +5,13 @@ import "./AppShell.css";
 interface AppShellProps {
   children: ReactNode;
   onOpenCmd?: () => void;
-  onOpenTweaks?: () => void;
+  onOpenSettings?: () => void;
 }
 
-export function AppShell({ children, onOpenCmd, onOpenTweaks }: AppShellProps) {
+export function AppShell({ children, onOpenCmd, onOpenSettings }: AppShellProps) {
   return (
     <div className="app-shell">
-      <TopBar onOpenCmd={onOpenCmd} onOpenTweaks={onOpenTweaks} />
+      <TopBar onOpenCmd={onOpenCmd} onOpenSettings={onOpenSettings} />
       <main className="app-shell-content">{children}</main>
     </div>
   );

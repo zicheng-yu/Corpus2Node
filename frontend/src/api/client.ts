@@ -45,6 +45,33 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
   }).then((r) => readJson<T>(r));
 }
 
+/** Read a `data:`-line SSE stream (\n\n-separated), dispatching each parsed JSON event. */
+async function pumpSSE<T>(response: Response, onEvent: (event: T) => void): Promise<void> {
+  if (!response.ok || !response.body) {
+    throw new ApiError(response.status, (await response.text()) || `HTTP ${response.status}`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf("\n\n")) >= 0) {
+      const raw = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const line = raw.replace(/^data: ?/, "").trim();
+      if (!line) continue;
+      try {
+        onEvent(JSON.parse(line) as T);
+      } catch {
+        // ignore malformed / keepalive lines
+      }
+    }
+  }
+}
+
 // ── Sessions ────────────────────────────────────────────────────────────────
 
 export async function listSessions(): Promise<CourseSession[]> {
@@ -117,29 +144,7 @@ export async function streamWorkflow(
     body: JSON.stringify({ session_id: sessionId }),
     signal,
   });
-  if (!response.ok || !response.body) {
-    throw new ApiError(response.status, (await response.text()) || `HTTP ${response.status}`);
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buffer.indexOf("\n\n")) >= 0) {
-      const raw = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-      const line = raw.replace(/^data: ?/, "").trim();
-      if (!line) continue;
-      try {
-        onEvent(JSON.parse(line) as WorkflowEvent);
-      } catch {
-        // ignore malformed line
-      }
-    }
-  }
+  await pumpSSE<WorkflowEvent>(response, onEvent);
 }
 
 // ── Graph / search / subgraph ─────────────────────────────────────────────────
@@ -190,29 +195,7 @@ export async function streamChat(
     body: JSON.stringify(payload),
     signal,
   });
-  if (!response.ok || !response.body) {
-    throw new ApiError(response.status, (await response.text()) || `HTTP ${response.status}`);
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buffer.indexOf("\n\n")) >= 0) {
-      const raw = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-      const line = raw.replace(/^data: ?/, "").trim();
-      if (!line) continue;
-      try {
-        onEvent(JSON.parse(line) as ChatStreamEvent);
-      } catch {
-        // ignore malformed keepalive lines
-      }
-    }
-  }
+  await pumpSSE<ChatStreamEvent>(response, onEvent);
 }
 
 // ── LLM credential registry ───────────────────────────────────────────────────
@@ -247,8 +230,60 @@ export async function clearBinding(purpose: LlmPurpose): Promise<LLMSettingsView
   );
 }
 
-// ── Dormant (backend not built yet): notes / exam / export ────────────────────
-// Kept so the dormant Note/Exam views still type-check; not surfaced in the UI.
+// ── Notes / Exam (streaming generation; survives navigation via server-side jobs) ─
+
+export interface GenStreamEvent {
+  type: "section" | "question" | "done" | "idle" | "error" | string;
+  data: Record<string, unknown>;
+}
+
+/** Start (or attach to) a notes generation job; streams section/done/error events. */
+export async function streamGenerateNotes(
+  sessionId: string,
+  onEvent: (event: GenStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${BASE}/generate_notes/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
+    signal,
+  });
+  await pumpSSE<GenStreamEvent>(response, onEvent);
+}
+
+/** Attach to an in-flight notes job (replay + live), or replay the saved note, or idle. */
+export async function attachNotesStream(
+  sessionId: string,
+  onEvent: (event: GenStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  await pumpSSE<GenStreamEvent>(await fetch(`${BASE}/notes/${sessionId}/stream`, { signal }), onEvent);
+}
+
+export async function streamGenerateExam(
+  payload: { session_id: string; question_count?: number; question_types?: string[] },
+  onEvent: (event: GenStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${BASE}/generate_exam/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  await pumpSSE<GenStreamEvent>(response, onEvent);
+}
+
+export async function attachExamStream(
+  sessionId: string,
+  onEvent: (event: GenStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  await pumpSSE<GenStreamEvent>(await fetch(`${BASE}/exam/${sessionId}/stream`, { signal }), onEvent);
+}
+
+// ── Notes / Exam (non-streaming + export) ─────────────────────────────────────
 
 export function generateNotes(payload: { session_id: string; topic?: string; concept_ids?: string[] }): Promise<NoteDocument> {
   return postJson<NoteDocument>("/generate_notes", payload);

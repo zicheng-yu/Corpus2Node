@@ -122,6 +122,25 @@ def test_verifier_rejects_wrong_answer_and_tops_up():
     assert len(rounds) == 2  # a second generation round was needed to replace the rejected question
 
 
+def test_generate_exam_streams_questions_via_callback():
+    session_id, vid = _setup_graph()
+    streamed = []
+
+    async def exam_caller(prompt: str) -> LLMExamDocument:
+        return LLMExamDocument(questions=[_q(f"Q{i}?", f"A{i}", vid) for i in range(4)])
+
+    asyncio.run(
+        generate_exam(
+            GenerateExamRequest(session_id=session_id, question_count=4, question_types=["short_answer"]),
+            exam_caller=exam_caller,
+            verify=False,
+            embeddings=EMB,
+            on_question=lambda q: streamed.append(q),
+        )
+    )
+    assert len(streamed) == 4  # each accepted question streamed progressively
+
+
 def test_verifier_rejects_ungrounded_subjective():
     session_id, vid = _setup_graph()
 
