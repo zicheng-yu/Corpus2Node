@@ -11,5 +11,6 @@ dist/
 frontend/node_modules/
 frontend/dist/
 artifacts/
+.run/
 AGENTS.md
 CLAUDE.md

@@ -26,6 +26,16 @@ curl localhost:8000/health
 uv run pytest -q
 ```
 
+**One command for both servers** (FastAPI backend + Vite/React frontend):
+
+```bash
+./scripts/corpus.sh dev      # foreground: reload + HMR, Ctrl-C stops both  (debugging)
+corpus start                 # background: logs in .run/logs  (corpus stop|status|logs)
+```
+
+Add the alias once (zsh): `echo 'alias corpus="'"$PWD"'/scripts/corpus.sh"' >> ~/.zshrc`
+Ports default to backend `8000` / frontend `5173` (override via `CORPUS_BACKEND_PORT` / `CORPUS_FRONTEND_PORT`).
+
 Heavy ingest/embedding deps install on demand:
 
 ```bash
