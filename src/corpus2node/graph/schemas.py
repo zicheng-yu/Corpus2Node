@@ -29,3 +29,27 @@ class ExtractedRelation(BaseModel):
 class GraphExtractionResult(BaseModel):
     concepts: list[ExtractedConcept] = Field(default_factory=list)
     relations: list[ExtractedRelation] = Field(default_factory=list)
+
+
+# ── Graph critic (LLM-judge quality gate) ─────────────────────────────────────
+
+
+class ConceptVerdict(BaseModel):
+    canonical_name: str
+    grounded: bool = True  # is the definition supported by the source chunks?
+    duplicate_of: str = ""  # canonical_name of the concept this duplicates (empty = none)
+    issue: str = ""
+
+
+class RelationVerdict(BaseModel):
+    source_canonical_name: str
+    target_canonical_name: str
+    keep: bool = True
+    flip: bool = False  # source/target are reversed
+    corrected_relation_type: str = ""  # empty = keep the original relation_type
+    issue: str = ""
+
+
+class GraphCriticReport(BaseModel):
+    concept_verdicts: list[ConceptVerdict] = Field(default_factory=list)
+    relation_verdicts: list[RelationVerdict] = Field(default_factory=list)

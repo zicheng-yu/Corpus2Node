@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     extract_batch_max_chunks: int = 8
     extract_max_concurrency: int = 8
 
+    # --- Graph critic (LLM-judge quality gate; costs an extra pass — disable to save tokens) ---
+    graph_critic_enabled: bool = True
+    critic_batch_concepts: int = 40
+    critic_batch_relations: int = 60
+
     # --- Kimi (PDF extraction via Files API; NOT a LangChain chat model) ---
     kimi_base_url: str = "https://api.moonshot.cn/v1"
     kimi_api_key: str = ""

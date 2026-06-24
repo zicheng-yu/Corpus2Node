@@ -4,10 +4,16 @@ import asyncio
 from pathlib import Path
 
 from corpus2node.core.types import CourseSession, SessionStatus, SourceFile, SourceKind
-from corpus2node.graph.schemas import ExtractedConcept, ExtractedRelation, GraphExtractionResult
+from corpus2node.graph.schemas import (
+    ExtractedConcept,
+    ExtractedRelation,
+    GraphCriticReport,
+    GraphExtractionResult,
+)
 from corpus2node.graph.workflow import run_workflow, stream_workflow
 from corpus2node.index.embeddings import HashingEmbeddings
 from corpus2node.storage import local
+from corpus2node.storage.run_artifact import load_run_artifact
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_lecture.md"
 
@@ -47,6 +53,10 @@ def _fake_candidates() -> GraphExtractionResult:
     )
 
 
+async def _fake_acritic(prompt: str) -> GraphCriticReport:
+    return GraphCriticReport()  # no-op judge: exercises the critic node + passthrough repair
+
+
 def test_workflow_end_to_end_offline():
     session = _make_session()
     fixture_text = FIXTURE.read_text(encoding="utf-8")
@@ -61,6 +71,7 @@ def test_workflow_end_to_end_offline():
         run_workflow(
             session.session_id,
             astructured=fake_astructured,
+            acritic=_fake_acritic,
             embeddings=HashingEmbeddings(dims=128),
             extract_blocks=fake_extract_blocks,
         )
@@ -72,6 +83,12 @@ def test_workflow_end_to_end_offline():
     assert len(graph.edges) >= 2
     assert graph.topic_clusters
     assert all(concept.graph_metrics for concept in graph.concepts)
+
+    # run artifact recorded every node (incl. critic) with timings
+    run = load_run_artifact(session.session_id)
+    assert run.status == "succeeded"
+    assert {node.node for node in run.nodes} == {"ingest", "extract", "critic", "build"}
+    assert all(node.duration_ms >= 0 and node.status == "ok" for node in run.nodes)
 
     # artifacts + session state persisted
     assert local.load_graph_artifact(session.session_id).concepts
@@ -94,6 +111,7 @@ def test_stream_workflow_emits_step_events():
         async for event in stream_workflow(
             session.session_id,
             astructured=fake_astructured,
+            acritic=_fake_acritic,
             embeddings=HashingEmbeddings(dims=128),
             extract_blocks=lambda src: [fixture_text],
         ):
@@ -104,7 +122,8 @@ def test_stream_workflow_emits_step_events():
     types = [e["type"] for e in events]
     assert types[0] == "start" and types[-1] == "done"
     nodes = [e["data"]["node"] for e in events if e["type"] == "step"]
-    assert nodes == ["ingest", "extract", "build"]  # real per-node progress
+    assert nodes == ["ingest", "extract", "critic", "build"]  # real per-node progress
+    assert all("metrics" in e["data"] for e in events if e["type"] == "step")
     done = events[-1]["data"]
     assert done["concept_count"] >= 2 and done["cluster_count"] >= 1
 
@@ -112,6 +131,30 @@ def test_stream_workflow_emits_step_events():
     cached = asyncio.run(collect())
     assert cached[-1]["type"] == "done" and cached[-1]["data"].get("cached") is True
     assert len(cached) == 1
+
+
+def test_run_artifact_route_404_then_200():
+    from fastapi.testclient import TestClient
+
+    from corpus2node.api.app import app
+    from corpus2node.core.types import WorkflowNodeRun, WorkflowRunArtifact
+    from corpus2node.storage.run_artifact import save_run_artifact
+
+    client = TestClient(app)
+    session = _make_session()
+    assert client.get(f"/workflow/{session.session_id}/run").status_code == 404
+
+    save_run_artifact(
+        WorkflowRunArtifact(
+            session_id=session.session_id, status="succeeded", total_tokens=42,
+            nodes=[WorkflowNodeRun(node="critic", total_tokens=42, repair_count=3)],
+        )
+    )
+    res = client.get(f"/workflow/{session.session_id}/run")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "succeeded"
+    assert body["nodes"][0]["node"] == "critic" and body["nodes"][0]["repair_count"] == 3
 
 
 def test_workflow_requires_sources():

@@ -7,6 +7,9 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from corpus2node.config import settings
+from corpus2node.core.types import WorkflowRunArtifact
+from corpus2node.graph.critic import make_acritic
 from corpus2node.graph.extract import make_astructured
 from corpus2node.graph.workflow import run_workflow, stream_workflow
 from corpus2node.index.embeddings import get_embeddings
@@ -14,6 +17,7 @@ from corpus2node.llm import factory
 from corpus2node.llm.credentials import Purpose
 from corpus2node.llm.factory import LLMConfigError
 from corpus2node.storage import local
+from corpus2node.storage.run_artifact import load_run_artifact
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
 
@@ -65,13 +69,28 @@ async def stream(request: WorkflowRunRequest) -> StreamingResponse:
         embeddings = get_embeddings()
         method = factory.structured_output_method(Purpose.graph)
         astructured = make_astructured(factory.build_chat_model(Purpose.graph), method=method)
+        acritic = None
+        if settings.graph_critic_enabled:
+            cmethod = factory.structured_output_method(Purpose.critic)
+            acritic = make_acritic(factory.build_chat_model(Purpose.critic), method=cmethod)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Session not found.") from exc
     except LLMConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     async def event_source():
-        async for event in stream_workflow(request.session_id, astructured=astructured, embeddings=embeddings):
+        async for event in stream_workflow(
+            request.session_id, astructured=astructured, acritic=acritic, embeddings=embeddings
+        ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_source(), media_type="text/event-stream")
+
+
+@router.get("/{session_id}/run")
+def run_artifact(session_id: UUID) -> WorkflowRunArtifact:
+    """The latest run's per-node observability (duration / tokens / repairs / errors)."""
+    try:
+        return load_run_artifact(session_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="No workflow run recorded for this session.") from exc

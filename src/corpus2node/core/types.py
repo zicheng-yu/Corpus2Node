@@ -406,3 +406,31 @@ class RuntimeSettingsResponse(BaseModel):
 
 class RuntimeSettingsUpdate(BaseModel):
     values: dict[str, str] = Field(default_factory=dict)
+
+
+class WorkflowNodeRun(BaseModel):
+    """Per-node observability for one workflow run (timing / tokens / repairs)."""
+
+    node: str
+    status: str = "ok"  # ok | error
+    duration_ms: float = 0.0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    repair_count: int = 0  # critic node: number of concrete fixes applied
+    error: str | None = None
+    detail: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowRunArtifact(BaseModel):
+    """The observability record for one offline pipeline run (saved per session)."""
+
+    run_id: str = Field(default_factory=lambda: str(uuid4()))
+    session_id: UUID
+    status: str = "running"  # running | succeeded | failed
+    started_at: datetime = Field(default_factory=utcnow)
+    finished_at: datetime | None = None
+    duration_ms: float = 0.0
+    total_tokens: int = 0
+    nodes: list[WorkflowNodeRun] = Field(default_factory=list)
+    error: str | None = None
