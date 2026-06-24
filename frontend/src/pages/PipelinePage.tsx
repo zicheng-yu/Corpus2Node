@@ -89,6 +89,7 @@ const STAGES = [
   { label: "解析文档", detail: "提取文本内容" },
   { label: "切分片段", detail: "语义分块" },
   { label: "抽取概念", detail: "识别知识点" },
+  { label: "质检修复", detail: "LLM 裁判 + 修复" },
   { label: "构建图谱", detail: "建立关系网络" },
 ];
 
@@ -101,6 +102,23 @@ interface Counts {
   cluster: number | null;
 }
 
+interface NodeMetric {
+  duration_ms: number;
+  total_tokens: number;
+  repair_count: number;
+}
+
+const METRIC_NODES: Array<{ key: string; label: string }> = [
+  { key: "ingest", label: "解析" },
+  { key: "extract", label: "抽取" },
+  { key: "critic", label: "质检" },
+  { key: "build", label: "构建" },
+];
+
+function fmtMs(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
+}
+
 export function PipelinePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -111,6 +129,8 @@ export function PipelinePage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [phase, setPhase] = useState(0);
   const [tick, setTick] = useState(0);
+  const [nodeMetrics, setNodeMetrics] = useState<Record<string, NodeMetric>>({});
+  const [runTotals, setRunTotals] = useState<{ total_tokens: number; duration_ms: number } | null>(null);
   const triggered = useRef(false);
 
   // Animate the progress shimmer
@@ -177,7 +197,7 @@ export function PipelinePage() {
           pipelineProgress.set(id, { ...acc });
         };
         await streamWorkflow(id, (event) => {
-          const data = event.data as Record<string, number | string | boolean>;
+          const data = event.data as Record<string, unknown>;
           if (event.type === "start") {
             setPhase(0);
           } else if (event.type === "step") {
@@ -191,11 +211,27 @@ export function PipelinePage() {
               acc.concept = Number(data.concept_count ?? acc.concept ?? 0);
               acc.relation = Number(data.relation_count ?? acc.relation ?? 0);
               push();
+            } else if (node === "critic") {
+              setPhase(4);
+              if (data.concept_count != null) acc.concept = Number(data.concept_count);
+              if (data.relation_count != null) acc.relation = Number(data.relation_count);
+              push();
             } else if (node === "build") {
               acc.concept = Number(data.concept_count ?? acc.concept ?? 0);
               acc.relation = Number(data.relation_count ?? acc.relation ?? 0);
               acc.cluster = Number(data.cluster_count ?? acc.cluster ?? 0);
               push();
+            }
+            const metric = data.metrics as Partial<NodeMetric> | undefined;
+            if (metric && node) {
+              setNodeMetrics((prev) => ({
+                ...prev,
+                [node]: {
+                  duration_ms: Number(metric.duration_ms ?? 0),
+                  total_tokens: Number(metric.total_tokens ?? 0),
+                  repair_count: Number(metric.repair_count ?? 0),
+                },
+              }));
             }
           } else if (event.type === "done") {
             acc.chunk = Number(data.chunk_count ?? acc.chunk ?? 0);
@@ -203,9 +239,14 @@ export function PipelinePage() {
             acc.relation = Number(data.relation_count ?? 0);
             acc.cluster = Number(data.cluster_count ?? 0);
             push();
-            setPhase(4);
+            setPhase(5);
             setRunState("done");
-            setTimeout(() => navigate(`/session/${id}`), data.cached ? 0 : 900);
+            if (data.total_tokens != null || data.duration_ms != null) {
+              setRunTotals({ total_tokens: Number(data.total_tokens ?? 0), duration_ms: Number(data.duration_ms ?? 0) });
+            }
+            // cached run (already built) → nothing to review, go straight in;
+            // a fresh run stays so the run-metrics panel is visible.
+            if (data.cached) navigate(`/session/${id}`);
           } else if (event.type === "error") {
             setErrorMsg(String(data.message ?? "处理失败"));
             setRunState("failed");
@@ -275,6 +316,30 @@ export function PipelinePage() {
         </div>
         <div className="viz-label">PIPELINE · {runState === "running" || runState === "checking" ? "LIVE" : runState.toUpperCase()}</div>
       </div>
+
+      {Object.keys(nodeMetrics).length > 0 && (
+        <div className="run-metrics">
+          <div className="run-metrics-head">
+            <span className="run-metrics-title">本次运行 · 各节点</span>
+            {runTotals && (
+              <span className="run-metrics-total">{fmtMs(runTotals.duration_ms)} · {runTotals.total_tokens} tokens</span>
+            )}
+          </div>
+          <div className="run-metrics-rows">
+            {METRIC_NODES.filter((n) => nodeMetrics[n.key]).map((n) => {
+              const m = nodeMetrics[n.key];
+              return (
+                <div className="run-metric-row" key={n.key}>
+                  <span className="rm-node">{n.label}</span>
+                  <span className="rm-dur">{fmtMs(m.duration_ms)}</span>
+                  <span className="rm-tok">{m.total_tokens > 0 ? `${m.total_tokens} tok` : "—"}</span>
+                  <span className="rm-rep">{n.key === "critic" ? `修复 ${m.repair_count}` : ""}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {runState === "done" && (
         <div className="log-strip">
