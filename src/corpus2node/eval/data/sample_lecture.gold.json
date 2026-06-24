@@ -1,0 +1,16 @@
+{
+  "name": "sample_lecture",
+  "concepts": [
+    { "name": "树结构", "aliases": ["树"] },
+    { "name": "二叉搜索树", "aliases": ["二叉查找树", "BST"] },
+    { "name": "平衡树", "aliases": ["自平衡二叉搜索树"] }
+  ],
+  "relations": [
+    { "source": "二叉搜索树", "target": "树结构", "relation_type": "is_a" },
+    { "source": "平衡树", "target": "二叉搜索树", "relation_type": "is_a" }
+  ],
+  "qa_questions": [
+    "二叉搜索树的查找平均时间复杂度是多少？",
+    "平衡树为什么比普通二叉搜索树查找更稳定？"
+  ]
+}
