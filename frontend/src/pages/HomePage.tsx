@@ -340,9 +340,9 @@ export function HomePage() {
 
 function SessionRow({ session: s, onClick, onDelete }: { session: CourseSession; onClick: () => void; onDelete: () => void }) {
   const date = new Date(s.updated_at).toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
-  const hasPdf = s.source_files.some((f) => f.kind === "pdf");
+  const hasDoc = s.source_files.some((f) => f.kind === "document" || f.kind === "pdf");  // PDF 归入文档
+  const hasVideo = s.source_files.some((f) => f.kind === "video");
   const hasAudio = s.source_files.some((f) => f.kind === "audio");
-  const hasDoc = s.source_files.some((f) => f.kind === "document");
   const hasImage = s.source_files.some((f) => f.kind === "image");
 
   return (
@@ -353,22 +353,22 @@ function SessionRow({ session: s, onClick, onDelete }: { session: CourseSession;
         <div className="session-lecture">{s.lecture_title}</div>
         <div className="session-meta">
           <span>{date}</span>
-          {hasPdf && (
+          {hasDoc && (
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
-              PDF
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              文档
+            </span>
+          )}
+          {hasVideo && (
+            <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><polygon points="10 8 15 10.5 10 13 10 8" fill="currentColor"/></svg>
+              视频
             </span>
           )}
           {hasAudio && (
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
               音频
-            </span>
-          )}
-          {hasDoc && (
-            <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-              文档
             </span>
           )}
           {hasImage && (

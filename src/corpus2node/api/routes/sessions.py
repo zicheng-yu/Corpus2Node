@@ -77,10 +77,7 @@ async def upload_source(session_id: UUID, file: UploadFile = File(...)) -> Uploa
     if ext not in adapters.SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Unsupported file type {ext!r}. Supported: "
-                f"{', '.join(sorted(adapters.SUPPORTED_EXTENSIONS))}（图片/音频稍后支持）."
-            ),
+            detail=f"Unsupported file type {ext!r}. Supported: {', '.join(sorted(adapters.SUPPORTED_EXTENSIONS))}.",
         )
 
     data = await file.read()

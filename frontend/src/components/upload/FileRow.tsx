@@ -26,6 +26,7 @@ const KIND_ICON: Record<SourceKind, string> = {
   audio: "🎵",
   document: "📝",
   image: "🖼️",
+  video: "🎬",
 };
 
 export function FileRow({ entry }: { entry: FileEntry }) {

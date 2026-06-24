@@ -26,6 +26,7 @@ class SourceKind(str, Enum):
     audio = "audio"
     document = "document"  # txt/md/docx/pptx/csv/json/yaml
     image = "image"
+    video = "video"
 
 
 class NodeType(str, Enum):

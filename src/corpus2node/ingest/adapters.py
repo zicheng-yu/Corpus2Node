@@ -15,7 +15,8 @@ from pathlib import Path
 from corpus2node.core.text import normalize_text
 from corpus2node.core.types import SourceFile, SourceKind
 
-_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}  # Kimi vision: png/jpeg/webp/gif
+_VIDEO_EXTS = {".mp4", ".mpeg", ".mpg", ".mov", ".avi", ".flv", ".webm", ".wmv", ".3gp", ".3gpp"}
 _AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg"}
 
 
@@ -39,6 +40,8 @@ def kind_for(filename: str) -> SourceKind:
         return SourceKind.pdf
     if ext in _AUDIO_EXTS:
         return SourceKind.audio
+    if ext in _VIDEO_EXTS:
+        return SourceKind.video
     if ext in _IMAGE_EXTS:
         return SourceKind.image
     return SourceKind.document
@@ -119,6 +122,12 @@ def _read_image(filename: str, path: str) -> list[str]:
     return describe_image(filename, path)
 
 
+def _read_video(filename: str, path: str) -> list[str]:
+    from corpus2node.ingest.video_kimi import describe_video
+
+    return describe_video(filename, path)
+
+
 def _read_audio(filename: str, path: str) -> list[str]:
     from corpus2node.ingest.audio_whisper import transcribe_audio
 
@@ -137,6 +146,7 @@ _ADAPTERS = {
     ".yaml": _read_yaml,
     ".yml": _read_yaml,
     **{ext: _read_image for ext in _IMAGE_EXTS},
+    **{ext: _read_video for ext in _VIDEO_EXTS},
     **{ext: _read_audio for ext in _AUDIO_EXTS},
 }
 

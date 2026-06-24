@@ -8,7 +8,7 @@ export type SessionStatus =
   | "notes_ready"
   | "failed";
 
-export type SourceKind = "pdf" | "audio" | "document" | "image";
+export type SourceKind = "pdf" | "audio" | "document" | "image" | "video";
 
 export interface SourceFile {
   source_id: string;
@@ -319,6 +319,13 @@ export interface LLMSettingsView {
   credentials: CredentialView[];
   bindings: BindingView[];
   purposes: string[];
+}
+
+export interface PromptSettings {
+  global_instructions: string;
+  chat: string;
+  notes: string;
+  exam: string;
 }
 
 export interface CredentialUpsert {

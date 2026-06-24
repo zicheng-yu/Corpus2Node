@@ -1,20 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import clsx from "clsx";
-import { createSession, uploadSourceWithProgress, listSessions } from "../api/client";
+import {
+  createSession,
+  uploadSourceWithProgress,
+  listSessions,
+} from "../api/client";
 import type { FileEntry } from "../components/upload/FileRow";
 import { useToast } from "../components/primitives/Toast";
 import type { SourceKind } from "../types";
 import "./NewSessionPage.css";
 
 const AUDIO_EXTS = ["mp3", "wav", "m4a", "flac", "aac", "ogg"];
-const IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
-const ACCEPT = ".pdf,.txt,.md,.markdown,.docx,.pptx,.csv,.json,.yaml,.yml,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.m4a,.flac,.aac,.ogg";
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "gif"];
+const VIDEO_EXTS = ["mp4", "mpeg", "mpg", "mov", "avi", "flv", "webm", "wmv", "3gp", "3gpp"];
+const ACCEPT =
+  ".pdf,.txt,.md,.markdown,.docx,.pptx,.csv,.json,.yaml,.yml" +
+  ",.png,.jpg,.jpeg,.webp,.gif" +
+  ",.mp4,.mpeg,.mpg,.mov,.avi,.flv,.webm,.wmv,.3gp,.3gpp" +
+  ",.mp3,.wav,.m4a,.flac,.aac,.ogg";
 
 function guessKind(file: File): SourceKind {
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
   if (ext === "pdf") return "pdf";
   if (AUDIO_EXTS.includes(ext)) return "audio";
+  if (VIDEO_EXTS.includes(ext)) return "video";
   if (IMAGE_EXTS.includes(ext)) return "image";
   return "document";
 }
@@ -82,7 +92,9 @@ export function NewSessionPage() {
   }
 
   function updateEntry(id: string, patch: Partial<FileEntry>) {
-    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+    setEntries((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+    );
   }
 
   async function handleUpload() {
@@ -110,7 +122,9 @@ export function NewSessionPage() {
     for (const entry of entries) {
       updateEntry(entry.id, { status: "uploading", progress: 0 });
       try {
-        await uploadSourceWithProgress(sessionId, entry.file, (pct) => updateEntry(entry.id, { progress: pct }));
+        await uploadSourceWithProgress(sessionId, entry.file, (pct) =>
+          updateEntry(entry.id, { progress: pct }),
+        );
         updateEntry(entry.id, { status: "done", progress: 100 });
       } catch (e) {
         updateEntry(entry.id, { status: "failed", error: String(e) });
@@ -161,7 +175,16 @@ export function NewSessionPage() {
               >
                 <div className="wizard-step-num">
                   {step > i ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
                   ) : (
@@ -207,7 +230,7 @@ export function NewSessionPage() {
                 <label htmlFor="courseTitle">知识库名称</label>
                 <input
                   id="courseTitle"
-                  placeholder="例：入职手册 / 数据结构 / 项目X 文档"
+                  placeholder="例：入职手册 / 课程名 / 项目文档"
                   value={courseTitle}
                   onChange={(e) => setCourseTitle(e.target.value)}
                   autoFocus
@@ -221,12 +244,18 @@ export function NewSessionPage() {
                   placeholder="例：第一批资料 / 第三章 / 会议纪要"
                   value={lectureTitle}
                   onChange={(e) => setLectureTitle(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && canAdvance() && nextStep()}
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && canAdvance() && nextStep()
+                  }
                 />
               </div>
 
               <div className="wizard-actions">
-                <button className="btn btn-ghost" onClick={() => navigate("/")} type="button">
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => navigate("/")}
+                  type="button"
+                >
                   取消
                 </button>
                 <button
@@ -236,7 +265,16 @@ export function NewSessionPage() {
                   type="button"
                 >
                   下一步
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="m9 18 6-6-6-6" />
                   </svg>
                 </button>
@@ -248,26 +286,46 @@ export function NewSessionPage() {
           {step === 1 && (
             <>
               <div className="wizard-h">上传文件</div>
-              <div className="wizard-hsub">支持 PDF / Word / PPT / Markdown / 文本 / 表格 / 图片 / 音频</div>
+              <div className="wizard-hsub">
+                支持 PDF / Word / PPT / Markdown / 文本 / 表格 / 图片 / 视频 / 音频
+              </div>
 
               <div
                 className={clsx("dropzone", { "drag-active": dragActive })}
                 onClick={() => fileInputRef.current?.click()}
                 onDrop={handleDrop}
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragActive(true);
+                }}
                 onDragLeave={() => setDragActive(false)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => e.key === "Enter" && fileInputRef.current?.click()}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && fileInputRef.current?.click()
+                }
                 aria-label="上传文件区域"
               >
                 <div className="dropzone-icon">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                  <svg
+                    width="32"
+                    height="32"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
                   </svg>
                 </div>
                 <div className="dropzone-title">拖放文件到此处，或点击选择</div>
-                <div className="dropzone-sub">PDF · DOCX · PPTX · MD · CSV · 图片 · 音频 · 最大 500 MB</div>
+                <div className="dropzone-sub">
+                  PDF · DOCX · PPTX · MD · CSV · 图片 · 视频 · 音频 · 最大 500 MB
+                </div>
               </div>
 
               <input
@@ -286,21 +344,60 @@ export function NewSessionPage() {
                 <div className="wizard-file-list">
                   {entries.map((entry) => (
                     <div key={entry.id} className="file-row">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: "var(--ink-3)" }}>
-                        {entry.kind === "audio"
-                          ? <><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></>
-                          : <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></>
-                        }
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ flexShrink: 0, color: "var(--ink-3)" }}
+                      >
+                        {entry.kind === "audio" ? (
+                          <>
+                            <path d="M9 18V5l12-2v13" />
+                            <circle cx="6" cy="18" r="3" />
+                            <circle cx="18" cy="16" r="3" />
+                          </>
+                        ) : entry.kind === "video" ? (
+                          <>
+                            <rect x="2" y="3" width="20" height="14" rx="2" />
+                            <polygon points="10 8 15 10.5 10 13 10 8" fill="currentColor" />
+                          </>
+                        ) : entry.kind === "image" ? (
+                          <>
+                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                            <circle cx="9" cy="9" r="2" />
+                            <path d="m21 15-3.5-3.5L9 20" />
+                          </>
+                        ) : (
+                          <>
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14,2 14,8 20,8" />
+                          </>
+                        )}
                       </svg>
                       <span className="file-row-name">{entry.file.name}</span>
-                      <span className="file-row-size">{formatBytes(entry.file.size)}</span>
+                      <span className="file-row-size">
+                        {formatBytes(entry.file.size)}
+                      </span>
                       <button
                         className="btn-icon"
                         onClick={() => removeEntry(entry.id)}
                         type="button"
                         aria-label={`移除 ${entry.file.name}`}
                       >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                        >
                           <path d="M18 6 6 18M6 6l12 12" />
                         </svg>
                       </button>
@@ -310,8 +407,21 @@ export function NewSessionPage() {
               )}
 
               <div className="wizard-actions">
-                <button className="btn btn-ghost" onClick={prevStep} type="button">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <button
+                  className="btn btn-ghost"
+                  onClick={prevStep}
+                  type="button"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="m15 18-6-6 6-6" />
                   </svg>
                   上一步
@@ -323,7 +433,16 @@ export function NewSessionPage() {
                   type="button"
                 >
                   下一步
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="m9 18 6-6-6-6" />
                   </svg>
                 </button>
@@ -347,9 +466,23 @@ export function NewSessionPage() {
                 <div className="review-label">文件</div>
                 <div className="review-value">
                   {entries.map((e) => (
-                    <div key={e.id} style={{ marginBottom: 2, fontSize: 14, fontFamily: "var(--font-ui)" }}>
+                    <div
+                      key={e.id}
+                      style={{
+                        marginBottom: 2,
+                        fontSize: 14,
+                        fontFamily: "var(--font-ui)",
+                      }}
+                    >
                       {e.file.name}
-                      <span style={{ fontSize: 11, color: "var(--ink-4)", marginLeft: 8, fontFamily: "var(--font-mono)" }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: "var(--ink-4)",
+                          marginLeft: 8,
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
                         {formatBytes(e.file.size)}
                       </span>
                     </div>
@@ -357,14 +490,35 @@ export function NewSessionPage() {
                 </div>
 
                 <div className="review-label">解析流程</div>
-                <div className="review-value" style={{ fontSize: 14, fontFamily: "var(--font-ui)", color: "var(--ink-2)" }}>
+                <div
+                  className="review-value"
+                  style={{
+                    fontSize: 14,
+                    fontFamily: "var(--font-ui)",
+                    color: "var(--ink-2)",
+                  }}
+                >
                   文档解析 → 片段切分 → 概念抽取 → 图谱构建
                 </div>
               </div>
 
               <div className="wizard-actions">
-                <button className="btn btn-ghost" onClick={prevStep} disabled={uploading} type="button">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <button
+                  className="btn btn-ghost"
+                  onClick={prevStep}
+                  disabled={uploading}
+                  type="button"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="m15 18-6-6 6-6" />
                   </svg>
                   上一步
@@ -377,7 +531,17 @@ export function NewSessionPage() {
                 >
                   {uploading ? (
                     <>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ animation: "spin 1s linear infinite" }}
+                      >
                         <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                       </svg>
                       上传中…
@@ -385,7 +549,16 @@ export function NewSessionPage() {
                   ) : (
                     <>
                       开始解析
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <polygon points="5 3 19 12 5 21 5 3" />
                       </svg>
                     </>
