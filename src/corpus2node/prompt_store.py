@@ -16,6 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from corpus2node.config import settings
+from corpus2node.storage import local
 
 AREAS = ("chat", "notes", "exam")
 
@@ -39,9 +40,7 @@ def load() -> PromptSettings:
 
 
 def save(value: PromptSettings) -> PromptSettings:
-    path = _path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(value.model_dump_json(indent=2), encoding="utf-8")
+    local.write_text_atomic(_path(), value.model_dump_json(indent=2))
     return value
 
 

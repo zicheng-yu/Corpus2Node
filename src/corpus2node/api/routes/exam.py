@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from uuid import UUID
 
@@ -57,7 +58,11 @@ async def generate_exam_stream(request: GenerateExamRequest) -> StreamingRespons
         exam = await exam_generate.generate_exam(request, on_question=on_question)
         emit({"type": "done", "data": {"exam": exam.model_dump(mode="json")}})
 
-    return _job_stream(jobs.start(f"exam:{request.session_id}", runner))
+    try:
+        job = jobs.start(f"exam:{request.session_id}", runner, fingerprint=_fingerprint(request))
+    except jobs.JobConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _job_stream(job)
 
 
 @router.get("/exam/{session_id}/stream")
@@ -92,3 +97,8 @@ def delete_exam(session_id: UUID) -> dict[str, bool]:
         raise HTTPException(status_code=404, detail="Session not found.") from exc
     local.delete_exam(session_id)
     return {"ok": True}
+
+
+def _fingerprint(request: GenerateExamRequest) -> str:
+    payload = request.model_dump(mode="json")
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()

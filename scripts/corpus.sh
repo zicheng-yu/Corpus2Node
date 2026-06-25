@@ -7,7 +7,8 @@
 #   corpus            same as `corpus dev`
 #   corpus dev        run both in the FOREGROUND with reload/HMR; Ctrl-C stops both  (debugging)
 #   corpus start      run both in the BACKGROUND (logs to .run/logs); survives terminal close  (release)
-#   corpus stop|end   stop the background servers
+#   corpus stop|end   stop the tracked background servers
+#   corpus force-stop stop tracked servers and clear configured ports
 #   corpus restart    stop then start (background)
 #   corpus status     show what's running
 #   corpus logs       tail the background logs
@@ -77,7 +78,6 @@ dev() {
     trap - INT TERM EXIT
     printf '\n'; info "stopping…"
     kill_tree "$back"; kill_tree "$front"
-    free_port "$BACK_PORT"; free_port "$FRONT_PORT"
     ok "stopped"
   }
   trap cleanup INT TERM EXIT
@@ -121,9 +121,13 @@ stop() {
       did=1
     fi
   done
-  # safety net: free the ports even if a pidfile was lost
+  if [ "$did" = 1 ]; then ok "stopped"; else info "nothing tracked to stop"; fi
+}
+
+force_stop() {
+  stop
+  warn "clearing configured ports $BACK_PORT / $FRONT_PORT"
   free_port "$BACK_PORT"; free_port "$FRONT_PORT"
-  if [ "$did" = 1 ]; then ok "stopped"; else info "nothing tracked to stop (ports freed if held)"; fi
 }
 
 status() {
@@ -152,7 +156,8 @@ corpus — dev / release launcher for Corpus2Node (FastAPI backend + React/Vite 
   corpus            same as `corpus dev`
   corpus dev        run both in the FOREGROUND with reload/HMR; Ctrl-C stops both  (debugging)
   corpus start      run both in the BACKGROUND (logs to .run/logs); survives terminal close  (release)
-  corpus stop|end   stop the background servers
+  corpus stop|end   stop the tracked background servers
+  corpus force-stop stop tracked servers and clear configured ports
   corpus restart    stop then start (background)
   corpus status     show what's running
   corpus logs       tail the background logs
@@ -167,6 +172,7 @@ case "${1:-dev}" in
   dev|"")        dev ;;
   start|up)      start ;;
   stop|end|down) stop ;;
+  force-stop)    force_stop ;;
   restart)       stop; start ;;
   status|ps)     status ;;
   logs|log)      logs ;;

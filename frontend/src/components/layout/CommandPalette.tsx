@@ -14,6 +14,13 @@ const NAV_ITEMS = [
   { label: "新建知识库", path: "/new", icon: "+" },
 ];
 
+function sessionHref(session: CourseSession): string {
+  if (session.status === "graph_ready" || session.status === "notes_ready") {
+    return `/session/${session.session_id}`;
+  }
+  return `/session/${session.session_id}/pipeline`;
+}
+
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [sessions, setSessions] = useState<CourseSession[]>([]);
@@ -57,8 +64,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const lq = query.toLowerCase();
   const filteredSessions = sessions.filter(
     (s) =>
-      s.lecture_title.toLowerCase().includes(lq) ||
-      s.course_title.toLowerCase().includes(lq),
+      !s.lecture_title.startsWith("[总图谱] ") &&
+      (s.lecture_title.toLowerCase().includes(lq) || s.course_title.toLowerCase().includes(lq)),
   );
   const filteredNav = NAV_ITEMS.filter((n) => n.label.toLowerCase().includes(lq));
 
@@ -116,10 +123,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 <div
                   key={s.session_id}
                   className="cmdk-item"
-                  onClick={() => go(`/session/${s.session_id}`)}
+                  onClick={() => go(sessionHref(s))}
                   role="option"
                   tabIndex={0}
-                  onKeyDown={(e) => e.key === "Enter" && go(`/session/${s.session_id}`)}
+                  onKeyDown={(e) => e.key === "Enter" && go(sessionHref(s))}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: "var(--ink-3)" }}>
                     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from corpus2node.config import settings
 from corpus2node.llm.credentials import LLMSettings, ProviderCredential, ProviderKind
+from corpus2node.storage import local
 
 _LOCK = threading.RLock()
 _CACHE: LLMSettings | None = None
@@ -47,8 +48,7 @@ def reset_cache() -> None:
 def _write(value: LLMSettings) -> None:
     global _CACHE
     path = _path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(value.model_dump_json(indent=2), encoding="utf-8")
+    local.write_text_atomic(path, value.model_dump_json(indent=2))
     _CACHE = value
 
 

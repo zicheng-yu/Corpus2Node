@@ -63,8 +63,7 @@ def run_artifact_path(session_id: uuid.UUID) -> Path:
 
 def save_run_artifact(artifact: WorkflowRunArtifact) -> Path:
     path = run_artifact_path(artifact.session_id)
-    path.write_text(artifact.model_dump_json(indent=2), encoding="utf-8")
-    return path
+    return local.write_text_atomic(path, artifact.model_dump_json(indent=2))
 
 
 def load_run_artifact(session_id: uuid.UUID) -> WorkflowRunArtifact:

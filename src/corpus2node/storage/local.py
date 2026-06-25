@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import uuid
 from pathlib import Path
@@ -42,10 +43,25 @@ def _read_model(path: Path, model_type: type[T]) -> T:
     return model_type.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-def _write_model(path: Path, model: BaseModel) -> Path:
+def write_text_atomic(path: Path, text: str) -> Path:
+    """Write text via same-directory replace so readers never see partial JSON."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
     return path
+
+
+def write_bytes_atomic(path: Path, data: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+    return path
+
+
+def _write_model(path: Path, model: BaseModel) -> Path:
+    return write_text_atomic(path, model.model_dump_json(indent=2))
 
 
 def session_path(session_id: uuid.UUID) -> Path:
@@ -101,10 +117,18 @@ def upload_dir(session_id: uuid.UUID) -> Path:
     return path
 
 
-def write_upload(session_id: uuid.UUID, filename: str, data: bytes) -> Path:
-    path = upload_dir(session_id) / filename
-    path.write_bytes(data)
-    return path
+def safe_display_filename(filename: str) -> str:
+    return Path(filename or "upload").name or "upload"
+
+
+def stored_upload_filename(source_id: uuid.UUID, filename: str) -> str:
+    return f"{source_id}{Path(safe_display_filename(filename)).suffix.lower()}"
+
+
+def write_upload(session_id: uuid.UUID, filename: str, data: bytes, *, source_id: uuid.UUID | None = None) -> Path:
+    safe_name = stored_upload_filename(source_id, filename) if source_id else safe_display_filename(filename)
+    path = upload_dir(session_id) / safe_name
+    return write_bytes_atomic(path, data)
 
 
 def ingest_dir(session_id: uuid.UUID) -> Path:
@@ -198,6 +222,4 @@ def delete_chat(session_id: uuid.UUID) -> None:
 
 
 def write_json(path: Path, data: dict) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2))

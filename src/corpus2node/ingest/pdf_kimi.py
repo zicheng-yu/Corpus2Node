@@ -1,8 +1,7 @@
-"""Minimal PDF adapter via Kimi's Files API (file-extract).
+"""PDF adapter via Kimi's Files API (file-extract).
 
-Minimal on purpose — PPT/Word/Markdown/image (multimodal) adapters and a proper
-upload route are a planned follow-up batch. Returns page-ish text blocks; the
-chunker turns those into EvidenceChunks (page index preserved as a locator).
+Returns page-ish text blocks; the shared chunker turns those into EvidenceChunks
+with page index preserved as a locator when blocks are paginated.
 """
 from __future__ import annotations
 

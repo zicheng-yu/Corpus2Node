@@ -119,12 +119,14 @@ export function NewSessionPage() {
     }
 
     // 2) upload each file to the unified sources endpoint
+    let uploadedCount = 0;
     for (const entry of entries) {
       updateEntry(entry.id, { status: "uploading", progress: 0 });
       try {
         await uploadSourceWithProgress(sessionId, entry.file, (pct) =>
           updateEntry(entry.id, { progress: pct }),
         );
+        uploadedCount += 1;
         updateEntry(entry.id, { status: "done", progress: 100 });
       } catch (e) {
         updateEntry(entry.id, { status: "failed", error: String(e) });
@@ -133,6 +135,10 @@ export function NewSessionPage() {
     }
 
     setUploading(false);
+    if (uploadedCount === 0) {
+      toast("没有文件上传成功，请修正后重试。", "error");
+      return;
+    }
     navigate(`/session/${sessionId}/pipeline`);
   }
 

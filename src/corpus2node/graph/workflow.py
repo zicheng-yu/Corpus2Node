@@ -248,6 +248,10 @@ async def stream_workflow(
     # Key on graph EXISTENCE, not status (status can be a stale building_graph).
     try:
         graph = local.load_graph_artifact(session_id)
+        if session.stats.chunk_count == 0:
+            session.stats.chunk_count = _chunk_count(session_id)
+            session.updated_at = utcnow()
+            local.save_session(session)
         yield {"type": "done", "data": {
             "chunk_count": session.stats.chunk_count,
             "concept_count": len(graph.concepts),
@@ -295,6 +299,7 @@ async def stream_workflow(
     final = local.load_session(session_id)
     final.status = SessionStatus.graph_ready
     final.error_message = None
+    final.stats.chunk_count = _chunk_count(session_id)
     final.stats.concept_count = len(graph.concepts)
     final.stats.relation_count = len(graph.edges)
     final.stats.cluster_count = len(graph.topic_clusters)
@@ -331,8 +336,12 @@ def _candidates_path(session_id: UUID):
     return local.session_dir(session_id) / "graph_candidates.json"
 
 
+def _chunk_count(session_id: UUID) -> int:
+    return sum(len(artifact.chunks) for artifact in local.list_ingest_artifacts(session_id))
+
+
 def _save_candidates(session_id: UUID, candidates: GraphExtractionResult) -> None:
-    _candidates_path(session_id).write_text(candidates.model_dump_json(indent=2), encoding="utf-8")
+    local.write_text_atomic(_candidates_path(session_id), candidates.model_dump_json(indent=2))
 
 
 def _load_candidates(session_id: UUID) -> GraphExtractionResult:
@@ -344,4 +353,4 @@ def _critic_report_path(session_id: UUID):
 
 
 def _save_critic_report(session_id: UUID, report: GraphCriticReport) -> None:
-    _critic_report_path(session_id).write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    local.write_text_atomic(_critic_report_path(session_id), report.model_dump_json(indent=2))

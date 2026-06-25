@@ -12,7 +12,7 @@ from corpus2node.assistant.agent import _choose_subgraph, run_chat, stream_chat_
 from corpus2node.assistant.tools import ChatContext
 from corpus2node.graph.build import build_graph_artifact
 from corpus2node.graph.schemas import ExtractedConcept, ExtractedRelation, GraphExtractionResult
-from corpus2node.core.types import EvidenceChunk, SourceKind, SubgraphResponse
+from corpus2node.core.types import ChatMessage, EvidenceChunk, SourceKind, SubgraphResponse
 from corpus2node.index import search
 from corpus2node.index.embeddings import HashingEmbeddings
 
@@ -24,11 +24,13 @@ class FakeChatModel(BaseChatModel):
 
     responses: list[BaseMessage] = []
     _cursor: int = PrivateAttr(default=0)
+    _seen_messages: list = PrivateAttr(default_factory=list)
 
     def bind_tools(self, tools, **kwargs):  # noqa: ANN001 - tools ignored; we script tool_calls
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        self._seen_messages = messages
         index = min(self._cursor, len(self.responses) - 1)
         self._cursor += 1
         return ChatResult(generations=[ChatGeneration(message=self.responses[index])])
@@ -70,6 +72,25 @@ def test_run_chat_forces_grounding_when_model_skips_tools():
     assert len(turn.citations) >= 1  # fallback local_search guarantees a citation
     assert turn.subgraph is not None and turn.subgraph.nodes
     assert turn.trace and turn.trace[-1].type == "answer"
+
+
+def test_run_chat_appends_citation_when_model_omits_marker():
+    fake = FakeChatModel(responses=[AIMessage(content="二叉搜索树用于查找。")])
+    turn = asyncio.run(run_chat("二叉搜索树是什么", _context(), model=fake))
+    assert "参考来源：" in turn.answer
+    assert "[1]" in turn.answer
+
+
+def test_run_chat_includes_recent_history():
+    fake = FakeChatModel(responses=[AIMessage(content="延续上一轮回答。[1]")])
+    history = [
+        ChatMessage(role="user", content="上一轮问题"),
+        ChatMessage(role="assistant", content="上一轮答案"),
+    ]
+    asyncio.run(run_chat("继续解释", _context(), model=fake, history=history))
+    contents = [getattr(message, "content", "") for message in fake._seen_messages]
+    assert "上一轮问题" in contents
+    assert "上一轮答案" in contents
 
 
 def test_run_chat_uses_tool_results_as_citations():

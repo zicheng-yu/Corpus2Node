@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from uuid import UUID
 
@@ -57,7 +58,11 @@ async def generate_notes_stream(request: GenerateNotesRequest) -> StreamingRespo
         note = await notes_generate.generate_notes(request, on_section=on_section)
         emit({"type": "done", "data": {"note": note.model_dump(mode="json")}})
 
-    return _job_stream(jobs.start(f"notes:{request.session_id}", runner))
+    try:
+        job = jobs.start(f"notes:{request.session_id}", runner, fingerprint=_fingerprint(request))
+    except jobs.JobConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _job_stream(job)
 
 
 @router.get("/notes/{session_id}/stream")
@@ -93,3 +98,8 @@ def delete_notes(session_id: UUID) -> dict[str, bool]:
         raise HTTPException(status_code=404, detail="Session not found.") from exc
     local.delete_note(session_id)
     return {"ok": True}
+
+
+def _fingerprint(request: GenerateNotesRequest) -> str:
+    payload = request.model_dump(mode="json")
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()

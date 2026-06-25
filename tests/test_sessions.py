@@ -5,6 +5,7 @@ import uuid
 from fastapi.testclient import TestClient
 
 from corpus2node.api.app import app
+from corpus2node.config import settings
 
 client = TestClient(app)
 
@@ -40,6 +41,28 @@ def test_upload_markdown_adds_document_source():
     response = client.post(f"/sessions/{session_id}/sources", files=files)
     assert response.status_code == 200
     assert response.json()["kind"] == "document"
+
+
+def test_upload_sanitizes_filename_and_stores_by_source_id():
+    session_id = client.post("/sessions", json={"course_title": "DS", "lecture_title": "Trees"}).json()["session_id"]
+    files = {"file": ("../notes.md", "# 树".encode("utf-8"), "text/markdown")}
+    response = client.post(f"/sessions/{session_id}/sources", files=files)
+    assert response.status_code == 200
+    source_id = response.json()["source_id"]
+
+    session = client.get(f"/sessions/{session_id}").json()
+    source = session["source_files"][0]
+    assert source["filename"] == "notes.md"
+    assert source["storage_path"].endswith(f"/uploads/{source_id}.md")
+    assert ".." not in source["storage_path"]
+
+
+def test_upload_rejects_file_over_configured_limit(monkeypatch):
+    monkeypatch.setattr(settings, "max_upload_bytes", 4)
+    session_id = client.post("/sessions", json={"course_title": "DS", "lecture_title": "Trees"}).json()["session_id"]
+    files = {"file": ("large.md", b"12345", "text/markdown")}
+    response = client.post(f"/sessions/{session_id}/sources", files=files)
+    assert response.status_code == 413
 
 
 def test_upload_image_accepted():

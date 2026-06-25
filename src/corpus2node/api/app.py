@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import traceback
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,23 +25,49 @@ logger = logging.getLogger("corpus2node.api")
 
 app = FastAPI(title="Corpus2Node API", version=__version__)
 
+
+def _cors_origins() -> list[str]:
+    configured = [origin.strip() for origin in settings.cors_allow_origins.split(",") if origin.strip()]
+    return configured or ["*"]
+
+
+_PUBLIC_PATH_PREFIXES = ("/health", "/ui", "/docs", "/redoc", "/openapi.json")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+@app.middleware("http")
+async def optional_bearer_auth(request: Request, call_next):
+    """Protect the API when API_AUTH_TOKEN is configured; keep local dev zero-config."""
+    token = settings.api_auth_token
+    if (
+        token
+        and request.method != "OPTIONS"
+        and not request.url.path.startswith(_PUBLIC_PATH_PREFIXES)
+        and request.headers.get("authorization") != f"Bearer {token}"
+    ):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
+
+
 @app.exception_handler(Exception)
 async def on_unhandled_error(request: Request, exc: Exception) -> JSONResponse:
-    # Log the full traceback (stays in the terminal) AND return it (stays on the page)
-    # so errors can be copied/analysed during the manual-verification phase.
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    include_traceback = settings.debug_tracebacks and settings.app_env.lower() != "production"
+    content = {"detail": str(exc) if include_traceback else "Internal server error.", "type": type(exc).__name__}
+    if include_traceback:
+        import traceback
+
+        content["traceback"] = traceback.format_exc()
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc), "type": type(exc).__name__, "traceback": traceback.format_exc()},
+        content=content,
     )
 
 
@@ -68,8 +93,7 @@ async def health() -> dict[str, object]:
     }
 
 
-# Minimal no-build verification UI (served at /ui/). Disposable — the real frontend
-# will live under frontend/ and align with the original project's stack.
+# Minimal no-build verification UI (served at /ui/); the main frontend lives in frontend/.
 _WEB_DIR = ROOT_DIR / "web"
 if _WEB_DIR.is_dir():
     app.mount("/ui", StaticFiles(directory=str(_WEB_DIR), html=True), name="ui")

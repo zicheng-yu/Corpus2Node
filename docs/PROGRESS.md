@@ -9,12 +9,13 @@
 
 ## 当前已验证状态
 
-- **后端测试 105 passed**（`.venv/bin/python -m pytest -q`，2026-06-25 实测，1.2s）。
-- **前端 `npm run build` 通过**（最近一次在 commit `2a96b60` 状态；此后只改了 `docs/`，未动前端）。
-- **ruff clean**。工作树干净，分支 `feat`。
+- **后端测试 112 passed**（`.venv/bin/python -m pytest -q`，2026-06-25 实测，1.7s）。
+- **前端 `npm run build` 通过**（2026-06-25 实测）。
+- **ruff clean**（`.venv/bin/ruff check src tests`，2026-06-25 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/出题）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
 - **在线闭环可跑**：chat agent（强制引用 + trace + SSE）、notes（map-reduce + coverage critic）、exam（generator + verifier 回路）、export（md/tex/txt/pdf）路由齐全且有测试覆盖。
 - **多模态摄入**：文档 7 类 + PDF（Kimi file-extract）+ 图片/视频（Kimi vision/K2.6）+ 音频（faster-whisper），注册表式接入。
+- **本轮审阅修复已落地并验证**：API 可选 Bearer token、生产环境隐藏 traceback、上传路径清洗/大小限制/分块落盘、JSON artifact 原子写、chat 多轮历史 + 预检索引用兜底、notes/exam 参数冲突保护、流式 workflow `chunk_count` 一致、前端命令面板跳转/上传全失败处理、启动脚本默认不误杀端口、最小 CI、README 按要求清空。
 
 ## 仓库根目录
 
@@ -27,7 +28,7 @@ Donor / 只读参考仓库：`/Users/zicheng/Documents/Playground/Course2Note`
 corpus dev      # 前台同时起前后端（调试用，Ctrl-C 停）；脚本 scripts/corpus.sh，alias 在 ~/.zshrc
 corpus start     # 后台起，日志在 .run/logs/{backend,frontend}.log
 corpus status    # 看进程/端口
-corpus stop      # 停
+corpus stop      # 停 pidfile 记录的后台进程；强制清端口用 corpus force-stop
 # 后端单独：.venv/bin/uvicorn corpus2node.api.app:app --reload
 # 前端单独：cd frontend && npm run dev
 # 零构建验证 UI：后端起后访问 /ui（web/index.html，含凭据配置面板）
@@ -66,7 +67,7 @@ ruff check src tests                                  # lint
 
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
-| `config.py` | 基础设施配置（**无 LLM 槽**）：Kimi PDF/vision 配置、`embed_provider`、`graph_critic_enabled` 等开关 | 加基础设施开关 / 调 Kimi 解析参数 |
+| `config.py` | 基础设施配置（**无 LLM 槽**）：API 安全开关、上传大小、Kimi PDF/vision 配置、`embed_provider`、`graph_critic_enabled` 等开关 | 加基础设施开关 / 调 Kimi 解析参数 |
 | `core/types.py` | **数据契约脊柱**：GraphArtifact / NoteDocument / ExamDocument / ChatDocument / EvidenceChunk / ConceptNode / GraphEdge / SourceKind / WorkflowRunArtifact | 改 wire 契约（**必须**和 `frontend/src/types/index.ts` 一起改） |
 | `core/text.py` | 文本规范化 / 结构感知分块 / canonicalize | 调分块粒度 / 归一化规则 |
 | `core/clock.py` · `core/logging_config.py` | `utcnow()`（naive UTC）· 日志配置 | 时间/日志 |
@@ -80,13 +81,13 @@ ruff check src tests                                  # lint
 | `graph/workflow.py` | **LangGraph 离线 DAG**：ingest→extract→critic→build，每节点经 RunRecorder 记耗时/token/repair | 改离线流水线拓扑 |
 | `notes/generate.py` `markdown.py` `prompts.py` `schemas.py` | **笔记**：map-reduce 分章（carry-forward 去重）+ 检索 chunk 落地引用 + **确定性 coverage critic** 补未覆盖核心概念；markdown.py 是 donor 来的确定性后处理 | 调笔记结构/覆盖 |
 | `exam/generate.py` `validate.py` `prompts.py` `schemas.py` | **出卷**：generator + **verifier 独立求解回路**（solver 用 Purpose.critic 独立作答，不符/无据则打回补足到请求数）；validate 是题型/难度校验 + `answers_match` | 调出题/校验/难度 |
-| `assistant/agent.py` `tools.py` | **招牌：在线 chat agent**（单 tool-calling agent + 强制引用 + 结构化 trace + SSE）；tools = retrieve_chunks / search_concepts / get_subgraph | 调问答行为 / 加 agent 工具 |
+| `assistant/agent.py` `tools.py` | **招牌：在线 chat agent**（单 tool-calling agent + 最近历史 + 预检索引用兜底 + 结构化 trace + SSE）；tools = retrieve_chunks / search_concepts / get_subgraph | 调问答行为 / 加 agent 工具 |
 | `export/renderer.py` | 导出 md/tex/txt（纯 Python）+ pdf（惰性 wkhtmltopdf→xhtml2pdf，`[export]` extra）+ render_chat_markdown | 加导出格式 |
 | `eval/metrics.py` `harness.py` `schemas.py` `__main__.py` `data/` | **离线评估**：纯指标（抽取 F1 / 关系合法+召回 / 笔记覆盖 / 出卷可溯源+客观题合法 / 问答 grounding）+ harness + CLI + gold fixture | 加评估指标 / 调 gold |
-| `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放——notes/exam 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
+| `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放 + 同参数复用/异参数冲突保护——notes/exam 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
 | `prompt_store.py` | 用户自定义提示词（global + chat/notes/exam）作为「补充偏好」**追加**到内置 system prompt（不覆盖结构化/引用约束；抽取与质检不受影响） | 调自定义 prompt 接入面 |
-| `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
-| `api/app.py` + `api/routes/*` | FastAPI：sessions · settings(`/settings/llm` 注册表 CRUD) · prompts(`/settings/prompts`) · workflow(`/workflow/run` + run-metrics) · chat(`/chat/{message,stream}`) · notes(`/generate_notes[+/stream]`,`/notes/{id}[/stream]`) · exam(同形) · export(`/export/*`) · graph(`GET /graph/{id}`、`/subgraph`、`POST /search`、`GET /graph/concepts` 全局知识点搜索) | 加/改 HTTP 接口 |
+| `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源，原子写）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
+| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions（安全上传）· settings(`/settings/llm` 注册表 CRUD) · prompts(`/settings/prompts`) · workflow(`/workflow/run` + run-metrics) · chat(`/chat/{message,stream}`) · notes(`/generate_notes[+/stream]`,`/notes/{id}[/stream]`) · exam(同形) · export(`/export/*`) · graph(`GET /graph/{id}`、`/subgraph`、`POST /search`、`GET /graph/concepts` 全局知识点搜索) | 加/改 HTTP 接口 |
 
 ### 前端 `frontend/src/`
 
@@ -95,11 +96,11 @@ ruff check src tests                                  # lint
 | `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点） | 加/改一个后端调用 |
 | `types/index.ts` | 前端契约（对应 `core/types.py`） | 改契约（和后端一起改） |
 | `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **全局知识点搜索** + 来源标签(文档/视频/音频/图片) | 改首页/库管理 |
-| `pages/NewSessionPage.tsx` | 上传建库（统一上传入口） | 改上传流程 |
+| `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
 | `pages/PipelinePage.tsx` | 流水线可视化 + **质检阶段** + per-node **run-metrics 面板**（耗时/token/repair） | 改流水线展示 |
 | `pages/WorkspacePage.tsx` | 图谱 + 右栏**对话/笔记/试卷**标签页（选区可转对话 + ExportMenu） | 改主工作区 |
 | `components/layout/SettingsPanel.tsx` | **统一设置**：模型（凭据列表 + 按 purpose 下拉绑定）/ 外观 / 提示词（真实编辑器） | 改设置面板 |
-| `components/layout/CommandPalette.tsx` | ⌘K 命令面板 + **全局知识点搜索** | 改全局搜索/快捷入口 |
+| `components/layout/CommandPalette.tsx` | ⌘K 命令面板 + **全局知识点搜索** + 按 session 状态跳转 | 改全局搜索/快捷入口 |
 | `components/layout/{AppShell,TopBar}.tsx` | 外壳 / 顶栏 | 改全局布局 |
 | `components/{chat,graph,notes,search,upload,primitives}/` | 各功能 UI 块（ReactFlow 图、引用卡、检索面板、上传等） | 改某块 UI |
 | `hooks/ utils/ styles/` | 辅助 hooks / 工具 / 设计 token（theme.css） | 改主题/通用逻辑 |
@@ -108,15 +109,35 @@ ruff check src tests                                  # lint
 
 | 路径 | 功能 |
 |------|------|
-| `scripts/corpus.sh` | 启动器：`dev`（前台）/ `start|stop|status|logs|restart`（后台）；alias `corpus` 在 `~/.zshrc` |
+| `scripts/corpus.sh` | 启动器：`dev`（前台）/ `start|stop|force-stop|status|logs|restart`（后台）；alias `corpus` 在 `~/.zshrc` |
+| `.github/workflows/ci.yml` | 最小 CI：后端 uv sync + ruff + pytest；前端 npm ci + build |
 | `tests/` | 后端测试（TestClient + 注入 seam 离线跑 LLM 路径 + `conftest` 用 tmp_path 隔离存储/重置 llm store 缓存） |
 | `web/index.html` | 零构建最小验证 UI（挂 `/ui`，含凭据配置面板） |
 | `docs/PROGRESS.md` · `docs/SESSION.md` | 本进度真相 · 会话交接摘要 |
 | `CLAUDE.md` | 操作手册（定位/架构/原则/约定）；`AGENTS.md` 是其旧副本（已 stale，两者均 gitignore） |
+| `README.md` | 按当前要求暂时清空，早期开发阶段不维护对外说明 |
 
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-06-25 — 全面修复项目审阅问题（主要 + 次要）
+- **本轮目标**：按项目全面审阅结论修复主要/次要问题；README 暂时清空；所有相关修改写入 docs；允许提交。
+- **已完成**：
+  - API 安全：新增 `APP_ENV` / `DEBUG_TRACEBACKS` / `CORS_ALLOW_ORIGINS` / `API_AUTH_TOKEN` / `MAX_UPLOAD_BYTES` 配置；生产环境不返回 traceback；配置 token 后非公开 API 需 Bearer token。
+  - 上传安全：上传文件名清洗为 basename；磁盘文件按 `source_id + ext` 存储；分块读取并限制大小；空文件/超限文件拒绝；避免同名覆盖与路径穿越。
+  - 落盘一致性：JSON artifact、LLM settings、prompt settings、workflow run artifact、graph candidates/critic report 改为同目录临时文件 + `os.replace` 原子写。
+  - workflow 一致性：流式 workflow 完成和缓存路径都回填/返回真实 `chunk_count`。
+  - chat 质量：传入最近 12 条历史消息；生成前做确定性预检索并把可引用资料放入当前问题；模型漏写 `[n]` 时补 `参考来源`；流式失败不再落盘空 assistant 消息。
+  - notes/exam 流式任务：同一 session 同一参数复用任务，不同参数并发请求返回 409，避免拿到错误结果；完成任务缓存加上限清理。
+  - 前端行为：命令面板按 session 状态跳 workspace/pipeline 并隐藏虚拟总图谱；上传页全部失败时停留并提示，部分成功才进入 pipeline；前端包名改为 `corpus2node-frontend`。
+  - 启动脚本：`corpus stop` 只停 pidfile 记录进程，新增 `corpus force-stop` 显式清端口，避免误杀其他项目。
+  - CI / 文档 / 清理：新增 GitHub Actions 最小 CI；README 按要求清空；`.env.example` 增加新增安全/上传配置；清理多模态摄入陈旧注释。
+- **运行过的验证**：`.venv/bin/python -m pytest -q` → **112 passed**（1.7s）；`.venv/bin/ruff check src tests` → clean；`cd frontend && npm run build` → 通过。
+- **新增/更新测试证据**：上传路径清洗与超限拒绝；可选 API token 与生产错误隐藏；流式 workflow `chunk_count`；chat 引用补齐与历史注入；jobs 异参数冲突。
+- **提交记录**：本轮修复已提交为最新 `fix: harden app flows after project review`。
+- **已知风险或未解决问题**：真实 LLM 端到端和 eval baseline 仍需用户凭据/token；全局概念搜索仍是子串匹配；README 当前故意为空。
+- **下一步最佳动作**：跑真实小语料 baseline；或进入 Step 7 的 Course→Corpus 契约重命名 / 持久化向量库 / Docker。
 
 ### 2026-06-25 — harness 落地 + 全局知识点搜索 + 知识库折叠
 - **本轮目标**：(1) 「全局（对话/笔记/试卷 都生效）」标签改「全局」；(2) 两个搜索框支持搜全局知识点；(3) 知识库可折叠；(4) harness 工作：清理 CLAUDE.md、把进度迁到本文件、新增 SESSION.md。

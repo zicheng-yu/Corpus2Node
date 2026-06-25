@@ -23,11 +23,17 @@ Runner = Callable[[Emit], Awaitable[None]]
 
 _END: dict = {"__end__": True}
 _JOBS: dict[str, "Job"] = {}
+_MAX_FINISHED_JOBS = 64
+
+
+class JobConflict(RuntimeError):
+    """Raised when a running job exists for the same key but different parameters."""
 
 
 class Job:
-    def __init__(self, key: str) -> None:
+    def __init__(self, key: str, *, fingerprint: str = "") -> None:
         self.key = key
+        self.fingerprint = fingerprint
         self.status = "running"  # running | done | error
         self.error: str | None = None
         self.events: list[dict] = []
@@ -72,12 +78,15 @@ def is_running(key: str) -> bool:
     return job is not None and job.status == "running"
 
 
-def start(key: str, runner: Runner) -> Job:
+def start(key: str, runner: Runner, *, fingerprint: str = "") -> Job:
     """Start ``runner`` as a detached task under ``key`` (or attach if already running)."""
     existing = _JOBS.get(key)
     if existing is not None and existing.status == "running":
+        if existing.fingerprint != fingerprint:
+            raise JobConflict("A generation job is already running with different parameters.")
         return existing  # don't launch a duplicate — the new subscriber attaches to it
-    job = Job(key)
+    _prune_finished()
+    job = Job(key, fingerprint=fingerprint)
     _JOBS[key] = job
 
     async def _run() -> None:
@@ -96,3 +105,12 @@ def start(key: str, runner: Runner) -> Job:
 def reset() -> None:
     """Drop all jobs (tests / teardown)."""
     _JOBS.clear()
+
+
+def _prune_finished() -> None:
+    finished = [key for key, job in _JOBS.items() if job.status != "running"]
+    overflow = len(finished) - _MAX_FINISHED_JOBS
+    if overflow <= 0:
+        return
+    for key in finished[:overflow]:
+        _JOBS.pop(key, None)

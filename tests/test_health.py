@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from corpus2node.api.app import app
+from corpus2node.config import settings
 
 
 def test_health() -> None:
@@ -19,3 +20,27 @@ def test_contract_types_import() -> None:
     from corpus2node.core.types import ChatDocument, ExamDocument, GraphArtifact, NoteDocument
 
     assert all(t.__name__ for t in (GraphArtifact, NoteDocument, ExamDocument, ChatDocument))
+
+
+def test_optional_api_auth(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "api_auth_token", "secret")
+    client = TestClient(app)
+    assert client.get("/health").status_code == 200
+    assert client.get("/sessions").status_code == 401
+    assert client.get("/sessions", headers={"Authorization": "Bearer secret"}).status_code == 200
+
+
+def test_production_error_response_hides_traceback(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "debug_tracebacks", True)
+
+    @app.get("/__test_boom")
+    async def __test_boom():
+        raise RuntimeError("secret failure detail")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/__test_boom")
+    assert response.status_code == 500
+    body = response.json()
+    assert body["detail"] == "Internal server error."
+    assert "traceback" not in body

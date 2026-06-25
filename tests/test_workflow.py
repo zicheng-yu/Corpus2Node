@@ -125,7 +125,8 @@ def test_stream_workflow_emits_step_events():
     assert nodes == ["ingest", "extract", "critic", "build"]  # real per-node progress
     assert all("metrics" in e["data"] for e in events if e["type"] == "step")
     done = events[-1]["data"]
-    assert done["concept_count"] >= 2 and done["cluster_count"] >= 1
+    assert done["chunk_count"] > 0 and done["concept_count"] >= 2 and done["cluster_count"] >= 1
+    assert local.load_session(session.session_id).stats.chunk_count == done["chunk_count"]
 
     # re-running an already-built session is idempotent (cached, no re-run)
     cached = asyncio.run(collect())

@@ -70,13 +70,13 @@ async def message(request: ChatRequest) -> ChatResponse:
         embeddings = get_embeddings()
         ctx = chat_agent.load_context(request.session_id, embeddings)
         model = factory.build_chat_model(Purpose.chat)
-        turn = await chat_agent.run_chat(_augment(request.message, request), ctx, model=model)
+        chat = _load_chat(request.session_id)
+        turn = await chat_agent.run_chat(_augment(request.message, request), ctx, model=model, history=chat.messages)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Session or graph not found. Build the graph first.") from exc
     except LLMConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    chat = _load_chat(request.session_id)
     chat.messages.append(
         ChatMessage(role="user", content=request.message, context_items=request.context_items)
     )
@@ -100,6 +100,7 @@ async def stream(request: ChatRequest) -> StreamingResponse:
         embeddings = get_embeddings()
         ctx = chat_agent.load_context(request.session_id, embeddings)
         model = factory.build_chat_model(Purpose.chat)
+        history = _load_chat(request.session_id).messages
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Session or graph not found. Build the graph first.") from exc
     except LLMConfigError as exc:
@@ -110,7 +111,8 @@ async def stream(request: ChatRequest) -> StreamingResponse:
         # so the streamed turn is persisted just like POST /chat/message.
         answer_parts: list[str] = []
         citations: list[ChatCitation] = []
-        async for event in chat_agent.stream_chat_events(_augment(request.message, request), ctx, model=model):
+        failed = False
+        async for event in chat_agent.stream_chat_events(_augment(request.message, request), ctx, model=model, history=history):
             if event.type == "token":
                 answer_parts.append(str(event.data.get("text", "")))
             elif event.type == "citation":
@@ -118,8 +120,12 @@ async def stream(request: ChatRequest) -> StreamingResponse:
                     citations.append(ChatCitation(**event.data))
                 except Exception:
                     pass
+            elif event.type == "error":
+                failed = True
             yield f"data: {event.model_dump_json()}\n\n"
 
+        if failed:
+            return
         chat = _load_chat(request.session_id)
         chat.messages.append(
             ChatMessage(role="user", content=request.message, context_items=request.context_items)

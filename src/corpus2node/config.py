@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     # --- Storage (local JSON artifacts are the source of truth) ---
     local_storage_path: str = str(ROOT_DIR / "artifacts")
 
+    # --- API safety ---
+    app_env: str = "development"  # development | production
+    debug_tracebacks: bool = True
+    cors_allow_origins: str = "*"  # comma-separated origins; "*" is dev only
+    api_auth_token: str = ""  # optional Bearer token for non-public API routes
+    max_upload_bytes: int = 500 * 1024 * 1024
+    upload_chunk_size: int = 1024 * 1024
+
     # --- Vector index (online retrieval) ---
     vector_store_provider: str = "local_cosine"  # local_cosine | chroma
     vector_store_path: str = str(ROOT_DIR / "artifacts" / "indexes")

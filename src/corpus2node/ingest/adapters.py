@@ -2,9 +2,8 @@
 
 A single registry keyed by extension; each adapter returns text blocks that the
 shared chunker turns into EvidenceChunks. Heavy/optional parsers are imported
-lazily so a missing one gives a clear message. Image/audio adapters are added in
-a follow-up (they need a model/ASR decision); they're recognised by `kind_for`
-but not yet extractable.
+lazily so a missing one gives a clear message. Document, PDF, image, video and
+audio adapters are registered here behind the same extraction interface.
 """
 from __future__ import annotations
 

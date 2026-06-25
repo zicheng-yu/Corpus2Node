@@ -77,3 +77,27 @@ def test_start_attaches_to_running_job_instead_of_duplicating():
     jobs.reset()
     assert first is second
     assert [e["type"] for e in first.events] == ["first", "second"]
+
+
+def test_start_rejects_different_fingerprint_for_running_job():
+    async def main():
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def runner(emit):
+            started.set()
+            await release.wait()
+
+        job = jobs.start("k5", runner, fingerprint="a")
+        await started.wait()
+        try:
+            jobs.start("k5", runner, fingerprint="b")
+            raise AssertionError("expected JobConflict")
+        except jobs.JobConflict:
+            pass
+        release.set()
+        await job.task
+
+    jobs.reset()
+    asyncio.run(main())
+    jobs.reset()

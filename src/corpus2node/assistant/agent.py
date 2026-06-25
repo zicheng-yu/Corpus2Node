@@ -13,11 +13,11 @@ from uuid import UUID
 
 from langchain.agents import create_agent
 from langchain_core.embeddings import Embeddings
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from corpus2node import prompt_store
 from corpus2node.assistant.tools import ChatContext, build_tools
-from corpus2node.core.types import ChatCitation, ChatStreamEvent, ChatTraceStep, SubgraphResponse
+from corpus2node.core.types import ChatCitation, ChatMessage, ChatStreamEvent, ChatTraceStep, SubgraphResponse
 from corpus2node.index import search
 from corpus2node.storage import local
 
@@ -45,14 +45,16 @@ def load_context(session_id: UUID, embeddings: Embeddings) -> ChatContext:
     return ChatContext(graph, chunks, embeddings)
 
 
-async def run_chat(query: str, ctx: ChatContext, *, model) -> ChatTurn:
+async def run_chat(query: str, ctx: ChatContext, *, model, history: list[ChatMessage] | None = None) -> ChatTurn:
     logger.info("chat: query=%r", query[:80])
+    query = _with_prefetch_context(ctx, query)
     agent = create_agent(model=model, tools=build_tools(ctx), system_prompt=SYSTEM_PROMPT + prompt_store.custom_block("chat"))
-    result = await agent.ainvoke({"messages": [HumanMessage(content=query)]})
+    result = await agent.ainvoke({"messages": _agent_messages(query, history)})
     messages = result.get("messages", [])
     answer = _message_text(messages[-1]) if messages else ""
     trace = _trace_from_messages(messages)
     _ensure_grounding(ctx, query)
+    answer = _ensure_answer_cites(answer, ctx)
     turn = ChatTurn(
         answer=answer,
         citations=ctx.citations(),
@@ -66,12 +68,15 @@ async def run_chat(query: str, ctx: ChatContext, *, model) -> ChatTurn:
     return turn
 
 
-async def stream_chat_events(query: str, ctx: ChatContext, *, model) -> AsyncIterator[ChatStreamEvent]:
+async def stream_chat_events(
+    query: str, ctx: ChatContext, *, model, history: list[ChatMessage] | None = None
+) -> AsyncIterator[ChatStreamEvent]:
     yield ChatStreamEvent(type="start", data={"query": query})
+    query = _with_prefetch_context(ctx, query)
     agent = create_agent(model=model, tools=build_tools(ctx), system_prompt=SYSTEM_PROMPT + prompt_store.custom_block("chat"))
     answer_parts: list[str] = []
     try:
-        async for event in agent.astream_events({"messages": [HumanMessage(content=query)]}, version="v2"):
+        async for event in agent.astream_events({"messages": _agent_messages(query, history)}, version="v2"):
             kind = event.get("event")
             if kind == "on_chat_model_stream":
                 text = _message_text(event["data"]["chunk"])
@@ -92,6 +97,10 @@ async def stream_chat_events(query: str, ctx: ChatContext, *, model) -> AsyncIte
                     yield ChatStreamEvent(type="subgraph", data=ctx.subgraph.model_dump(mode="json"))
 
         _ensure_grounding(ctx, query)
+        suffix = _missing_citation_suffix("".join(answer_parts), ctx)
+        if suffix:
+            answer_parts.append(suffix)
+            yield ChatStreamEvent(type="token", data={"text": suffix})
         subgraph = _choose_subgraph(ctx, query)
         if subgraph is not None:
             yield ChatStreamEvent(type="subgraph", data=subgraph.model_dump(mode="json"))
@@ -106,6 +115,52 @@ async def stream_chat_events(query: str, ctx: ChatContext, *, model) -> AsyncIte
 def _ensure_grounding(ctx: ChatContext, query: str) -> None:
     if not ctx.retrievals:
         ctx.add(search.local_search(query, graph=ctx.graph, chunks=ctx.chunks, embeddings=ctx.embeddings, limit=ctx.chunk_limit))
+
+
+def _with_prefetch_context(ctx: ChatContext, query: str) -> str:
+    """Run a deterministic first retrieval so the model sees citeable evidence even if it skips tools."""
+    _ensure_grounding(ctx, query)
+    if not ctx.retrievals:
+        return query
+    lines = ["[系统预检索到的可引用资料]"]
+    for result in ctx.retrievals[: ctx.chunk_limit]:
+        marker = ctx.index_of(result)
+        locator = f"（{result.locator}）" if result.locator else ""
+        lines.append(f"[{marker}] {result.title}{locator}: {result.snippet}")
+    lines.extend(["", "[用户问题]", query])
+    return "\n".join(lines)
+
+
+def _agent_messages(query: str, history: list[ChatMessage] | None = None) -> list:
+    messages: list = []
+    for item in (history or [])[-12:]:
+        content = item.content.strip()
+        if not content:
+            continue
+        if item.role == "user":
+            messages.append(HumanMessage(content=content))
+        elif item.role == "assistant":
+            messages.append(AIMessage(content=content))
+    messages.append(HumanMessage(content=query))
+    return messages
+
+
+def _ensure_answer_cites(answer: str, ctx: ChatContext) -> str:
+    suffix = _missing_citation_suffix(answer, ctx)
+    return answer + suffix if suffix else answer
+
+
+def _missing_citation_suffix(answer: str, ctx: ChatContext) -> str:
+    if not ctx.retrievals or _has_citation_marker(answer):
+        return ""
+    refs = " ".join(f"[{citation.index}]" for citation in ctx.citations()[:2])
+    return f"\n\n参考来源：{refs}"
+
+
+def _has_citation_marker(text: str) -> bool:
+    import re
+
+    return bool(re.search(r"\[\d+\]", text or ""))
 
 
 def _choose_subgraph(ctx: ChatContext, query: str) -> SubgraphResponse | None:
