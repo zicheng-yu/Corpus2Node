@@ -160,6 +160,12 @@
   padding: 14px 18px 10px;
   border-bottom: 1px solid var(--rule);
   background: var(--panel-2);
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+
+.session-group-header:hover {
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel-2));
 }
 
 .session-group-name {
@@ -173,6 +179,66 @@
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--ink-4);
+}
+
+/* ── Global concept search results ───────────────────────────────────────── */
+.home-concepts {
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.home-concepts-label {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.home-concept-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 8px 14px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur-fast);
+}
+
+.home-concept-row:first-of-type {
+  border-top: 0;
+}
+
+.home-concept-row:hover {
+  background: var(--accent-soft);
+}
+
+.home-concept-name {
+  flex-shrink: 0;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.home-concept-meta {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Course graph/notes buttons ──────────────────────────────────────────── */

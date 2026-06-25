@@ -24,6 +24,51 @@ from corpus2node.storage import local
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
+COURSE_GRAPH_LECTURE_PREFIX = "[总图谱] "
+
+
+class GlobalConceptHit(BaseModel):
+    session_id: UUID
+    course_title: str
+    lecture_title: str
+    concept_id: str
+    name: str
+    canonical_name: str
+    importance_score: float
+
+
+@router.get("/concepts")
+def search_concepts_global(q: str, limit: int = 20) -> list[GlobalConceptHit]:
+    """Substring-search concepts across every built graph (for the global search bars)."""
+    needle = q.strip().lower()
+    if not needle:
+        return []
+    hits: list[GlobalConceptHit] = []
+    for session_id in local.list_session_ids():
+        try:
+            session = local.load_session(session_id)
+            graph = local.load_graph_artifact(session_id)
+        except (FileNotFoundError, ValueError):
+            continue
+        if session.lecture_title.startswith(COURSE_GRAPH_LECTURE_PREFIX):
+            continue  # skip virtual course-graph sessions
+        for concept in graph.concepts:
+            haystack = [concept.name, concept.canonical_name, *concept.aliases]
+            if any(needle in (value or "").lower() for value in haystack):
+                hits.append(
+                    GlobalConceptHit(
+                        session_id=session_id,
+                        course_title=session.course_title,
+                        lecture_title=session.lecture_title,
+                        concept_id=concept.concept_id,
+                        name=concept.name,
+                        canonical_name=concept.canonical_name,
+                        importance_score=concept.importance_score,
+                    )
+                )
+    hits.sort(key=lambda hit: hit.importance_score, reverse=True)
+    return hits[:limit]
+
 
 @router.get("/{session_id}")
 def get_graph(session_id: UUID) -> GraphArtifact:

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
-import { deleteSession, listSessions } from "../api/client";
-import type { CourseSession, SessionStatus } from "../types";
+import { deleteSession, listSessions, searchConceptsGlobal } from "../api/client";
+import type { CourseSession, GlobalConceptHit, SessionStatus } from "../types";
 import { useToast } from "../components/primitives/Toast";
 import "./HomePage.css";
 
@@ -118,6 +118,10 @@ export function HomePage() {
   const [courseFilter, setCourseFilter] = useState<string>("all");
   const [pending, setPending] = useState<{ label: string; onConfirm: () => Promise<void> } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [conceptHits, setConceptHits] = useState<GlobalConceptHit[]>([]);
+  const [collapsedCourses, setCollapsedCourses] = useState<Set<string>>(
+    () => new Set<string>(JSON.parse(localStorage.getItem("c2n:collapsedCourses") || "[]")),
+  );
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -127,6 +131,29 @@ export function HomePage() {
       .catch(() => toast("加载会话列表失败", "error"))
       .finally(() => setLoading(false));
   }, [toast]);
+
+  // global concept search (debounced) across every built graph
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setConceptHits([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      searchConceptsGlobal(q, 12).then(setConceptHits).catch(() => setConceptHits([]));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  function toggleCourse(course: string) {
+    setCollapsedCourses((prev) => {
+      const next = new Set(prev);
+      if (next.has(course)) next.delete(course);
+      else next.add(course);
+      localStorage.setItem("c2n:collapsedCourses", JSON.stringify([...next]));
+      return next;
+    });
+  }
 
   const handleDeleteSession = (session: CourseSession) => {
     setPending({
@@ -269,6 +296,26 @@ export function HomePage() {
         </div>
       </div>
 
+      {/* Global concept search results */}
+      {query.trim() && conceptHits.length > 0 && (
+        <div className="home-concepts">
+          <div className="home-concepts-label">相关知识点 · {conceptHits.length}</div>
+          <div className="home-concepts-list">
+            {conceptHits.map((c) => (
+              <button
+                key={`${c.session_id}-${c.concept_id}`}
+                className="home-concept-row"
+                type="button"
+                onClick={() => navigate(`/session/${c.session_id}?concept=${encodeURIComponent(c.concept_id)}`)}
+              >
+                <span className="home-concept-name">{c.name}</span>
+                <span className="home-concept-meta">{c.lecture_title} · {c.course_title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       {loading ? (
         <div className="session-list">
@@ -285,7 +332,20 @@ export function HomePage() {
         <div className="session-list">
           {Array.from(groups.entries()).map(([course, rows]) => (
             <div key={course}>
-              <div className="session-group-header">
+              <div
+                className="session-group-header"
+                onClick={() => toggleCourse(course)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && toggleCourse(course)}
+              >
+                <svg
+                  width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ color: "var(--ink-3)", flexShrink: 0, transform: collapsedCourses.has(course) ? "rotate(-90deg)" : "none", transition: "transform 150ms var(--ease)" }}
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--ink-3)", flexShrink: 0 }}>
                   <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
@@ -312,14 +372,15 @@ export function HomePage() {
                   <TrashIcon />
                 </button>
               </div>
-              {rows.map((s) => (
-                <SessionRow
-                  key={s.session_id}
-                  session={s}
-                  onClick={() => navigate(sessionHref(s))}
-                  onDelete={() => handleDeleteSession(s)}
-                />
-              ))}
+              {!collapsedCourses.has(course) &&
+                rows.map((s) => (
+                  <SessionRow
+                    key={s.session_id}
+                    session={s}
+                    onClick={() => navigate(sessionHref(s))}
+                    onDelete={() => handleDeleteSession(s)}
+                  />
+                ))}
             </div>
           ))}
         </div>

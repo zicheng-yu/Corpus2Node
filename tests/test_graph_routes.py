@@ -91,6 +91,24 @@ def test_search_route_returns_search_response_shape():
     assert body["chunks"] and "text" in body["chunks"][0]
 
 
+def test_global_concept_search_route():
+    from corpus2node.core.types import CourseSession
+
+    session_id = _seed_graph()
+    local.save_session(CourseSession(session_id=session_id, course_title="数据结构", lecture_title="树与查找"))
+
+    res = client.get("/graph/concepts", params={"q": "树", "limit": 10})
+    assert res.status_code == 200
+    hits = res.json()
+    assert hits and any("树" in hit["name"] for hit in hits)
+    assert hits[0]["session_id"] == str(session_id)
+    assert {"course_title", "lecture_title", "concept_id", "name", "importance_score"} <= set(hits[0])
+    # blank query → no hits
+    assert client.get("/graph/concepts", params={"q": "   "}).json() == []
+    # a non-matching needle → no hits
+    assert client.get("/graph/concepts", params={"q": "量子色动力学"}).json() == []
+
+
 def test_delete_session_and_chat():
     session_id = _seed_graph()
     # create a real session file so delete has something to load

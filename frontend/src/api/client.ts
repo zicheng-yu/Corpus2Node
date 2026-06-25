@@ -7,6 +7,7 @@ import type {
   CourseSession,
   CredentialUpsert,
   ExamDocument,
+  GlobalConceptHit,
   GraphArtifact,
   LLMSettingsView,
   LlmPurpose,
@@ -156,6 +157,14 @@ export async function getGraph(sessionId: string): Promise<GraphArtifact> {
 
 export function searchGraph(payload: { session_id: string; query: string; limit?: number }): Promise<SearchResponse> {
   return postJson<SearchResponse>("/graph/search", payload);
+}
+
+/** Substring-search concepts across every built graph (global search bars). */
+export async function searchConceptsGlobal(q: string, limit = 20): Promise<GlobalConceptHit[]> {
+  const url = new URL(`${BASE}/graph/concepts`);
+  url.searchParams.set("q", q);
+  url.searchParams.set("limit", String(limit));
+  return readJson<GlobalConceptHit[]>(await fetch(url.toString()));
 }
 
 export async function fetchSubgraph(sessionId: string, conceptId: string, depth = 1): Promise<SubgraphResponse> {

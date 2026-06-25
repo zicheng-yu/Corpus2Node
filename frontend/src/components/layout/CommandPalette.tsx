@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { listSessions } from "../../api/client";
-import type { CourseSession } from "../../types";
+import { listSessions, searchConceptsGlobal } from "../../api/client";
+import type { CourseSession, GlobalConceptHit } from "../../types";
 import "./CommandPalette.css";
 
 interface CommandPaletteProps {
@@ -17,16 +17,32 @@ const NAV_ITEMS = [
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [sessions, setSessions] = useState<CourseSession[]>([]);
+  const [concepts, setConcepts] = useState<GlobalConceptHit[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (open) {
       setQuery("");
+      setConcepts([]);
       listSessions().then(setSessions).catch(() => {});
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
+
+  // global concept search (debounced) across every built graph
+  useEffect(() => {
+    if (!open) return;
+    const q = query.trim();
+    if (!q) {
+      setConcepts([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      searchConceptsGlobal(q, 8).then(setConcepts).catch(() => setConcepts([]));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [query, open]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -67,7 +83,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索知识库、功能…"
+            placeholder="搜索知识库、知识点、功能…"
             aria-label="搜索"
           />
         </div>
@@ -122,7 +138,37 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             </>
           )}
 
-          {filteredSessions.length === 0 && filteredNav.length === 0 && (
+          {concepts.length > 0 && (
+            <>
+              <div className="cmdk-section-label">知识点</div>
+              {concepts.map((c) => {
+                const target = `/session/${c.session_id}?concept=${encodeURIComponent(c.concept_id)}`;
+                return (
+                  <div
+                    key={`${c.session_id}-${c.concept_id}`}
+                    className="cmdk-item"
+                    onClick={() => go(target)}
+                    role="option"
+                    tabIndex={0}
+                    onKeyDown={(e) => e.key === "Enter" && go(target)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: "var(--ink-3)" }}>
+                      <circle cx="12" cy="12" r="3" /><circle cx="5" cy="5" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="5" cy="19" r="2" /><circle cx="19" cy="19" r="2" /><path d="m7 7 3 3m4 0 3-3m0 10-3-3m-4 0-3 3" />
+                    </svg>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+                      <div style={{ fontSize: 11, color: "var(--ink-3)", fontFamily: "var(--font-mono)" }}>
+                        {c.lecture_title} · {c.course_title}
+                      </div>
+                    </div>
+                    <span className="cmdk-item-meta">知识点</span>
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {filteredSessions.length === 0 && filteredNav.length === 0 && concepts.length === 0 && (
             <div className="cmdk-empty">无匹配结果</div>
           )}
         </div>

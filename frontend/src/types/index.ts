@@ -128,6 +128,16 @@ export interface SearchResponse {
   chunks: SearchChunkHit[];
 }
 
+export interface GlobalConceptHit {
+  session_id: string;
+  course_title: string;
+  lecture_title: string;
+  concept_id: string;
+  name: string;
+  canonical_name: string;
+  importance_score: number;
+}
+
 export interface SubgraphNode {
   id: string;
   label: string;
