@@ -100,7 +100,7 @@ function AppearanceSettings({ graphStyle, setGraphStyle }: { graphStyle: string;
 
 // ── Prompts ─────────────────────────────────────────────────────────────────
 const PROMPT_FIELDS: Array<{ key: keyof PromptSettings; label: string; placeholder: string }> = [
-  { key: "global_instructions", label: "全局（对话 / 笔记 / 试卷 都生效）", placeholder: "例：统一用简体中文、语气专业、专有名词保留英文原词…" },
+  { key: "global_instructions", label: "全局", placeholder: "例：统一用简体中文、语气专业、专有名词保留英文原词…（对话 / 笔记 / 试卷 都生效）" },
   { key: "chat", label: "对话助手", placeholder: "例：先给结论再展开；多用类比解释难点…" },
   { key: "notes", label: "笔记生成", placeholder: "例：每节末尾补一条「一句话记忆」…" },
   { key: "exam", label: "试卷生成", placeholder: "例：偏应用与理解题，少考死记硬背…" },
