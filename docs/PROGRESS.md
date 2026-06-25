@@ -9,13 +9,14 @@
 
 ## 当前已验证状态
 
-- **后端测试 112 passed**（`.venv/bin/python -m pytest -q`，2026-06-25 实测，1.7s）。
+- **后端测试 117 passed**（`.venv/bin/python -m pytest -q`，2026-06-25 实测，1.1s）。
 - **前端 `npm run build` 通过**（2026-06-25 实测）。
 - **ruff clean**（`.venv/bin/ruff check src tests`，2026-06-25 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/出题）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
 - **在线闭环可跑**：chat agent（强制引用 + trace + SSE）、notes（map-reduce + coverage critic）、exam（generator + verifier 回路）、export（md/tex/txt/pdf）路由齐全且有测试覆盖。
 - **多模态摄入**：文档 7 类 + PDF（Kimi file-extract）+ 图片/视频（Kimi vision/K2.6）+ 音频（faster-whisper），注册表式接入。
 - **本轮审阅修复已落地并验证**：API 可选 Bearer token、生产环境隐藏 traceback、上传路径清洗/大小限制/分块落盘、JSON artifact 原子写、chat 多轮历史 + 预检索引用兜底、notes/exam 参数冲突保护、流式 workflow `chunk_count` 一致、前端命令面板跳转/上传全失败处理、启动脚本默认不误杀端口、最小 CI、README 按要求清空。
+- **资料集 / 知识库重命名已落地**：后端支持单个资料集 `lecture_title` 改名与知识库 `course_title` 批量改名（含虚拟总图谱 session），首页支持内联入口；已通过全量 pytest、ruff、前端 build。
 
 ## 仓库根目录
 
@@ -87,15 +88,15 @@ ruff check src tests                                  # lint
 | `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放 + 同参数复用/异参数冲突保护——notes/exam 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
 | `prompt_store.py` | 用户自定义提示词（global + chat/notes/exam）作为「补充偏好」**追加**到内置 system prompt（不覆盖结构化/引用约束；抽取与质检不受影响） | 调自定义 prompt 接入面 |
 | `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源，原子写）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
-| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions（安全上传）· settings(`/settings/llm` 注册表 CRUD) · prompts(`/settings/prompts`) · workflow(`/workflow/run` + run-metrics) · chat(`/chat/{message,stream}`) · notes(`/generate_notes[+/stream]`,`/notes/{id}[/stream]`) · exam(同形) · export(`/export/*`) · graph(`GET /graph/{id}`、`/subgraph`、`POST /search`、`GET /graph/concepts` 全局知识点搜索) | 加/改 HTTP 接口 |
+| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions（安全上传 + 资料集/知识库重命名）· settings(`/settings/llm` 注册表 CRUD) · prompts(`/settings/prompts`) · workflow(`/workflow/run` + run-metrics) · chat(`/chat/{message,stream}`) · notes(`/generate_notes[+/stream]`,`/notes/{id}[/stream]`) · exam(同形) · export(`/export/*`) · graph(`GET /graph/{id}`、`/subgraph`、`POST /search`、`GET /graph/concepts` 全局知识点搜索) | 加/改 HTTP 接口 |
 
 ### 前端 `frontend/src/`
 
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
-| `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点） | 加/改一个后端调用 |
+| `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），含 sessions 创建/删除/资料集改名/知识库改名 | 加/改一个后端调用 |
 | `types/index.ts` | 前端契约（对应 `core/types.py`） | 改契约（和后端一起改） |
-| `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **全局知识点搜索** + 来源标签(文档/视频/音频/图片) | 改首页/库管理 |
+| `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **资料集/知识库改名** + **全局知识点搜索** + 来源标签(文档/视频/音频/图片) | 改首页/库管理 |
 | `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
 | `pages/PipelinePage.tsx` | 流水线可视化 + **质检阶段** + per-node **run-metrics 面板**（耗时/token/repair） | 改流水线展示 |
 | `pages/WorkspacePage.tsx` | 图谱 + 右栏**对话/笔记/试卷**标签页（选区可转对话 + ExportMenu） | 改主工作区 |
@@ -120,6 +121,16 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-06-25 — 资料集 / 知识库重命名
+- **本轮目标**：增加资料集改名与知识库改名功能。
+- **已完成**：
+  - 后端新增 `PATCH /sessions/{session_id}`，只更新当前资料集的 `lecture_title`，并刷新 `updated_at`。
+  - 后端新增 `PATCH /sessions/course/rename`，按旧 `course_title` 批量改名；同步虚拟总图谱 session 的 `[总图谱] ...` 标题；拒绝空标题、过长标题和改到已有知识库名。
+  - 前端首页知识库分组头新增重命名按钮；资料集行新增重命名按钮；保存后本地列表、知识库筛选器、折叠状态即时同步。
+  - 保持 wire 契约不变：仍沿用 `course_title` 表示知识库、`lecture_title` 表示资料集；没有执行 Course→Corpus 大重命名。
+- **运行过的验证**：`.venv/bin/python -m pytest -q` → **117 passed**；`.venv/bin/ruff check src tests` → clean；`cd frontend && npm run build` → 通过。
+- **已知风险或未解决问题**：重命名只更新 session 元数据；已生成笔记/试卷内部标题不自动重写，避免改动用户生成内容。
 
 ### 2026-06-25 — 全面修复项目审阅问题（主要 + 次要）
 - **本轮目标**：按项目全面审阅结论修复主要/次要问题；README 暂时清空；所有相关修改写入 docs；允许提交。

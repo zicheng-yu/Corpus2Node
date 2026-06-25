@@ -9,13 +9,21 @@
 
 ## 当前已验证
 
-- 后端 **112 passed**（`.venv/bin/python -m pytest -q`，2026-06-25 实测）；`.venv/bin/ruff check src tests` clean。
+- 后端 **117 passed**（`.venv/bin/python -m pytest -q`，2026-06-25 实测）；`.venv/bin/ruff check src tests` clean。
 - 前端 `npm run build` 通过（2026-06-25 实测）。
 - 离线 workflow（ingest→extract→critic→build）+ 在线 chat/notes/exam/export 路由齐全且有测试。
 - 本轮审阅问题已修复：API 安全开关、上传安全、原子写、chat 历史/引用闭环、notes/exam 参数冲突保护、workflow 统计一致、前端跳转/上传失败处理、启动脚本误杀端口风险、最小 CI。
+- 资料集 / 知识库重命名已接入：首页可改单个资料集名称，也可批量改知识库名称；知识库改名会同步虚拟总图谱 session。
 - **未在 CI 覆盖**：真实 LLM 端到端（建图/问答/出题）与 eval baseline 数字——需用户凭据 + token。
 
 ## 本轮改动
+
+- **资料集改名**：新增 `PATCH /sessions/{session_id}`，更新当前 session 的 `lecture_title` 并刷新 `updated_at`；首页资料集行新增编辑按钮和输入弹窗。
+- **知识库改名**：新增 `PATCH /sessions/course/rename`，将同一 `course_title` 下所有 session 批量改到新名称；同步 `[总图谱] ...` 虚拟 session；空标题、过长标题、改到已有知识库名会拒绝。
+- **前端同步**：保存成功后刷新本地列表；如果当前筛选器选中了旧知识库，会自动切到新名称；折叠状态也随名称迁移。
+- **验证**：`tests/test_sessions.py` 覆盖资料集改名、空标题拒绝、知识库批量改名、同名冲突；全量 pytest、ruff、前端 build 均通过。
+
+## 上轮审阅修复摘要
 
 - **API 安全**：新增 `APP_ENV` / `DEBUG_TRACEBACKS` / `CORS_ALLOW_ORIGINS` / `API_AUTH_TOKEN` / `MAX_UPLOAD_BYTES`；生产环境隐藏 traceback；配置 token 后非公开 API 需 Bearer token。
 - **上传安全**：文件名清洗为 basename，磁盘按 `source_id + ext` 存储；分块读取、大小限制、空文件/超限拒绝，避免路径穿越与同名覆盖。
@@ -24,10 +32,11 @@
 - **workflow / jobs**：流式 workflow 结束和缓存路径都回填真实 `chunk_count`；notes/exam 同 session 同参数复用任务，异参数并发返回 409。
 - **前端**：命令面板按 session 状态跳 workspace/pipeline 并隐藏虚拟总图谱；上传全部失败不进入 pipeline；前端包名改 `corpus2node-frontend`。
 - **CI / 脚本 / 文档**：新增 GitHub Actions 最小 CI；`corpus stop` 只停 pidfile 进程，新增 `corpus force-stop` 清端口；README 按要求清空；`.env.example` 和 `docs/PROGRESS.md` 已同步。
-- **提交**：本轮修复已提交为最新 `fix: harden app flows after project review`。
+- **提交**：上轮审阅修复已提交为 `fix: harden app flows after project review`。
 
 ## 仍损坏或未验证
 
+- 重命名只改 session 元数据；已生成笔记/试卷内部标题不自动改写，避免修改用户生成内容。
 - **eval baseline 数字还是空的**：harness 与指标就绪，但没跑过真实数据，§10「F1 X→Y / grounding 0→N%」叙事尚无真实数字。
 - **全局概念搜索仍是子串匹配**：即时、零 token，但大库需索引；语义模糊搜索未做。
 - README 当前故意为空，开发早期暂不维护对外说明。

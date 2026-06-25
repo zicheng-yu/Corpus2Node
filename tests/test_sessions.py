@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from corpus2node.api.app import app
 from corpus2node.config import settings
+from corpus2node.core.types import CourseSession
+from corpus2node.storage import local
 
 client = TestClient(app)
 
@@ -20,6 +22,63 @@ def test_create_and_get_session():
     fetched = client.get(f"/sessions/{session_id}")
     assert fetched.status_code == 200
     assert fetched.json()["course_title"] == "数据结构"
+
+
+def test_rename_session_updates_lecture_title():
+    body = client.post("/sessions", json={"course_title": "数据结构", "lecture_title": "树"}).json()
+    session_id = body["session_id"]
+
+    response = client.patch(f"/sessions/{session_id}", json={"lecture_title": "  图与最短路  "})
+    assert response.status_code == 200
+    assert response.json()["lecture_title"] == "图与最短路"
+
+    fetched = client.get(f"/sessions/{session_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["lecture_title"] == "图与最短路"
+
+
+def test_rename_session_rejects_empty_title():
+    session_id = client.post("/sessions", json={"course_title": "DS", "lecture_title": "Trees"}).json()["session_id"]
+
+    response = client.patch(f"/sessions/{session_id}", json={"lecture_title": " \n\t "})
+    assert response.status_code == 400
+
+
+def test_rename_course_updates_all_sessions_and_virtual_graph_session():
+    first = client.post("/sessions", json={"course_title": "旧知识库", "lecture_title": "第一份资料"}).json()
+    second = client.post("/sessions", json={"course_title": "旧知识库", "lecture_title": "第二份资料"}).json()
+    other = client.post("/sessions", json={"course_title": "其它知识库", "lecture_title": "不应改名"}).json()
+    virtual = CourseSession(course_title="旧知识库", lecture_title=f"{local.COURSE_GRAPH_LECTURE_PREFIX}旧知识库")
+    local.save_session(virtual)
+
+    response = client.patch(
+        "/sessions/course/rename",
+        json={"old_course_title": "旧知识库", "new_course_title": "新知识库"},
+    )
+    assert response.status_code == 200
+    updated = {item["session_id"]: item for item in response.json()}
+    assert set(updated) == {first["session_id"], second["session_id"], str(virtual.session_id)}
+    assert all(item["course_title"] == "新知识库" for item in updated.values())
+    assert updated[str(virtual.session_id)]["lecture_title"] == f"{local.COURSE_GRAPH_LECTURE_PREFIX}新知识库"
+
+    assert client.get(f"/sessions/{first['session_id']}").json()["course_title"] == "新知识库"
+    assert client.get(f"/sessions/{second['session_id']}").json()["course_title"] == "新知识库"
+    assert client.get(f"/sessions/{other['session_id']}").json()["course_title"] == "其它知识库"
+    assert local.find_course_session("新知识库") is not None
+    assert local.find_course_session("旧知识库") is None
+
+
+def test_rename_course_rejects_existing_target_name():
+    client.post("/sessions", json={"course_title": "A", "lecture_title": "一"})
+    client.post("/sessions", json={"course_title": "B", "lecture_title": "二"})
+
+    response = client.patch("/sessions/course/rename", json={"old_course_title": "A", "new_course_title": "B"})
+    assert response.status_code == 409
+
+
+def test_rename_course_rejects_missing_source_name():
+    response = client.patch("/sessions/course/rename", json={"old_course_title": "missing", "new_course_title": "missing"})
+    assert response.status_code == 404
 
 
 def test_upload_pdf_adds_source():

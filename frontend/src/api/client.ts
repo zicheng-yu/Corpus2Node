@@ -47,6 +47,14 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
   }).then((r) => readJson<T>(r));
 }
 
+function patchJson<T>(path: string, body: unknown): Promise<T> {
+  return fetch(`${BASE}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then((r) => readJson<T>(r));
+}
+
 /** Read a `data:`-line SSE stream (\n\n-separated), dispatching each parsed JSON event. */
 async function pumpSSE<T>(response: Response, onEvent: (event: T) => void): Promise<void> {
   if (!response.ok || !response.body) {
@@ -86,6 +94,14 @@ export async function getSession(id: string): Promise<CourseSession> {
 
 export function createSession(payload: { course_title: string; lecture_title: string }): Promise<CourseSession> {
   return postJson<CourseSession>("/sessions", payload);
+}
+
+export function renameSession(id: string, payload: { lecture_title: string }): Promise<CourseSession> {
+  return patchJson<CourseSession>(`/sessions/${id}`, payload);
+}
+
+export function renameCourse(payload: { old_course_title: string; new_course_title: string }): Promise<CourseSession[]> {
+  return patchJson<CourseSession[]>("/sessions/course/rename", payload);
 }
 
 export async function deleteSession(id: string): Promise<void> {

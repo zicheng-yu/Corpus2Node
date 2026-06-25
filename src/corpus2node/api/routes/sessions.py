@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -24,11 +25,29 @@ class CreateSessionRequest(BaseModel):
     lecture_title: str
 
 
+class RenameSessionRequest(BaseModel):
+    lecture_title: str
+
+
+class RenameCourseRequest(BaseModel):
+    old_course_title: str
+    new_course_title: str
+
+
+def _clean_title(value: str, *, field_name: str) -> str:
+    title = re.sub(r"\s+", " ", value).strip()
+    if not title:
+        raise HTTPException(status_code=400, detail=f"{field_name} cannot be empty.")
+    if len(title) > 120:
+        raise HTTPException(status_code=400, detail=f"{field_name} is too long.")
+    return title
+
+
 @router.post("")
 def create_session(request: CreateSessionRequest) -> CourseSession:
     session = CourseSession(
-        course_title=request.course_title,
-        lecture_title=request.lecture_title,
+        course_title=_clean_title(request.course_title, field_name="course_title"),
+        lecture_title=_clean_title(request.lecture_title, field_name="lecture_title"),
         status=SessionStatus.draft,
     )
     local.save_session(session)
@@ -44,6 +63,56 @@ def list_sessions() -> list[CourseSession]:
         except Exception:
             continue
     return sessions
+
+
+@router.patch("/course/rename")
+def rename_course(request: RenameCourseRequest) -> list[CourseSession]:
+    old_title = _clean_title(request.old_course_title, field_name="old_course_title")
+    new_title = _clean_title(request.new_course_title, field_name="new_course_title")
+    sessions = _load_all_sessions()
+    target_sessions = [session for session in sessions if session.course_title == old_title]
+    if not target_sessions:
+        raise HTTPException(status_code=404, detail="Knowledge base not found.")
+    if old_title == new_title:
+        return target_sessions
+    if any(session.course_title == new_title for session in sessions):
+        raise HTTPException(status_code=409, detail="A knowledge base with this name already exists.")
+
+    old_virtual_title = f"{local.COURSE_GRAPH_LECTURE_PREFIX}{old_title}"
+    new_virtual_title = f"{local.COURSE_GRAPH_LECTURE_PREFIX}{new_title}"
+    now = utcnow()
+    updated: list[CourseSession] = []
+    for session in target_sessions:
+        session.course_title = new_title
+        if session.lecture_title == old_virtual_title:
+            session.lecture_title = new_virtual_title
+        session.updated_at = now
+        local.save_session(session)
+        updated.append(session)
+    return updated
+
+
+def _load_all_sessions() -> list[CourseSession]:
+    sessions: list[CourseSession] = []
+    for session_id in local.list_session_ids():
+        try:
+            sessions.append(local.load_session(session_id))
+        except Exception:
+            continue
+    return sessions
+
+
+@router.patch("/{session_id}")
+def rename_session(session_id: UUID, request: RenameSessionRequest) -> CourseSession:
+    try:
+        session = local.load_session(session_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Session not found.") from exc
+
+    session.lecture_title = _clean_title(request.lecture_title, field_name="lecture_title")
+    session.updated_at = utcnow()
+    local.save_session(session)
+    return session
 
 
 @router.get("/{session_id}")

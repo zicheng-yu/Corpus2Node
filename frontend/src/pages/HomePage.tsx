@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
-import { deleteSession, listSessions, searchConceptsGlobal } from "../api/client";
+import { ApiError, deleteSession, listSessions, renameCourse, renameSession, searchConceptsGlobal } from "../api/client";
 import type { CourseSession, GlobalConceptHit, SessionStatus } from "../types";
 import { useToast } from "../components/primitives/Toast";
 import "./HomePage.css";
@@ -38,6 +38,15 @@ function CoverMark({ seed, size = 56 }: { seed: string; size?: number }) {
 
 function TrashIcon() {
   return <span className="trash-icon" aria-hidden="true" />;
+}
+
+function PencilIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
 }
 
 // ── StatusChip ────────────────────────────────────────────────────────────────
@@ -80,6 +89,14 @@ function sessionHref(session: CourseSession): string {
   return `/session/${session.session_id}/pipeline`;
 }
 
+function sortSessions(data: CourseSession[]): CourseSession[] {
+  return [...data].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+type RenameTarget =
+  | { type: "session"; session: CourseSession }
+  | { type: "course"; courseTitle: string };
+
 // ── ConfirmModal ──────────────────────────────────────────────────────────────
 function ConfirmModal({
   message,
@@ -109,6 +126,59 @@ function ConfirmModal({
   );
 }
 
+function RenameModal({
+  title,
+  label,
+  initialValue,
+  loading,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  label: string;
+  initialValue: string;
+  loading: boolean;
+  onConfirm: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(initialValue);
+  const trimmed = value.trim();
+  const disabled = loading || !trimmed || trimmed === initialValue.trim();
+
+  function submit() {
+    if (!disabled) onConfirm(trimmed);
+  }
+
+  return (
+    <div className="confirm-overlay" onClick={() => !loading && onCancel()}>
+      <div className="confirm-dialog rename-dialog" onClick={(e) => e.stopPropagation()}>
+        <h2 className="rename-title">{title}</h2>
+        <label className="rename-label" htmlFor="rename-input">{label}</label>
+        <input
+          id="rename-input"
+          className="rename-input"
+          value={value}
+          autoFocus
+          maxLength={120}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+            if (e.key === "Escape" && !loading) onCancel();
+          }}
+        />
+        <div className="confirm-actions">
+          <button className="btn btn-outline btn-sm" onClick={onCancel} disabled={loading} type="button">
+            取消
+          </button>
+          <button className="btn btn-accent btn-sm" onClick={submit} disabled={disabled} type="button">
+            {loading ? "保存中…" : "保存"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── HomePage ──────────────────────────────────────────────────────────────────
 export function HomePage() {
   const [sessions, setSessions] = useState<CourseSession[]>([]);
@@ -118,6 +188,8 @@ export function HomePage() {
   const [courseFilter, setCourseFilter] = useState<string>("all");
   const [pending, setPending] = useState<{ label: string; onConfirm: () => Promise<void> } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const [conceptHits, setConceptHits] = useState<GlobalConceptHit[]>([]);
   const [collapsedCourses, setCollapsedCourses] = useState<Set<string>>(
     () => new Set<string>(JSON.parse(localStorage.getItem("c2n:collapsedCourses") || "[]")),
@@ -127,7 +199,7 @@ export function HomePage() {
 
   useEffect(() => {
     listSessions()
-      .then((data) => setSessions(data.sort((a, b) => b.updated_at.localeCompare(a.updated_at))))
+      .then((data) => setSessions(sortSessions(data)))
       .catch(() => toast("加载会话列表失败", "error"))
       .finally(() => setLoading(false));
   }, [toast]);
@@ -177,6 +249,41 @@ export function HomePage() {
         toast("知识库已删除", "success");
       },
     });
+  };
+
+  const confirmRename = async (value: string) => {
+    if (!renameTarget) return;
+    setRenaming(true);
+    try {
+      if (renameTarget.type === "session") {
+        const updated = await renameSession(renameTarget.session.session_id, { lecture_title: value });
+        setSessions((prev) => sortSessions(prev.map((s) => (s.session_id === updated.session_id ? updated : s))));
+        toast("资料集已改名", "success");
+      } else {
+        const oldTitle = renameTarget.courseTitle;
+        const updated = await renameCourse({ old_course_title: oldTitle, new_course_title: value });
+        const updatedById = new Map(updated.map((s) => [s.session_id, s]));
+        setSessions((prev) => sortSessions(prev.map((s) => updatedById.get(s.session_id) ?? s)));
+        setCourseFilter((current) => (current === oldTitle ? value : current));
+        setCollapsedCourses((prev) => {
+          const next = new Set(prev);
+          const wasCollapsed = next.delete(oldTitle);
+          if (wasCollapsed) next.add(value);
+          localStorage.setItem("c2n:collapsedCourses", JSON.stringify([...next]));
+          return next;
+        });
+        toast("知识库已改名", "success");
+      }
+      setRenameTarget(null);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        toast("已有同名知识库", "error");
+      } else {
+        toast("改名失败，请重试", "error");
+      }
+    } finally {
+      setRenaming(false);
+    }
   };
 
   const confirmDelete = async () => {
@@ -352,6 +459,15 @@ export function HomePage() {
                 <span className="session-group-name">{course}</span>
                 <span className="session-group-count">{rows.length} 个资料集</span>
                 <button
+                  className="btn btn-icon group-edit-btn"
+                  onClick={(e) => { e.stopPropagation(); setRenameTarget({ type: "course", courseTitle: course }); }}
+                  aria-label={`重命名知识库 ${course}`}
+                  title="重命名知识库"
+                  type="button"
+                >
+                  <PencilIcon />
+                </button>
+                <button
                   className="btn btn-icon group-add-btn"
                   onClick={(e) => { e.stopPropagation(); navigate(`/new?course=${encodeURIComponent(course)}`); }}
                   aria-label={`向知识库 ${course} 新增资料集`}
@@ -378,6 +494,7 @@ export function HomePage() {
                     key={s.session_id}
                     session={s}
                     onClick={() => navigate(sessionHref(s))}
+                    onRename={() => setRenameTarget({ type: "session", session: s })}
                     onDelete={() => handleDeleteSession(s)}
                   />
                 ))}
@@ -395,11 +512,32 @@ export function HomePage() {
         />
       )}
 
+      {renameTarget && (
+        <RenameModal
+          title={renameTarget.type === "course" ? "重命名知识库" : "重命名资料集"}
+          label={renameTarget.type === "course" ? "知识库名称" : "资料集名称"}
+          initialValue={renameTarget.type === "course" ? renameTarget.courseTitle : renameTarget.session.lecture_title}
+          loading={renaming}
+          onConfirm={confirmRename}
+          onCancel={() => !renaming && setRenameTarget(null)}
+        />
+      )}
+
     </div>
   );
 }
 
-function SessionRow({ session: s, onClick, onDelete }: { session: CourseSession; onClick: () => void; onDelete: () => void }) {
+function SessionRow({
+  session: s,
+  onClick,
+  onRename,
+  onDelete,
+}: {
+  session: CourseSession;
+  onClick: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
   const date = new Date(s.updated_at).toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
   const hasDoc = s.source_files.some((f) => f.kind === "document" || f.kind === "pdf");  // PDF 归入文档
   const hasVideo = s.source_files.some((f) => f.kind === "video");
@@ -447,6 +585,16 @@ function SessionRow({ session: s, onClick, onDelete }: { session: CourseSession;
       </div>
 
       <StatusChip status={s.status} />
+
+      <button
+        className="btn btn-icon row-edit-btn"
+        onClick={(e) => { e.stopPropagation(); onRename(); }}
+        aria-label="重命名此资料集"
+        title="重命名此资料集"
+        type="button"
+      >
+        <PencilIcon />
+      </button>
 
       <button
         className="btn btn-icon row-delete-btn"
