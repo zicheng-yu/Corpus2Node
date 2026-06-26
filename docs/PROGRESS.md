@@ -102,7 +102,7 @@ ruff check src tests                                  # lint
 | `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **资料集/知识库改名** + **多选/随机知识发现（桥接图可视化 + 卡片/证据可溯源跳转 + 历史面板）** + **全局知识点搜索** + 来源标签(文档/视频/音频/图片) | 改首页/库管理/发现结果展示 |
 | `components/discovery/BridgeGraphView.tsx` | **桥接图可视化**：ReactFlow 三列布局（发现→知识点→资料集），概念节点点击溯源；懒加载独立 chunk | 改桥接图样式/布局/交互 |
 | `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
-| `pages/PipelinePage.tsx` | 流水线可视化 + **质检阶段** + per-node **run-metrics 面板**（耗时/token/repair） | 改流水线展示 |
+| `pages/PipelinePage.tsx` | 流水线可视化（4 阶段一行：解析/切分/抽取/构建，**质检 critic 折叠进「构建图谱」**）+ per-node **run-metrics 面板**（耗时/token/repair，仍单列 `critic` 节点） | 改流水线展示 |
 | `pages/WorkspacePage.tsx` | 图谱 + 右栏**对话/笔记/试卷**标签页（选区可转对话 + ExportMenu） | 改主工作区 |
 | `components/layout/SettingsPanel.tsx` | **统一设置**：模型（凭据列表 + 按 purpose 下拉绑定）/ 外观 / 提示词（真实编辑器） | 改设置面板 |
 | `components/layout/CommandPalette.tsx` | ⌘K 命令面板 + **全局知识点搜索** + 按 session 状态跳转 | 改全局搜索/快捷入口 |
@@ -125,6 +125,13 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-06-26 — 流水线阶段卡片瘦身（5→4 一行）
+- **本轮目标**：用户反馈流水线阶段图丑（5 张卡片在 `repeat(4,1fr)` 网格里换行 + 大片空白）；去掉「质检修复」卡片让四个一行。
+- **已完成**：`PipelinePage.tsx` 的 `STAGES` 去掉「质检修复」（critic 仍在后端跑，进度折叠进「构建图谱」，文案补「质检修复 + 建立关系网络」）；phase 重映射 critic `setPhase(4)→3`、done `setPhase(5)→4`；CSS 无需改（本就 `repeat(4,1fr)`）。run-metrics 面板仍单列 `critic` 节点，观测不丢。
+- **运行过的验证**：`cd frontend && npm run build`（`tsc && vite build`）→ 通过，无 TS 错误。后端未改，126 passed 不受影响。
+- **已知风险或未解决问题**：无。canvas 透明度阈值用 `phase>=0/1/2/3`，对新 phase 序列（0→2→3→4）仍单调递进，无回归。
+- **下一步最佳动作**：用户在浏览器确认四阶段一行观感；回到 eval baseline / Step 7。
 
 ### 2026-06-26 — 知识发现增强（桥接图可视化 / 可溯源跳转 / 质量 / 历史）
 - **本轮目标**：用户修了若干 bug 并新增知识发现功能；本轮在其基础上做四个方向的提升（用户多选确认）。

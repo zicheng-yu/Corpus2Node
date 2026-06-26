@@ -85,12 +85,13 @@ function PipelineCanvas({ phase, progress }: { phase: number; progress: number }
 }
 
 // ── PipelinePage (run-and-wait) ─────────────────────────────────────────────────
+// Four stages → one tidy row (the critic/质检 node still runs; its progress and
+// repair counts fold into 构建图谱 visually and into the per-node metrics panel).
 const STAGES = [
   { label: "解析文档", detail: "提取文本内容" },
   { label: "切分片段", detail: "语义分块" },
   { label: "抽取概念", detail: "识别知识点" },
-  { label: "质检修复", detail: "LLM 裁判 + 修复" },
-  { label: "构建图谱", detail: "建立关系网络" },
+  { label: "构建图谱", detail: "质检修复 + 建立关系网络" },
 ];
 
 type RunState = "checking" | "running" | "done" | "failed";
@@ -212,7 +213,7 @@ export function PipelinePage() {
               acc.relation = Number(data.relation_count ?? acc.relation ?? 0);
               push();
             } else if (node === "critic") {
-              setPhase(4);
+              setPhase(3); // critic folds into the 构建图谱 stage
               if (data.concept_count != null) acc.concept = Number(data.concept_count);
               if (data.relation_count != null) acc.relation = Number(data.relation_count);
               push();
@@ -239,7 +240,7 @@ export function PipelinePage() {
             acc.relation = Number(data.relation_count ?? 0);
             acc.cluster = Number(data.cluster_count ?? 0);
             push();
-            setPhase(5);
+            setPhase(4); // all four stages done
             setRunState("done");
             if (data.total_tokens != null || data.duration_ms != null) {
               setRunTotals({ total_tokens: Number(data.total_tokens ?? 0), duration_ms: Number(data.duration_ms ?? 0) });
