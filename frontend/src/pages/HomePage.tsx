@@ -1,10 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
-import { ApiError, deleteSession, listSessions, renameCourse, renameSession, searchConceptsGlobal } from "../api/client";
-import type { CourseSession, GlobalConceptHit, SessionStatus } from "../types";
+import {
+  ApiError,
+  deleteSession,
+  getDiscovery,
+  listDiscoveries,
+  listSessions,
+  renameCourse,
+  renameSession,
+  runDiscovery,
+  searchConceptsGlobal,
+} from "../api/client";
+import type { CourseSession, DiscoveryFinding, DiscoveryReport, GlobalConceptHit, SessionStatus } from "../types";
 import { useToast } from "../components/primitives/Toast";
 import "./HomePage.css";
+
+// Lazy so ReactFlow only loads when a discovery report with a bridge graph is shown.
+const BridgeGraphView = lazy(() =>
+  import("../components/discovery/BridgeGraphView").then((m) => ({ default: m.BridgeGraphView })),
+);
 
 // ── CoverMark ─────────────────────────────────────────────────────────────────
 function CoverMark({ seed, size = 56 }: { seed: string; size?: number }) {
@@ -91,6 +106,13 @@ function sessionHref(session: CourseSession): string {
 
 function sortSessions(data: CourseSession[]): CourseSession[] {
   return [...data].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+function isDiscoverable(session: CourseSession): boolean {
+  return (
+    !session.lecture_title.startsWith("[总图谱] ") &&
+    (session.status === "graph_ready" || session.status === "notes_ready")
+  );
 }
 
 type RenameTarget =
@@ -190,6 +212,11 @@ export function HomePage() {
   const [deleting, setDeleting] = useState(false);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryReport, setDiscoveryReport] = useState<DiscoveryReport | null>(null);
+  const [discoveryHistory, setDiscoveryHistory] = useState<DiscoveryReport[]>([]);
+  const [showBridgeGraph, setShowBridgeGraph] = useState(true);
   const [conceptHits, setConceptHits] = useState<GlobalConceptHit[]>([]);
   const [collapsedCourses, setCollapsedCourses] = useState<Set<string>>(
     () => new Set<string>(JSON.parse(localStorage.getItem("c2n:collapsedCourses") || "[]")),
@@ -203,6 +230,17 @@ export function HomePage() {
       .catch(() => toast("加载会话列表失败", "error"))
       .finally(() => setLoading(false));
   }, [toast]);
+
+  useEffect(() => {
+    const valid = new Set(sessions.filter(isDiscoverable).map((s) => s.session_id));
+    setSelectedSessionIds((prev) => new Set([...prev].filter((id) => valid.has(id))));
+  }, [sessions]);
+
+  useEffect(() => {
+    listDiscoveries()
+      .then(setDiscoveryHistory)
+      .catch(() => {});
+  }, []);
 
   // global concept search (debounced) across every built graph
   useEffect(() => {
@@ -223,6 +261,15 @@ export function HomePage() {
       if (next.has(course)) next.delete(course);
       else next.add(course);
       localStorage.setItem("c2n:collapsedCourses", JSON.stringify([...next]));
+      return next;
+    });
+  }
+
+  function toggleDiscoverySelection(sessionId: string) {
+    setSelectedSessionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
       return next;
     });
   }
@@ -299,6 +346,45 @@ export function HomePage() {
     }
   };
 
+  const handleDiscovery = async (mode: "selected" | "random") => {
+    const ids = [...selectedSessionIds];
+    if (mode === "selected" && ids.length === 0) {
+      toast("先勾选至少一个已建图资料集", "error");
+      return;
+    }
+    setDiscovering(true);
+    try {
+      const report = await runDiscovery({
+        mode,
+        session_ids: ids,
+        limit: 8,
+        seed: mode === "random" ? Date.now() : undefined,
+      });
+      setDiscoveryReport(report);
+      setShowBridgeGraph(true);
+      setDiscoveryHistory((prev) => [report, ...prev.filter((r) => r.discovery_id !== report.discovery_id)]);
+      toast(`知识发现已保存：${report.discovery_id.slice(0, 8)}`, "success");
+    } catch {
+      toast("知识发现失败，请确认资料集已完成建图", "error");
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const openConcept = (sessionId: string, conceptId: string) =>
+    navigate(`/session/${sessionId}?concept=${encodeURIComponent(conceptId)}`);
+
+  const loadDiscovery = async (id: string) => {
+    try {
+      const report = await getDiscovery(id);
+      setDiscoveryReport(report);
+      setShowBridgeGraph(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch {
+      toast("无法加载历史发现", "error");
+    }
+  };
+
   const courses = useMemo(() => {
     const seen = new Set<string>();
     return sessions.filter((s) => {
@@ -333,6 +419,7 @@ export function HomePage() {
 
   const totalConcepts = sessions.reduce((a, s) => a + (s.stats?.concept_count ?? 0), 0);
   const totalRelations = sessions.reduce((a, s) => a + (s.stats?.relation_count ?? 0), 0);
+  const discoverableCount = sessions.filter(isDiscoverable).length;
 
   return (
     <div className="page">
@@ -357,6 +444,22 @@ export function HomePage() {
               <path d="M12 5v14M5 12h14" />
             </svg>
             新建知识库
+          </button>
+          <button
+            className="btn btn-outline"
+            onClick={() => handleDiscovery("selected")}
+            disabled={discovering || selectedSessionIds.size === 0}
+            type="button"
+          >
+            知识发现{selectedSessionIds.size > 0 ? ` · ${selectedSessionIds.size}` : ""}
+          </button>
+          <button
+            className="btn btn-outline"
+            onClick={() => handleDiscovery("random")}
+            disabled={discovering || discoverableCount === 0}
+            type="button"
+          >
+            {discovering ? "发现中…" : "随机发现"}
           </button>
         </div>
       </div>
@@ -421,6 +524,24 @@ export function HomePage() {
             ))}
           </div>
         </div>
+      )}
+
+      {discoveryHistory.length > 0 && (
+        <DiscoveryHistoryBar
+          history={discoveryHistory}
+          activeId={discoveryReport?.discovery_id}
+          onPick={loadDiscovery}
+        />
+      )}
+
+      {discoveryReport && (
+        <DiscoveryReportPanel
+          report={discoveryReport}
+          showBridgeGraph={showBridgeGraph}
+          onToggleBridge={() => setShowBridgeGraph((v) => !v)}
+          onOpenConcept={openConcept}
+          onClose={() => setDiscoveryReport(null)}
+        />
       )}
 
       {/* Content */}
@@ -493,7 +614,10 @@ export function HomePage() {
                   <SessionRow
                     key={s.session_id}
                     session={s}
+                    selected={selectedSessionIds.has(s.session_id)}
+                    discoverable={isDiscoverable(s)}
                     onClick={() => navigate(sessionHref(s))}
+                    onSelect={() => toggleDiscoverySelection(s.session_id)}
                     onRename={() => setRenameTarget({ type: "session", session: s })}
                     onDelete={() => handleDeleteSession(s)}
                   />
@@ -527,14 +651,174 @@ export function HomePage() {
   );
 }
 
+function DiscoveryHistoryBar({
+  history,
+  activeId,
+  onPick,
+}: {
+  history: DiscoveryReport[];
+  activeId?: string;
+  onPick: (id: string) => void;
+}) {
+  return (
+    <div className="discovery-history">
+      <span className="discovery-history-label">历史发现 · {history.length}</span>
+      <div className="discovery-history-list">
+        {history.slice(0, 12).map((report) => (
+          <button
+            key={report.discovery_id}
+            className={clsx("discovery-history-item", { active: report.discovery_id === activeId })}
+            type="button"
+            onClick={() => onPick(report.discovery_id)}
+            title={new Date(report.generated_at).toLocaleString()}
+          >
+            <b>{report.discovery_id.slice(0, 8)}</b>
+            <span>
+              {report.mode === "random" ? "随机" : `${report.session_ids.length} 资料集`} · {report.findings.length} 发现
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DiscoveryReportPanel({
+  report,
+  showBridgeGraph,
+  onToggleBridge,
+  onOpenConcept,
+  onClose,
+}: {
+  report: DiscoveryReport;
+  showBridgeGraph: boolean;
+  onToggleBridge: () => void;
+  onOpenConcept: (sessionId: string, conceptId: string) => void;
+  onClose: () => void;
+}) {
+  const hasBridge = report.bridge_graph.nodes.length > 0;
+  return (
+    <section className="discovery-panel">
+      <div className="discovery-panel-head">
+        <div>
+          <div className="home-concepts-label">知识发现 · {report.findings.length}</div>
+          <div className="discovery-id">Artifact {report.discovery_id}</div>
+        </div>
+        <div className="discovery-head-actions">
+          <span className="discovery-graph-stat">
+            {report.bridge_graph.nodes.length} 节点 / {report.bridge_graph.edges.length} 连接
+          </span>
+          {hasBridge && (
+            <button className="discovery-mini-btn" type="button" onClick={onToggleBridge}>
+              {showBridgeGraph ? "隐藏桥接图" : "显示桥接图"}
+            </button>
+          )}
+          <button className="discovery-mini-btn" type="button" onClick={onClose}>
+            关闭
+          </button>
+        </div>
+      </div>
+      {showBridgeGraph && hasBridge && (
+        <div className="discovery-bridge-wrap">
+          <Suspense fallback={<div className="bridge-graph" />}>
+            <BridgeGraphView graph={report.bridge_graph} onConceptClick={onOpenConcept} />
+          </Suspense>
+        </div>
+      )}
+      {report.findings.length === 0 ? (
+        <div className="discovery-empty">没有发现足够证据支撑的交叉点。</div>
+      ) : (
+        <div className="discovery-list">
+          {report.findings.map((finding) => (
+            <DiscoveryFindingCard key={finding.finding_id} finding={finding} onOpenConcept={onOpenConcept} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DiscoveryFindingCard({
+  finding,
+  onOpenConcept,
+}: {
+  finding: DiscoveryFinding;
+  onOpenConcept: (sessionId: string, conceptId: string) => void;
+}) {
+  return (
+    <article className="discovery-card">
+      <div className="discovery-card-top">
+        <h2>{finding.title}</h2>
+        <span>{Math.round(finding.confidence * 100)}%</span>
+      </div>
+      <div className="discovery-meta-row">
+        <span>{relationLabel(finding.relation_type)}</span>
+        <span>新颖度 {Math.round(finding.novelty * 100)}%</span>
+      </div>
+      <p className="discovery-summary">{finding.summary}</p>
+      {finding.reasoning && <p className="discovery-reasoning">{finding.reasoning}</p>}
+      <div className="discovery-participants">
+        {finding.participants.map((participant) => (
+          <button
+            key={`${participant.session_id}-${participant.concept_id}`}
+            className="discovery-chip-link"
+            type="button"
+            title="打开该资料集图谱并聚焦此知识点"
+            onClick={() => onOpenConcept(participant.session_id, participant.concept_id)}
+          >
+            {participant.lecture_title} · {participant.concept_name}
+          </button>
+        ))}
+      </div>
+      <div className="discovery-evidence">
+        {finding.evidence.slice(0, 4).map((evidence, index) => {
+          const clickable = Boolean(evidence.concept_id);
+          return (
+            <blockquote
+              key={`${evidence.session_id}-${evidence.concept_id}-${evidence.chunk_id || index}`}
+              className={clickable ? "discovery-evidence-link" : undefined}
+              onClick={clickable ? () => onOpenConcept(evidence.session_id, evidence.concept_id) : undefined}
+              title={clickable ? "打开来源图谱并聚焦此知识点" : undefined}
+            >
+              <b>{evidence.lecture_title} / {evidence.concept_name}</b>
+              <span>{evidence.locator}</span>
+              {evidence.snippet}
+            </blockquote>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
+function relationLabel(value: string): string {
+  const labels: Record<string, string> = {
+    same_under_different_terms: "异名同义",
+    prerequisite: "前置依赖",
+    complement: "互补",
+    analogy: "类比",
+    method_to_application: "方法迁移",
+    contradiction: "矛盾张力",
+    shared_context: "共同场景",
+    open_question: "待探索问题",
+  };
+  return labels[value] ?? value;
+}
+
 function SessionRow({
   session: s,
+  selected,
+  discoverable,
   onClick,
+  onSelect,
   onRename,
   onDelete,
 }: {
   session: CourseSession;
+  selected: boolean;
+  discoverable: boolean;
   onClick: () => void;
+  onSelect: () => void;
   onRename: () => void;
   onDelete: () => void;
 }) {
@@ -546,6 +830,16 @@ function SessionRow({
 
   return (
     <div className="session-row" onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onClick()}>
+      <input
+        className="session-select-box"
+        type="checkbox"
+        checked={selected}
+        disabled={!discoverable}
+        title={discoverable ? "选择用于知识发现" : "需先完成图谱构建"}
+        aria-label={`选择 ${s.lecture_title} 用于知识发现`}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => { e.stopPropagation(); onSelect(); }}
+      />
       <CoverMark seed={s.session_id} size={56} />
 
       <div style={{ minWidth: 0 }}>

@@ -10,7 +10,15 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from corpus2node.config import settings
-from corpus2node.core.types import ChatDocument, CourseSession, ExamDocument, GraphArtifact, IngestArtifact, NoteDocument
+from corpus2node.core.types import (
+    ChatDocument,
+    CourseSession,
+    DiscoveryReport,
+    ExamDocument,
+    GraphArtifact,
+    IngestArtifact,
+    NoteDocument,
+)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -219,6 +227,29 @@ def load_chat(session_id: uuid.UUID) -> ChatDocument:
 
 def delete_chat(session_id: uuid.UUID) -> None:
     chat_path(session_id).unlink(missing_ok=True)
+
+
+def discovery_dir() -> Path:
+    path = _root() / "discoveries"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def discovery_path(discovery_id: str) -> Path:
+    return discovery_dir() / f"{discovery_id}.json"
+
+
+def save_discovery_report(report: DiscoveryReport) -> Path:
+    return _write_model(discovery_path(report.discovery_id), report)
+
+
+def load_discovery_report(discovery_id: str) -> DiscoveryReport:
+    return _read_model(discovery_path(discovery_id), DiscoveryReport)
+
+
+def list_discovery_reports() -> list[DiscoveryReport]:
+    reports = [_read_model(candidate, DiscoveryReport) for candidate in discovery_dir().glob("*.json")]
+    return sorted(reports, key=lambda report: report.generated_at, reverse=True)
 
 
 def write_json(path: Path, data: dict) -> Path:

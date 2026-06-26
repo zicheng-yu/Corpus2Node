@@ -3,51 +3,40 @@
 > 一轮会话结束时覆盖写这份（只留最新一轮），下一轮开始时先读这份做快速定位，再去 `docs/PROGRESS.md` 看全量真相与文件夹→功能映射。
 > 这份是「30 秒看懂现状」；PROGRESS.md 是「完整账本」。
 
-**最近更新**：2026-06-25 · 分支 `feat`
+**最近更新**：2026-06-26 · 分支 `feat`
 
 ---
 
 ## 当前已验证
 
-- 后端 **117 passed**（`.venv/bin/python -m pytest -q`，2026-06-25 实测）；`.venv/bin/ruff check src tests` clean。
-- 前端 `npm run build` 通过（2026-06-25 实测）。
-- 离线 workflow（ingest→extract→critic→build）+ 在线 chat/notes/exam/export 路由齐全且有测试。
-- 本轮审阅问题已修复：API 安全开关、上传安全、原子写、chat 历史/引用闭环、notes/exam 参数冲突保护、workflow 统计一致、前端跳转/上传失败处理、启动脚本误杀端口风险、最小 CI。
-- 资料集 / 知识库重命名已接入：首页可改单个资料集名称，也可批量改知识库名称；知识库改名会同步虚拟总图谱 session。
-- **未在 CI 覆盖**：真实 LLM 端到端（建图/问答/出题）与 eval baseline 数字——需用户凭据 + token。
+- 后端 **126 passed**（`.venv/bin/python -m pytest -q`，2026-06-26 实测）；`.venv/bin/ruff check src tests` clean。
+- 前端 `npm run build` 通过（2026-06-26 实测）；`BridgeGraphView` 懒加载成独立 chunk，首页主包 376KB→229KB。
+- 知识发现（用户基线）+ 本轮四向增强（桥接图可视化 / 可溯源跳转 / 质量 / 历史）均有测试或构建覆盖。
+- **未在 CI 覆盖**：真实 LLM judge 质量、真实建图/问答/出题、eval baseline——都需用户凭据 + token。
 
-## 本轮改动
+## 本轮改动（知识发现增强）
 
-- **资料集改名**：新增 `PATCH /sessions/{session_id}`，更新当前 session 的 `lecture_title` 并刷新 `updated_at`；首页资料集行新增编辑按钮和输入弹窗。
-- **知识库改名**：新增 `PATCH /sessions/course/rename`，将同一 `course_title` 下所有 session 批量改到新名称；同步 `[总图谱] ...` 虚拟 session；空标题、过长标题、改到已有知识库名会拒绝。
-- **前端同步**：保存成功后刷新本地列表；如果当前筛选器选中了旧知识库，会自动切到新名称；折叠状态也随名称迁移。
-- **验证**：`tests/test_sessions.py` 覆盖资料集改名、空标题拒绝、知识库批量改名、同名冲突；全量 pytest、ruff、前端 build 均通过。
-
-## 上轮审阅修复摘要
-
-- **API 安全**：新增 `APP_ENV` / `DEBUG_TRACEBACKS` / `CORS_ALLOW_ORIGINS` / `API_AUTH_TOKEN` / `MAX_UPLOAD_BYTES`；生产环境隐藏 traceback；配置 token 后非公开 API 需 Bearer token。
-- **上传安全**：文件名清洗为 basename，磁盘按 `source_id + ext` 存储；分块读取、大小限制、空文件/超限拒绝，避免路径穿越与同名覆盖。
-- **存储一致性**：artifact、LLM settings、prompt settings、workflow run、graph candidates/critic report 改同目录临时文件 + `os.replace` 原子写。
-- **chat**：最近 12 条历史传给 agent；生成前预检索并提供可引用上下文；模型漏写引用编号时补 `参考来源`；流式失败不落盘空回答。
-- **workflow / jobs**：流式 workflow 结束和缓存路径都回填真实 `chunk_count`；notes/exam 同 session 同参数复用任务，异参数并发返回 409。
-- **前端**：命令面板按 session 状态跳 workspace/pipeline 并隐藏虚拟总图谱；上传全部失败不进入 pipeline；前端包名改 `corpus2node-frontend`。
-- **CI / 脚本 / 文档**：新增 GitHub Actions 最小 CI；`corpus stop` 只停 pidfile 进程，新增 `corpus force-stop` 清端口；README 按要求清空；`.env.example` 和 `docs/PROGRESS.md` 已同步。
-- **提交**：上轮审阅修复已提交为 `fix: harden app flows after project review`。
+- **`discovery/engine.py`（质量）**：8 类 `RELATION_TYPES` 枚举 + judge 输出回填（中文别名/越界→shared_context）；证据每侧 top-2 交错；结构化信号（共享图谱邻居/标签，`_neighbor_index`/`_struct_terms`）并入评分；大候选池（>12）分批 `asyncio.gather` 并发 judge 并按 confidence 合并；算法版 `relation_type`/`novelty` 重算。
+- **`components/discovery/BridgeGraphView.tsx`（可视化，新文件）**：ReactFlow 三列 bridge graph（发现→知识点→资料集），概念节点可点击溯源；懒加载。
+- **`HomePage.tsx`（跳转 + 历史）**：卡片概念 chip / 证据块、桥接图概念节点点击 → `/session/{id}?concept=`；`DiscoveryHistoryBar` 历史面板（点开重载）；面板加桥接图开关 + 关闭。
+- **`storage/local.py`**：`list_discovery_reports` 改按 `generated_at` 倒序。
+- **`tests/test_discovery.py`**：+3 例（枚举回填 / 分批合并 / 多 chunk 证据），共 9 例。
 
 ## 仍损坏或未验证
 
-- 重命名只改 session 元数据；已生成笔记/试卷内部标题不自动改写，避免修改用户生成内容。
-- **eval baseline 数字还是空的**：harness 与指标就绪，但没跑过真实数据，§10「F1 X→Y / grounding 0→N%」叙事尚无真实数字。
-- **全局概念搜索仍是子串匹配**：即时、零 token，但大库需索引；语义模糊搜索未做。
-- README 当前故意为空，开发早期暂不维护对外说明。
-- `AGENTS.md` 是 `CLAUDE.md` 的旧副本，已分叉 stale（两者均 gitignore）；尚未决定删除/做成指针/同步。
+- **未提交**：知识发现（用户基线 + 本轮增强）全部还在工作树（`git status` 一堆 M/??）。本轮未自动 commit（避免把用户未提交的基线和我的改动混进一个 commit），等用户定。
+- 算法版关系类型 / novelty 是启发式；真实 judge 质量需用户凭据实测。
+- `listDiscoveries()` 拉全量报告（含 bridge graph），库很大时宜加 summary 端点。
+- 证据 blockquote 点击未做键盘可达（概念 chip 是 `<button>` 已可达）。
+- eval baseline 数字仍空；全局概念搜索仍是子串匹配；README 故意为空；`AGENTS.md` 仍是 stale 副本。
 
 ## 下一步最佳动作
 
-1. 跑真实小语料记 eval baseline（需用户凭据）：`corpus dev` → 设置里绑凭据 → 建一个 session → `python -m corpus2node.eval <session> --default-gold`，把数字填进 PROGRESS「当前已验证状态」。
-2. 之后再考虑 Step 7 工程化：`Course→Corpus` 契约重命名、持久化向量库、Docker。
+1. 浏览器里 `corpus dev` 跑一次真实知识发现，确认桥接图渲染 / 概念点击跳转 / 历史重载观感。
+2. 决定如何提交本轮发现功能（整体一个 commit，还是用户先提自己的基线）。
+3. 之后回到 eval baseline / Step 7 工程化。
 
 **不要动**：
-- wire 契约（`core/types.py` ↔ `frontend/src/types/index.ts`）——除非专门做 Course→Corpus 重命名，且两边同步改。
-- `db/`、`workers/`、联网 search/synthesize 残留——按操作手册约定，不带走、不复活。
-- 确定性图算法（`graph/build.py` 中心性/聚类/合并/共现边）的「交给 LLM」式改写。
+- wire 契约（`core/types.py` ↔ `frontend/src/types/index.ts`）——除非专门做 Course→Corpus 重命名且两边同步。
+- `db/`、`workers/`、联网 search/synthesize 残留——不带走、不复活。
+- 确定性图算法（`graph/build.py`）与发现的确定性候选/评分「交给 LLM」式改写——judge 只做裁剪/命名，不接管图算法。

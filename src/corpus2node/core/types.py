@@ -50,6 +50,11 @@ class RelationType(str, Enum):
     similar_to = "similar_to"
 
 
+class DiscoveryMode(str, Enum):
+    selected = "selected"
+    random = "random"
+
+
 class SourceFile(BaseModel):
     source_id: UUID = Field(default_factory=uuid4)
     kind: SourceKind
@@ -387,6 +392,79 @@ class ChatResponse(BaseModel):
     citations: list[ChatCitation] = Field(default_factory=list)
     trace: list[ChatTraceStep] = Field(default_factory=list)
     subgraph: SubgraphResponse | None = None
+
+
+class DiscoveryEvidence(BaseModel):
+    session_id: UUID
+    course_title: str
+    lecture_title: str
+    concept_id: str = ""
+    concept_name: str = ""
+    chunk_id: str = ""
+    source_id: str = ""
+    source_type: SourceKind | None = None
+    locator: str = ""
+    snippet: str = ""
+
+
+class DiscoveryParticipant(BaseModel):
+    session_id: UUID
+    course_title: str
+    lecture_title: str
+    concept_id: str
+    concept_name: str
+    summary: str = ""
+
+
+class DiscoveryBridgeNode(BaseModel):
+    id: str
+    label: str
+    node_type: str
+    session_id: UUID | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DiscoveryBridgeEdge(BaseModel):
+    source: str
+    target: str
+    edge_type: str
+    weight: float = 0.0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DiscoveryBridgeGraph(BaseModel):
+    nodes: list[DiscoveryBridgeNode] = Field(default_factory=list)
+    edges: list[DiscoveryBridgeEdge] = Field(default_factory=list)
+
+
+class DiscoveryFinding(BaseModel):
+    finding_id: str = Field(default_factory=lambda: str(uuid4()))
+    title: str
+    summary: str
+    relation_type: str = "shared_context"
+    confidence: float = 0.0
+    novelty: float = 0.0
+    participants: list[DiscoveryParticipant] = Field(default_factory=list)
+    evidence: list[DiscoveryEvidence] = Field(default_factory=list)
+    reasoning: str = ""
+    score_components: dict[str, float] = Field(default_factory=dict)
+
+
+class DiscoveryReport(BaseModel):
+    discovery_id: str = Field(default_factory=lambda: str(uuid4()))
+    mode: DiscoveryMode = DiscoveryMode.selected
+    session_ids: list[UUID] = Field(default_factory=list)
+    findings: list[DiscoveryFinding] = Field(default_factory=list)
+    bridge_graph: DiscoveryBridgeGraph = Field(default_factory=DiscoveryBridgeGraph)
+    generated_at: datetime = Field(default_factory=utcnow)
+
+
+class DiscoveryRequest(BaseModel):
+    session_ids: list[UUID] = Field(default_factory=list)
+    mode: DiscoveryMode = DiscoveryMode.selected
+    focus_concept_ids: dict[str, list[str]] = Field(default_factory=dict)
+    limit: int = Field(default=8, ge=1, le=20)
+    seed: int | None = None
 
 
 class RuntimeSettingField(BaseModel):

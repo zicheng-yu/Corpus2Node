@@ -9,14 +9,16 @@
 
 ## 当前已验证状态
 
-- **后端测试 117 passed**（`.venv/bin/python -m pytest -q`，2026-06-25 实测，1.1s）。
-- **前端 `npm run build` 通过**（2026-06-25 实测）。
-- **ruff clean**（`.venv/bin/ruff check src tests`，2026-06-25 实测）。分支 `feat`。
+- **后端测试 126 passed**（`.venv/bin/python -m pytest -q`，2026-06-26 实测，1.5s）。
+- **前端 `npm run build` 通过**（2026-06-26 实测）。
+- **ruff clean**（`.venv/bin/ruff check src tests`，2026-06-26 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/出题）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
 - **在线闭环可跑**：chat agent（强制引用 + trace + SSE）、notes（map-reduce + coverage critic）、exam（generator + verifier 回路）、export（md/tex/txt/pdf）路由齐全且有测试覆盖。
 - **多模态摄入**：文档 7 类 + PDF（Kimi file-extract）+ 图片/视频（Kimi vision/K2.6）+ 音频（faster-whisper），注册表式接入。
 - **本轮审阅修复已落地并验证**：API 可选 Bearer token、生产环境隐藏 traceback、上传路径清洗/大小限制/分块落盘、JSON artifact 原子写、chat 多轮历史 + 预检索引用兜底、notes/exam 参数冲突保护、流式 workflow `chunk_count` 一致、前端命令面板跳转/上传全失败处理、启动脚本默认不误杀端口、最小 CI、README 按要求清空。
 - **资料集 / 知识库重命名已落地**：后端支持单个资料集 `lecture_title` 改名与知识库 `course_title` 批量改名（含虚拟总图谱 session），首页支持内联入口；已通过全量 pytest、ruff、前端 build。
+- **知识发现已落地并保存 artifact**：首页可多选资料集运行知识发现，也可随机发现；后端生成 `DiscoveryReport` 并保存到 `artifacts/discoveries/{discovery_id}.json`；支持 AI judge seam（critic 绑定可用时自动判断，失败/无凭据退回算法版）；已通过 `tests/test_discovery.py`、全量 pytest、ruff、前端 build。
+- **知识发现增强已落地（本轮）**：(1) **桥接图可视化**——bridge graph 用 ReactFlow 三列（发现→知识点→资料集）画出来（懒加载独立 chunk，首页主包 376KB→229KB）；(2) **可溯源跳转**——发现卡片的概念 chip / 证据块、桥接图概念节点点击直达 `/session/{id}?concept=`；(3) **质量增强**——judge `relation_type` 约束到 8 类枚举（含中文别名回填）、证据每侧 top-2、加结构化信号（共享邻居/标签）、大候选池分批并发 judge、novelty 重算；(4) **历史面板**——首页列出历史 `DiscoveryReport`（`list_discovery_reports` 改按 `generated_at` 倒序），可点开重载。已通过 126 passed、ruff、前端 build。
 
 ## 仓库根目录
 
@@ -69,7 +71,7 @@ ruff check src tests                                  # lint
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
 | `config.py` | 基础设施配置（**无 LLM 槽**）：API 安全开关、上传大小、Kimi PDF/vision 配置、`embed_provider`、`graph_critic_enabled` 等开关 | 加基础设施开关 / 调 Kimi 解析参数 |
-| `core/types.py` | **数据契约脊柱**：GraphArtifact / NoteDocument / ExamDocument / ChatDocument / EvidenceChunk / ConceptNode / GraphEdge / SourceKind / WorkflowRunArtifact | 改 wire 契约（**必须**和 `frontend/src/types/index.ts` 一起改） |
+| `core/types.py` | **数据契约脊柱**：GraphArtifact / NoteDocument / ExamDocument / ChatDocument / DiscoveryReport / EvidenceChunk / ConceptNode / GraphEdge / SourceKind / WorkflowRunArtifact | 改 wire 契约（**必须**和 `frontend/src/types/index.ts` 一起改） |
 | `core/text.py` | 文本规范化 / 结构感知分块 / canonicalize | 调分块粒度 / 归一化规则 |
 | `core/clock.py` · `core/logging_config.py` | `utcnow()`（naive UTC）· 日志配置 | 时间/日志 |
 | `llm/credentials.py` `store.py` `factory.py` `structured.py` | **多凭据注册表 + 按 purpose 工厂**：登记凭据→绑定 graph/critic/chat/exam→`build_chat_model(Purpose)`；`structured_output_method`（openai=json_mode / anthropic=function_calling）；`make_structured` async caller | 加新 LLM purpose / 改结构化输出方式 / 改回退链 |
@@ -83,20 +85,22 @@ ruff check src tests                                  # lint
 | `notes/generate.py` `markdown.py` `prompts.py` `schemas.py` | **笔记**：map-reduce 分章（carry-forward 去重）+ 检索 chunk 落地引用 + **确定性 coverage critic** 补未覆盖核心概念；markdown.py 是 donor 来的确定性后处理 | 调笔记结构/覆盖 |
 | `exam/generate.py` `validate.py` `prompts.py` `schemas.py` | **出卷**：generator + **verifier 独立求解回路**（solver 用 Purpose.critic 独立作答，不符/无据则打回补足到请求数）；validate 是题型/难度校验 + `answers_match` | 调出题/校验/难度 |
 | `assistant/agent.py` `tools.py` | **招牌：在线 chat agent**（单 tool-calling agent + 最近历史 + 预检索引用兜底 + 结构化 trace + SSE）；tools = retrieve_chunks / search_concepts / get_subgraph | 调问答行为 / 加 agent 工具 |
+| `discovery/engine.py` | **知识发现**：多资料集/随机模式；宽候选生成（相似度+词面+**结构信号**共享邻居/标签+图谱重要性）+ AI judge seam（Purpose.critic，**大池分批并发**，`relation_type` 约束 8 类枚举+中文别名回填）+ 算法 fallback（关系类型推断/novelty 重算）；证据每侧 top-2；输出桥接图与证据引用 | 调跨资料集发现逻辑 / 关系类型枚举(`RELATION_TYPES`) / 候选评分权重 / judge 批大小 |
 | `export/renderer.py` | 导出 md/tex/txt（纯 Python）+ pdf（惰性 wkhtmltopdf→xhtml2pdf，`[export]` extra）+ render_chat_markdown | 加导出格式 |
 | `eval/metrics.py` `harness.py` `schemas.py` `__main__.py` `data/` | **离线评估**：纯指标（抽取 F1 / 关系合法+召回 / 笔记覆盖 / 出卷可溯源+客观题合法 / 问答 grounding）+ harness + CLI + gold fixture | 加评估指标 / 调 gold |
 | `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放 + 同参数复用/异参数冲突保护——notes/exam 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
 | `prompt_store.py` | 用户自定义提示词（global + chat/notes/exam）作为「补充偏好」**追加**到内置 system prompt（不覆盖结构化/引用约束；抽取与质检不受影响） | 调自定义 prompt 接入面 |
-| `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源，原子写）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
-| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions（安全上传 + 资料集/知识库重命名）· settings(`/settings/llm` 注册表 CRUD) · prompts(`/settings/prompts`) · workflow(`/workflow/run` + run-metrics) · chat(`/chat/{message,stream}`) · notes(`/generate_notes[+/stream]`,`/notes/{id}[/stream]`) · exam(同形) · export(`/export/*`) · graph(`GET /graph/{id}`、`/subgraph`、`POST /search`、`GET /graph/concepts` 全局知识点搜索) | 加/改 HTTP 接口 |
+| `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源，原子写；含 `discoveries/{discovery_id}.json`）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
+| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions（安全上传 + 资料集/知识库重命名）· discovery(`/discovery/run`, `/discovery`, `/discovery/{id}`) · settings(`/settings/llm` 注册表 CRUD) · prompts(`/settings/prompts`) · workflow(`/workflow/run` + run-metrics) · chat(`/chat/{message,stream}`) · notes(`/generate_notes[+/stream]`,`/notes/{id}[/stream]`) · exam(同形) · export(`/export/*`) · graph(`GET /graph/{id}`、`/subgraph`、`POST /search`、`GET /graph/concepts` 全局知识点搜索) | 加/改 HTTP 接口 |
 
 ### 前端 `frontend/src/`
 
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
-| `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），含 sessions 创建/删除/资料集改名/知识库改名 | 加/改一个后端调用 |
-| `types/index.ts` | 前端契约（对应 `core/types.py`） | 改契约（和后端一起改） |
-| `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **资料集/知识库改名** + **全局知识点搜索** + 来源标签(文档/视频/音频/图片) | 改首页/库管理 |
+| `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），含 sessions 创建/删除/资料集改名/知识库改名、knowledge discovery | 加/改一个后端调用 |
+| `types/index.ts` | 前端契约（对应 `core/types.py`，含 DiscoveryReport） | 改契约（和后端一起改） |
+| `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **资料集/知识库改名** + **多选/随机知识发现（桥接图可视化 + 卡片/证据可溯源跳转 + 历史面板）** + **全局知识点搜索** + 来源标签(文档/视频/音频/图片) | 改首页/库管理/发现结果展示 |
+| `components/discovery/BridgeGraphView.tsx` | **桥接图可视化**：ReactFlow 三列布局（发现→知识点→资料集），概念节点点击溯源；懒加载独立 chunk | 改桥接图样式/布局/交互 |
 | `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
 | `pages/PipelinePage.tsx` | 流水线可视化 + **质检阶段** + per-node **run-metrics 面板**（耗时/token/repair） | 改流水线展示 |
 | `pages/WorkspacePage.tsx` | 图谱 + 右栏**对话/笔记/试卷**标签页（选区可转对话 + ExportMenu） | 改主工作区 |
@@ -121,6 +125,30 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-06-26 — 知识发现增强（桥接图可视化 / 可溯源跳转 / 质量 / 历史）
+- **本轮目标**：用户修了若干 bug 并新增知识发现功能；本轮在其基础上做四个方向的提升（用户多选确认）。
+- **已完成**：
+  - **质量增强（`discovery/engine.py`）**：`RELATION_TYPES` 8 类枚举 + `JudgedFinding` `field_validator` 把中文/越界值回填到枚举（前端 label 永远可解析）；证据 `_evidence_for` 每侧 top-2 并交错；新增 `_neighbor_index`/`_struct_terms` 结构化信号（共享图谱邻居/标签）并入候选评分；judge 候选池超过 `_JUDGE_BATCH=12` 时 `_run_judge` 分批 `asyncio.gather` 并发并按 confidence 合并；`_relation_type_for`/`_novelty_for` 算法版关系类型与新颖度重算。
+  - **可视化**：新增 `frontend/src/components/discovery/BridgeGraphView.tsx`（ReactFlow 三列：发现→知识点→资料集），**懒加载**成独立 chunk，首页主包 376KB→229KB。
+  - **可溯源跳转**：发现卡片概念 chip / 证据块、桥接图概念节点点击 → `/session/{id}?concept=`（复用全局搜索模式）。
+  - **历史面板**：首页 `DiscoveryHistoryBar` 列出历史报告，点开重载；`storage/local.list_discovery_reports` 改按 `generated_at` 倒序。
+- **运行过的验证**：`.venv/bin/python -m pytest -q` → **126 passed**；`.venv/bin/ruff check src tests` → clean；`cd frontend && npm run build` → 通过（BridgeGraphView 独立 chunk 2.4KB）。
+- **新增测试证据**：`tests/test_discovery.py` 增 3 例——`relation_type` 枚举回填、judge 大池分批合并（含中文关系回填）、证据每侧多 chunk。
+- **已知风险或未解决问题**：算法版关系类型/novelty 是启发式，真实 judge 质量仍需用户凭据实测；`listDiscoveries()` 当前拉全量 `DiscoveryReport`（含 bridge graph），库很大时宜加 summary 端点；证据 blockquote 点击未做键盘可达（chip 是 button 已可达）。
+- **下一步最佳动作**：用户在浏览器跑一次真实发现，确认桥接图/跳转/历史观感；若要 commit，本轮发现功能（用户基线 + 本轮增强）仍全在工作树未提交。
+
+### 2026-06-26 — 知识发现 + artifact 保存
+- **本轮目标**：新增对选中资料集/随机资料集的知识发现功能，并做到发现结果 artifact 保存、测试完善。
+- **已完成**：
+  - 新增 `DiscoveryReport` 契约与 `DiscoveryRequest`；报告包含 findings、participants、evidence、score_components 和 bridge_graph。
+  - 新增 `discovery/engine.py`：按选中或随机资料集加载已建图谱，生成宽候选；支持注入 AI judge seam，真实运行时尝试 `Purpose.critic` 结构化判断，失败或无凭据时退回算法版发现。
+  - 新增 artifact 存储：`storage/local.py` 保存/读取/列出 `artifacts/discoveries/{discovery_id}.json`。
+  - 新增 API：`POST /discovery/run` 运行并保存，`GET /discovery/{id}` 读取，`GET /discovery` 列出。
+  - 首页新增资料集复选、多选知识发现、随机发现、结果卡片与 artifact id 展示；随机发现未选择资料集时由后端从全部真实已建图资料集中抽样。
+- **运行过的验证**：`.venv/bin/python -m pytest -q` → **123 passed**；`.venv/bin/ruff check src tests` → clean；`cd frontend && npm run build` → 通过。
+- **新增测试证据**：`tests/test_discovery.py` 覆盖算法版发现、AI judge seam、API 保存/读取/list artifact、随机发现、空选择拒绝、虚拟总图谱过滤。
+- **已知风险或未解决问题**：真实 LLM judge 质量需用户凭据/token 在浏览器实测；首版发现报告已落盘但没有历史列表 UI，只展示本次运行结果。
 
 ### 2026-06-25 — 资料集 / 知识库重命名
 - **本轮目标**：增加资料集改名与知识库改名功能。

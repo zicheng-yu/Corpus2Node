@@ -6,6 +6,7 @@ import type {
   ChatStreamEvent,
   CourseSession,
   CredentialUpsert,
+  DiscoveryReport,
   ExamDocument,
   GlobalConceptHit,
   GraphArtifact,
@@ -188,6 +189,25 @@ export async function fetchSubgraph(sessionId: string, conceptId: string, depth 
   url.searchParams.set("concept_id", conceptId);
   url.searchParams.set("depth", String(depth));
   return readJson<SubgraphResponse>(await fetch(url.toString()));
+}
+
+// ── Discovery ───────────────────────────────────────────────────────────────
+
+export function runDiscovery(payload: {
+  session_ids?: string[];
+  mode?: "selected" | "random";
+  limit?: number;
+  seed?: number;
+}): Promise<DiscoveryReport> {
+  return postJson<DiscoveryReport>("/discovery/run", payload);
+}
+
+export async function listDiscoveries(): Promise<DiscoveryReport[]> {
+  return readJson<DiscoveryReport[]>(await fetch(`${BASE}/discovery`));
+}
+
+export async function getDiscovery(discoveryId: string): Promise<DiscoveryReport> {
+  return readJson<DiscoveryReport>(await fetch(`${BASE}/discovery/${discoveryId}`));
 }
 
 // ── Chat (streaming + fallback) ───────────────────────────────────────────────

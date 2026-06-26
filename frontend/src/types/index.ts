@@ -300,6 +300,75 @@ export interface ChatResponse {
   subgraph?: SubgraphResponse | null;
 }
 
+// ── Knowledge discovery ─────────────────────────────────────────────────────
+
+export type DiscoveryMode = "selected" | "random";
+
+export interface DiscoveryEvidence {
+  session_id: string;
+  course_title: string;
+  lecture_title: string;
+  concept_id: string;
+  concept_name: string;
+  chunk_id: string;
+  source_id: string;
+  source_type?: SourceKind | null;
+  locator: string;
+  snippet: string;
+}
+
+export interface DiscoveryParticipant {
+  session_id: string;
+  course_title: string;
+  lecture_title: string;
+  concept_id: string;
+  concept_name: string;
+  summary: string;
+}
+
+export interface DiscoveryBridgeNode {
+  id: string;
+  label: string;
+  node_type: string;
+  session_id?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface DiscoveryBridgeEdge {
+  source: string;
+  target: string;
+  edge_type: string;
+  weight: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface DiscoveryBridgeGraph {
+  nodes: DiscoveryBridgeNode[];
+  edges: DiscoveryBridgeEdge[];
+}
+
+export interface DiscoveryFinding {
+  finding_id: string;
+  title: string;
+  summary: string;
+  relation_type: string;
+  confidence: number;
+  novelty: number;
+  participants: DiscoveryParticipant[];
+  evidence: DiscoveryEvidence[];
+  reasoning: string;
+  score_components: Record<string, number>;
+}
+
+export interface DiscoveryReport {
+  discovery_id: string;
+  mode: DiscoveryMode;
+  session_ids: string[];
+  findings: DiscoveryFinding[];
+  bridge_graph: DiscoveryBridgeGraph;
+  generated_at: string;
+}
+
 // ── LLM credential registry (replaces the old flat runtime settings) ────────────
 
 export type ProviderKind = "openai" | "anthropic";
