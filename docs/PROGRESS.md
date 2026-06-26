@@ -9,7 +9,7 @@
 
 ## 当前已验证状态
 
-- **后端测试 126 passed**（`.venv/bin/python -m pytest -q`，2026-06-26 实测，1.5s）。
+- **后端测试 127 passed**（`.venv/bin/python -m pytest -q`，2026-06-26 实测，1.1s）。
 - **前端 `npm run build` 通过**（2026-06-26 实测）。
 - **ruff clean**（`.venv/bin/ruff check src tests`，2026-06-26 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/出题）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
@@ -77,7 +77,7 @@ ruff check src tests                                  # lint
 | `llm/credentials.py` `store.py` `factory.py` `structured.py` | **多凭据注册表 + 按 purpose 工厂**：登记凭据→绑定 graph/critic/chat/exam→`build_chat_model(Purpose)`；`structured_output_method`（openai=json_mode / anthropic=function_calling）；`make_structured` async caller | 加新 LLM purpose / 改结构化输出方式 / 改回退链 |
 | `index/embeddings.py` · `index/search.py` | LangChain Embeddings（Hashing fallback / BGE-M3）· chunk/concept cosine 检索 + bounded subgraph | 换 embedding / 调检索 |
 | `ingest/adapters.py` | **摄入适配器注册表** + kind 路由（md/txt/docx/pptx/csv/json/yaml + 各类型扩展名表） | **加新文件类型** |
-| `ingest/chunk.py` `pdf_kimi.py` `image_kimi.py` `video_kimi.py` `audio_whisper.py` | 切块 · Kimi Files API file-extract（PDF 解析，**非 chat，几乎不计 token**）· Kimi vision（图片）· Kimi K2.6（视频 video_url）· faster-whisper（音频） | 调某模态的摄入方式 |
+| `ingest/chunk.py` `pdf_kimi.py` `image_kimi.py` `video_kimi.py` `audio_whisper.py` | 切块 · Kimi Files API file-extract（PDF 解析，**非 chat，几乎不计 token**）· Kimi vision（图片）· Kimi K2.6（视频 video_url）· **音频 = faster-whisper 本地转写**（Kimi 平台 API 不接受音频输入，无云端路径；faster-whisper 现为 **core 依赖**，无 `--extra audio`） | 调某模态的摄入方式 / 换音频模型（如换云端 ASR 需另加可转写凭据） |
 | `graph/extract.py` `prompts.py` `schemas.py` `clean.py` | 全量并发抽取（structured，no-sample）+ 抽取 prompt + 输出 schema + `is_junk_concept` 噪声过滤 | 调抽取质量 / prompt |
 | `graph/build.py` | **建图皇冠**：语义合并(C) + Louvain 社区(A) + networkx 中心性 + 共现边(D) | 调建图算法 / 聚类 / 中心性 |
 | `graph/critic.py` | **LLM-judge 质量门**：concept grounding / 关系方向 / 同实体重复 → 确定性 repair（drop/merge/flip/retype，≤1 轮，空图保护） | 调质量门规则 |
@@ -125,6 +125,15 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-06-26 — 音频摄入修复（Kimi API 无音频 → faster-whisper 转 core）
+- **本轮目标**：音频建图失败报 `needs faster-whisper — run uv sync --extra audio`；用户认为已配 Kimi（有音视频能力）不该再走 whisper。
+- **查证（官方文档）**：Kimi/Moonshot **平台 API 只接受 text/image/video，不接受音频输入**（无 `input_audio`/`audio_url`，无转写端点）；`Kimi-Audio` 是另一个需自托管的开源 7B 模型，不在平台 API 上。故音频**无云端路径**，必须本地转写——用户前提是误解（Kimi 消费端语音 ≠ 平台 API）。
+- **已完成**：`faster-whisper` 从 `[audio]` extra **提升为 core 依赖**（torch-free，与 docx/pptx/yaml 同级），删除 `audio` extra；`uv sync` 安装（faster-whisper 1.2.1 + ctranslate2/av/onnxruntime，无 torch）；`audio_whisper.py` 文档与报错信息改为「本地转写 / Kimi 不支持音频 / `uv sync` 即可」；端到端本机实测（合成 WAV 跑通 CTranslate2+PyAV+onnxruntime，3.1s）。
+- **运行过的验证**：合成音频 e2e 跑通；`pytest -q` → **127 passed**（原 126 → 去掉一个仅在「未装 whisper」时才跑的 skip 测试、改写为「依赖已 bundle」+「缺失时报错清晰」两测）；`ruff` clean。
+- **新增/改测试证据**：`tests/test_adapters.py::test_audio_dependency_is_bundled`、`test_audio_error_is_clear_if_transcriber_missing`（monkeypatch `sys.modules["faster_whisper"]=None` 强制 ImportError，断言报错含 "locally"）。
+- **已知风险或未解决问题**：core 安装体积略增（ctranslate2/av/onnxruntime，但无 torch）；whisper 首次转写下载 `base` 模型(~140MB)；若用户更想要云端 ASR，需另加一个支持 `/audio/transcriptions` 的 OpenAI-compatible 凭据（当前 DeepSeek/Kimi 都不转写）——本轮未建该路径（无可用凭据、避免投机）。
+- **下一步最佳动作**：用户用真实音频建一次图确认转写质量；如需云端 ASR 再议。
 
 ### 2026-06-26 — 流水线阶段卡片瘦身（5→4 一行）
 - **本轮目标**：用户反馈流水线阶段图丑（5 张卡片在 `repeat(4,1fr)` 网格里换行 + 大片空白）；去掉「质检修复」卡片让四个一行。

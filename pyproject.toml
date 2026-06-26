@@ -22,6 +22,11 @@ dependencies = [
     "python-pptx>=1.0", # .pptx ingestion
     "pyyaml>=6.0",      # .yaml/.yml ingestion
     "openai>=1.0,<2.0", # Kimi PDF + vision (Files/Chat API), OpenAI-compatible embeddings
+    # Audio transcription is LOCAL: the Kimi/Moonshot API takes text/image/video
+    # but NOT audio, so .mp3/.wav/etc. are transcribed here. faster-whisper is
+    # torch-free (CTranslate2 + PyAV-bundled ffmpeg), so it sits in core alongside
+    # the other ingestion parsers rather than behind an opt-in extra.
+    "faster-whisper>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -29,10 +34,6 @@ dependencies = [
 ml = [
     "FlagEmbedding>=1.3.3",
     "scikit-learn>=1.4",
-]
-# Local audio transcription (CTranslate2; no torch; bundles ffmpeg via PyAV)
-audio = [
-    "faster-whisper>=1.0",
 ]
 # PDF export (Markdown/txt/tex need no extras). Prefers wkhtmltopdf on PATH; xhtml2pdf is the fallback engine.
 export = [

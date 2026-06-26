@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -93,10 +94,18 @@ def test_image_adapter_requires_kimi_config(tmp_path, monkeypatch):
         adapters.extract_blocks_for(_src("a.png", p))
 
 
-def test_audio_adapter_clear_error_without_faster_whisper(tmp_path):
-    if importlib.util.find_spec("faster_whisper") is not None:
-        pytest.skip("faster-whisper installed; the not-installed path can't be exercised")
+def test_audio_dependency_is_bundled():
+    # Audio is transcribed locally (the Kimi API has no audio input), so faster-whisper
+    # is a core dependency now — audio ingestion must work without any opt-in extra.
+    assert importlib.util.find_spec("faster_whisper") is not None
+    assert ".mp3" in adapters.SUPPORTED_EXTENSIONS
+
+
+def test_audio_error_is_clear_if_transcriber_missing(tmp_path, monkeypatch):
+    # If the local transcriber is somehow unavailable, the error must point at the real
+    # fix (it's local; Kimi can't do audio), not a stale `--extra audio` instruction.
+    monkeypatch.setitem(sys.modules, "faster_whisper", None)  # force ImportError on import
     p = tmp_path / "a.mp3"
     p.write_bytes(b"\x00\x01")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="locally"):
         adapters.extract_blocks_for(_src("a.mp3", p))
