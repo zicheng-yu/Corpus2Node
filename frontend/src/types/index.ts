@@ -362,6 +362,7 @@ export interface DiscoveryFinding {
 
 export interface DiscoveryReport {
   discovery_id: string;
+  title: string;
   mode: DiscoveryMode;
   session_ids: string[];
   findings: DiscoveryFinding[];

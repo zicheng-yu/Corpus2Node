@@ -452,6 +452,7 @@ class DiscoveryFinding(BaseModel):
 
 class DiscoveryReport(BaseModel):
     discovery_id: str = Field(default_factory=lambda: str(uuid4()))
+    title: str = ""  # short LLM-generated (or derived) name shown in history
     mode: DiscoveryMode = DiscoveryMode.selected
     session_ids: list[UUID] = Field(default_factory=list)
     findings: list[DiscoveryFinding] = Field(default_factory=list)

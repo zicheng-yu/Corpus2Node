@@ -627,9 +627,22 @@
 }
 
 .discovery-history-item b {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.discovery-report-title {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink);
+  padding: 10px 14px 0;
 }
 
 .discovery-history-item span {

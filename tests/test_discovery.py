@@ -138,6 +138,26 @@ def test_run_discovery_uses_injected_ai_judge_for_non_name_based_crossing():
     assert "不是同名概念" in report.findings[0].reasoning
 
 
+def test_run_discovery_uses_injected_titler_and_cleans_punctuation():
+    left = _seed_session(course_title="A", lecture_title="资料一", concepts=[("概念A", [1.0, 0.0], "证据 A")])
+    right = _seed_session(course_title="B", lecture_title="资料二", concepts=[("概念B", [0.8, 0.2], "证据 B")])
+
+    async def fake_titler(prompt: str) -> str:
+        return "《反馈与节奏》"  # wrapped in punctuation the engine should strip
+
+    report = asyncio.run(run_discovery(DiscoveryRequest(session_ids=[left, right]), judge=None, titler=fake_titler))
+    assert report.title == "反馈与节奏"
+
+
+def test_run_discovery_falls_back_to_deterministic_title():
+    left = _seed_session(course_title="A", lecture_title="资料一", concepts=[("启发式搜索", [1.0, 0.0], "证据 A")])
+    right = _seed_session(course_title="B", lecture_title="资料二", concepts=[("候选召回", [0.8, 0.2], "证据 B")])
+
+    report = asyncio.run(run_discovery(DiscoveryRequest(session_ids=[left, right]), judge=None, titler=None))
+    assert report.title  # non-empty, readable, not the uuid
+    assert report.title != report.discovery_id
+
+
 def test_discovery_route_saves_and_loads_artifact():
     left = _seed_session(
         course_title="A",

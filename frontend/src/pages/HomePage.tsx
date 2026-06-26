@@ -125,11 +125,17 @@ function ConfirmModal({
   onConfirm,
   onCancel,
   loading,
+  confirmLabel = "确认删除",
+  loadingLabel = "删除中…",
+  tone = "danger",
 }: {
   message: string;
   onConfirm: () => void;
   onCancel: () => void;
   loading: boolean;
+  confirmLabel?: string;
+  loadingLabel?: string;
+  tone?: "danger" | "accent";
 }) {
   return (
     <div className="confirm-overlay" onClick={() => !loading && onCancel()}>
@@ -139,8 +145,13 @@ function ConfirmModal({
           <button className="btn btn-outline btn-sm" onClick={onCancel} disabled={loading} type="button">
             取消
           </button>
-          <button className="btn btn-danger btn-sm" onClick={onConfirm} disabled={loading} type="button">
-            {loading ? "删除中…" : "确认删除"}
+          <button
+            className={clsx("btn btn-sm", tone === "accent" ? "btn-accent" : "btn-danger")}
+            onClick={onConfirm}
+            disabled={loading}
+            type="button"
+          >
+            {loading ? loadingLabel : confirmLabel}
           </button>
         </div>
       </div>
@@ -214,6 +225,7 @@ export function HomePage() {
   const [renaming, setRenaming] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const [discovering, setDiscovering] = useState(false);
+  const [randomConfirm, setRandomConfirm] = useState(false);
   const [discoveryReport, setDiscoveryReport] = useState<DiscoveryReport | null>(null);
   const [discoveryHistory, setDiscoveryHistory] = useState<DiscoveryReport[]>([]);
   const [showBridgeGraph, setShowBridgeGraph] = useState(true);
@@ -363,12 +375,23 @@ export function HomePage() {
       setDiscoveryReport(report);
       setShowBridgeGraph(true);
       setDiscoveryHistory((prev) => [report, ...prev.filter((r) => r.discovery_id !== report.discovery_id)]);
-      toast(`知识发现已保存：${report.discovery_id.slice(0, 8)}`, "success");
+      toast(`知识发现已保存：${report.title || report.discovery_id.slice(0, 8)}`, "success");
     } catch {
       toast("知识发现失败，请确认资料集已完成建图", "error");
     } finally {
       setDiscovering(false);
     }
+  };
+
+  // One entry point: discover on the selected sets, or (if none selected) confirm a random run.
+  const startDiscovery = () => {
+    if (selectedSessionIds.size > 0) void handleDiscovery("selected");
+    else setRandomConfirm(true);
+  };
+
+  const confirmRandomDiscovery = async () => {
+    await handleDiscovery("random");
+    setRandomConfirm(false);
   };
 
   const openConcept = (sessionId: string, conceptId: string) =>
@@ -447,19 +470,12 @@ export function HomePage() {
           </button>
           <button
             className="btn btn-outline"
-            onClick={() => handleDiscovery("selected")}
-            disabled={discovering || selectedSessionIds.size === 0}
-            type="button"
-          >
-            知识发现{selectedSessionIds.size > 0 ? ` · ${selectedSessionIds.size}` : ""}
-          </button>
-          <button
-            className="btn btn-outline"
-            onClick={() => handleDiscovery("random")}
+            onClick={startDiscovery}
             disabled={discovering || discoverableCount === 0}
+            title={selectedSessionIds.size > 0 ? "对选中的资料集进行知识发现" : "未选择则随机挑选资料集"}
             type="button"
           >
-            {discovering ? "发现中…" : "随机发现"}
+            {discovering ? "发现中…" : `知识发现${selectedSessionIds.size > 0 ? ` · ${selectedSessionIds.size}` : ""}`}
           </button>
         </div>
       </div>
@@ -589,17 +605,6 @@ export function HomePage() {
                   <PencilIcon />
                 </button>
                 <button
-                  className="btn btn-icon group-add-btn"
-                  onClick={(e) => { e.stopPropagation(); navigate(`/new?course=${encodeURIComponent(course)}`); }}
-                  aria-label={`向知识库 ${course} 新增资料集`}
-                  title="新增资料集"
-                  type="button"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
-                <button
                   className="btn btn-icon group-delete-btn"
                   onClick={(e) => { e.stopPropagation(); handleDeleteCourse(course); }}
                   aria-label={`删除知识库 ${course}`}
@@ -633,6 +638,18 @@ export function HomePage() {
           onConfirm={confirmDelete}
           onCancel={() => !deleting && setPending(null)}
           loading={deleting}
+        />
+      )}
+
+      {randomConfirm && (
+        <ConfirmModal
+          message="未选择资料集。将从已建图的资料集中随机挑选若干进行知识发现，是否继续？"
+          confirmLabel="开始随机发现"
+          loadingLabel="发现中…"
+          tone="accent"
+          loading={discovering}
+          onConfirm={confirmRandomDiscovery}
+          onCancel={() => !discovering && setRandomConfirm(false)}
         />
       )}
 
@@ -670,9 +687,9 @@ function DiscoveryHistoryBar({
             className={clsx("discovery-history-item", { active: report.discovery_id === activeId })}
             type="button"
             onClick={() => onPick(report.discovery_id)}
-            title={new Date(report.generated_at).toLocaleString()}
+            title={`${report.title || report.discovery_id.slice(0, 8)} · ${new Date(report.generated_at).toLocaleString()}`}
           >
-            <b>{report.discovery_id.slice(0, 8)}</b>
+            <b>{report.title || report.discovery_id.slice(0, 8)}</b>
             <span>
               {report.mode === "random" ? "随机" : `${report.session_ids.length} 资料集`} · {report.findings.length} 发现
             </span>
@@ -701,8 +718,8 @@ function DiscoveryReportPanel({
     <section className="discovery-panel">
       <div className="discovery-panel-head">
         <div>
-          <div className="home-concepts-label">知识发现 · {report.findings.length}</div>
-          <div className="discovery-id">Artifact {report.discovery_id}</div>
+          <div className="discovery-report-title">{report.title || "知识发现"}</div>
+          <div className="discovery-id">{report.findings.length} 处交叉 · {report.discovery_id.slice(0, 8)}</div>
         </div>
         <div className="discovery-head-actions">
           <span className="discovery-graph-stat">

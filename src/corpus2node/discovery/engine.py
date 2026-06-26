@@ -101,8 +101,14 @@ class JudgeReport(BaseModel):
     findings: list[JudgedFinding] = Field(default_factory=list)
 
 
+class DiscoveryTitle(BaseModel):
+    title: str = ""
+
+
 DiscoveryJudge = Callable[[str], Awaitable[JudgeReport]]
+DiscoveryTitler = Callable[[str], Awaitable[str]]
 _AUTO_JUDGE = object()
+_AUTO_TITLER = object()
 
 
 @dataclass(frozen=True)
@@ -137,6 +143,7 @@ async def run_discovery(
     request: DiscoveryRequest,
     *,
     judge: DiscoveryJudge | None | object = _AUTO_JUDGE,
+    titler: DiscoveryTitler | None | object = _AUTO_TITLER,
 ) -> DiscoveryReport:
     """Create a persisted-ready discovery report from selected or random sessions.
 
@@ -144,13 +151,20 @@ async def run_discovery(
     lexical, structural and graph-importance signals). If an LLM judge is
     available, it decides which broad candidates are real knowledge crossings;
     otherwise deterministic findings are still returned so the feature remains
-    useful without credentials.
+    useful without credentials. An LLM titler names the report (with a
+    deterministic fallback), so history shows a readable title not a uuid.
     """
     rng = random.Random(request.seed)
     contexts = _load_contexts(request, rng)
+    if titler is _AUTO_TITLER:
+        titler = _make_titler_or_none()
     candidates = _generate_candidates(contexts, request, rng)
     if not candidates:
-        return DiscoveryReport(mode=request.mode, session_ids=[ctx.session.session_id for ctx in contexts])
+        return DiscoveryReport(
+            title=_fallback_title([], contexts),
+            mode=request.mode,
+            session_ids=[ctx.session.session_id for ctx in contexts],
+        )
 
     judged: list[JudgedFinding] = []
     if judge is _AUTO_JUDGE:
@@ -163,7 +177,9 @@ async def run_discovery(
         findings = [_finding_from_candidate(candidate) for candidate in candidates[: request.limit]]
 
     capped = findings[: request.limit]
+    title = await _title_for(capped, contexts, titler)
     return DiscoveryReport(
+        title=title,
         mode=request.mode,
         session_ids=[ctx.session.session_id for ctx in contexts],
         findings=capped,
@@ -364,6 +380,87 @@ def _make_judge_or_none() -> StructuredCaller[JudgeReport] | None:
     except Exception:
         return None
     return make_structured(model, JudgeReport, system=_JUDGE_SYSTEM, method=method)
+
+
+_TITLE_SYSTEM = (
+    "你是为跨资料知识发现起标题的助手。只输出一个简短中文标题（不超过 16 字），"
+    "概括这次发现的主题；不要书名号、引号或句末标点。"
+)
+
+
+def _make_titler_or_none() -> DiscoveryTitler | None:
+    try:
+        model = factory.build_chat_model(Purpose.critic, temperature=0)
+        method = factory.structured_output_method(Purpose.critic)
+    except Exception:
+        return None
+    caller = make_structured(model, DiscoveryTitle, system=_TITLE_SYSTEM, method=method)
+
+    async def _titler(prompt: str) -> str:
+        return (await caller(prompt)).title
+
+    return _titler
+
+
+def _title_prompt(findings: list[DiscoveryFinding], contexts: list[DiscoveryContext]) -> str:
+    lectures = list(dict.fromkeys(ctx.session.lecture_title for ctx in contexts))
+    return "\n".join(
+        [
+            "给下面这次跨资料知识发现起一个简短中文标题（≤16 字，概括主题）。",
+            "涉及资料：" + "、".join(lectures[:6]),
+            "主要发现：",
+            *[f"- {f.title}" for f in findings[:6]],
+        ]
+    )
+
+
+async def _title_for(
+    findings: list[DiscoveryFinding], contexts: list[DiscoveryContext], titler: DiscoveryTitler | None
+) -> str:
+    if titler is not None and findings:
+        try:
+            raw = await titler(_title_prompt(findings, contexts))
+            cleaned = (raw or "").strip().strip("《》「」\"'。.！!？? ")
+            if cleaned:
+                return cleaned[:24]
+        except Exception:
+            pass
+    return _fallback_title(findings, contexts)
+
+
+def _clean_concept_name(name: str) -> str:
+    """Drop parenthetical suffixes and surrounding noise so titles read cleanly."""
+    name = name.split("(")[0].split("（")[0].strip()
+    return name.strip(" -·:：")
+
+
+def derive_title(findings: list[DiscoveryFinding]) -> str:
+    """Deterministic title from the top finding's participants (no LLM)."""
+    if not findings:
+        return ""
+    top = findings[0]
+    names = [n for n in (_clean_concept_name(p.concept_name) for p in top.participants) if n][:2]
+    if len(names) >= 2:
+        base = f"{names[0]} × {names[1]}"
+    elif names:
+        base = names[0]
+    else:
+        base = _clean_concept_name(top.title) or "知识发现"
+    extra = f" 等 {len(findings)} 处" if len(findings) > 1 else ""
+    title = (base + extra).strip()
+    if len(title) > 24:  # avoid a dangling separator after truncation
+        title = title[:24].rstrip(" ×（(·-、")
+    return title
+
+
+def _fallback_title(findings: list[DiscoveryFinding], contexts: list[DiscoveryContext]) -> str:
+    title = derive_title(findings)
+    if title:
+        return title
+    lectures = list(dict.fromkeys(ctx.session.lecture_title for ctx in contexts))
+    if lectures:
+        return ("、".join(lectures[:2]) + " 的发现")[:24]
+    return "知识发现"
 
 
 _RELATION_GUIDE = (
