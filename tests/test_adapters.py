@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -79,11 +80,13 @@ def test_kind_for_maps_extensions():
     assert adapters.kind_for("a.docx") == SourceKind.document
     assert adapters.kind_for("a.png") == SourceKind.image
     assert adapters.kind_for("a.mp3") == SourceKind.audio
+    assert adapters.kind_for("a.mp4") == SourceKind.video
 
 
-def test_image_and_audio_are_registered():
+def test_multimodal_extensions_are_registered():
     assert ".png" in adapters.SUPPORTED_EXTENSIONS
     assert ".mp3" in adapters.SUPPORTED_EXTENSIONS
+    assert ".mp4" in adapters.SUPPORTED_EXTENSIONS
 
 
 def test_image_adapter_requires_kimi_config(tmp_path, monkeypatch):
@@ -109,3 +112,53 @@ def test_audio_error_is_clear_if_transcriber_missing(tmp_path, monkeypatch):
     p.write_bytes(b"\x00\x01")
     with pytest.raises(RuntimeError, match="locally"):
         adapters.extract_blocks_for(_src("a.mp3", p))
+
+
+def test_video_adapter_uses_kimi_file_upload(tmp_path, monkeypatch):
+    from corpus2node.ingest.video_kimi import describe_video
+
+    p = tmp_path / "a.mp4"
+    p.write_bytes(b"fake video bytes")
+    monkeypatch.setattr(settings, "kimi_api_key", "test-key")
+    monkeypatch.setattr(settings, "kimi_model", "kimi-k2.6")
+
+    calls: dict[str, object] = {}
+
+    class FakeFiles:
+        def create(self, *, file, purpose):
+            calls["purpose"] = purpose
+            calls["uploaded_bytes"] = file.read()
+            return types.SimpleNamespace(id="file-video-123")
+
+        def delete(self, file_id):
+            calls["deleted"] = file_id
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls["chat_kwargs"] = kwargs
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="视频摘要"))]
+            )
+
+    class FakeChat:
+        def __init__(self):
+            self.completions = FakeCompletions()
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            calls["client_kwargs"] = kwargs
+            self.files = FakeFiles()
+            self.chat = FakeChat()
+
+    fake_openai = types.ModuleType("openai")
+    fake_openai.OpenAI = FakeOpenAI
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+
+    blocks = describe_video("a.mp4", str(p))
+
+    assert blocks == ["视频摘要"]
+    assert calls["purpose"] == "video"
+    assert calls["uploaded_bytes"] == b"fake video bytes"
+    assert calls["deleted"] == "file-video-123"
+    content = calls["chat_kwargs"]["messages"][1]["content"]
+    assert content[0]["video_url"]["url"] == "ms://file-video-123"

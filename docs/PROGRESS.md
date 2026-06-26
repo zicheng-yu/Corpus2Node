@@ -9,7 +9,7 @@
 
 ## 当前已验证状态
 
-- **后端测试 127 passed**（`.venv/bin/python -m pytest -q`，2026-06-26 实测，1.1s）。
+- **后端测试 128 passed**（`.venv/bin/python -m pytest -q`，2026-06-26 实测，1.5s）。
 - **前端 `npm run build` 通过**（2026-06-26 实测）。
 - **ruff clean**（`.venv/bin/ruff check src tests`，2026-06-26 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/出题）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
@@ -77,7 +77,7 @@ ruff check src tests                                  # lint
 | `llm/credentials.py` `store.py` `factory.py` `structured.py` | **多凭据注册表 + 按 purpose 工厂**：登记凭据→绑定 graph/critic/chat/exam→`build_chat_model(Purpose)`；`structured_output_method`（openai=json_mode / anthropic=function_calling）；`make_structured` async caller | 加新 LLM purpose / 改结构化输出方式 / 改回退链 |
 | `index/embeddings.py` · `index/search.py` | LangChain Embeddings（Hashing fallback / BGE-M3）· chunk/concept cosine 检索 + bounded subgraph | 换 embedding / 调检索 |
 | `ingest/adapters.py` | **摄入适配器注册表** + kind 路由（md/txt/docx/pptx/csv/json/yaml + 各类型扩展名表） | **加新文件类型** |
-| `ingest/chunk.py` `pdf_kimi.py` `image_kimi.py` `video_kimi.py` `audio_whisper.py` | 切块 · Kimi Files API file-extract（PDF 解析，**非 chat，几乎不计 token**）· Kimi vision（图片）· Kimi K2.6（视频 video_url）· **音频 = faster-whisper 本地转写**（Kimi 平台 API 不接受音频输入，无云端路径；faster-whisper 现为 **core 依赖**，无 `--extra audio`） | 调某模态的摄入方式 / 换音频模型（如换云端 ASR 需另加可转写凭据） |
+| `ingest/chunk.py` `pdf_kimi.py` `image_kimi.py` `video_kimi.py` `audio_whisper.py` | 切块 · Kimi Files API file-extract（PDF 解析，**非 chat，几乎不计 token**）· Kimi vision（图片）· Kimi K2.6（视频先 Files API `purpose=video` 上传，再用 `ms://file_id` 的 video_url，避免大 mp4 base64 断连）· **音频 = faster-whisper 本地转写**（Kimi 平台 API 不接受音频输入，无云端路径；faster-whisper 现为 **core 依赖**，无 `--extra audio`） | 调某模态的摄入方式 / 换音频模型（如换云端 ASR 需另加可转写凭据） |
 | `graph/extract.py` `prompts.py` `schemas.py` `clean.py` | 全量并发抽取（structured，no-sample）+ 抽取 prompt + 输出 schema + `is_junk_concept` 噪声过滤 | 调抽取质量 / prompt |
 | `graph/build.py` | **建图皇冠**：语义合并(C) + Louvain 社区(A) + networkx 中心性 + 共现边(D) | 调建图算法 / 聚类 / 中心性 |
 | `graph/critic.py` | **LLM-judge 质量门**：concept grounding / 关系方向 / 同实体重复 → 确定性 repair（drop/merge/flip/retype，≤1 轮，空图保护） | 调质量门规则 |
@@ -125,6 +125,13 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-06-26 — 视频 mp4 摄入连接错误修复
+- **本轮目标**：用户最新音频/视频测试上传 26MB `.mp4`，workflow ingest 阶段报 `Connection error.` / `Request timed out.`；用户确认 Kimi 支持 mp4，要求排查。
+- **根因**：失败文件实际按 `.mp4` 路由到 `video_kimi.describe_video`（不是 audio/faster-whisper）。旧实现把整个 mp4 base64 内联到 chat request；26MB 视频膨胀到约 35MB JSON，再经过本机代理，日志显示 `Broken pipe` / `ReadTimeout`。Kimi 官方文档确认支持 mp4，也明确大视频应使用 Files API 上传，`purpose="video"` 后再走 vision 理解。
+- **已完成**：`video_kimi.py` 改为先 `client.files.create(..., purpose="video")` 上传视频，再在 chat content 中传 `video_url: {"url": "ms://<file_id>"}`；视频请求 timeout 提到至少 600s；完成后 best-effort 删除远端临时文件；删除旧 base64 路径。
+- **运行过的验证**：`tests/test_adapters.py` 新增无网络 fake OpenAI 测试，断言 `.mp4` 走 Files API `purpose=video` 且 chat 中使用 `ms://file_id`；`.venv/bin/python -m pytest tests/test_adapters.py -q` → 12 passed；`.venv/bin/python -m pytest -q` → **128 passed**；`.venv/bin/ruff check src tests` → clean。
+- **已知风险或未解决问题**：没有直接用用户真实 26MB mp4 再跑 Kimi，因为会调用外部 API/消耗额度；若仍超时，下一步应考虑在本地按时长切片后分段上传/总结，而不是回退 base64。
 
 ### 2026-06-26 — 音频摄入修复（Kimi API 无音频 → faster-whisper 转 core）
 - **本轮目标**：音频建图失败报 `needs faster-whisper — run uv sync --extra audio`；用户认为已配 Kimi（有音视频能力）不该再走 whisper。

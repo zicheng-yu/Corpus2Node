@@ -13,7 +13,18 @@ import "./NewSessionPage.css";
 
 const AUDIO_EXTS = ["mp3", "wav", "m4a", "flac", "aac", "ogg"];
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "gif"];
-const VIDEO_EXTS = ["mp4", "mpeg", "mpg", "mov", "avi", "flv", "webm", "wmv", "3gp", "3gpp"];
+const VIDEO_EXTS = [
+  "mp4",
+  "mpeg",
+  "mpg",
+  "mov",
+  "avi",
+  "flv",
+  "webm",
+  "wmv",
+  "3gp",
+  "3gpp",
+];
 const ACCEPT =
   ".pdf,.txt,.md,.markdown,.docx,.pptx,.csv,.json,.yaml,.yml" +
   ",.png,.jpg,.jpeg,.webp,.gif" +
@@ -293,7 +304,8 @@ export function NewSessionPage() {
             <>
               <div className="wizard-h">上传文件</div>
               <div className="wizard-hsub">
-                支持 PDF / Word / PPT / Markdown / 文本 / 表格 / 图片 / 视频 / 音频
+                支持 PDF / Word / PPT / Markdown / 文本 / 表格 / 图片 / 视频 /
+                音频
               </div>
 
               <div
@@ -330,7 +342,8 @@ export function NewSessionPage() {
                 </div>
                 <div className="dropzone-title">拖放文件到此处，或点击选择</div>
                 <div className="dropzone-sub">
-                  PDF · DOCX · PPTX · MD · CSV · 图片 · 视频 · 音频 · 最大 500 MB
+                  PDF · DOCX · PPTX · MD · CSV · 图片 · 视频 · 音频 · 最大 500
+                  MB
                 </div>
               </div>
 
@@ -370,7 +383,10 @@ export function NewSessionPage() {
                         ) : entry.kind === "video" ? (
                           <>
                             <rect x="2" y="3" width="20" height="14" rx="2" />
-                            <polygon points="10 8 15 10.5 10 13 10 8" fill="currentColor" />
+                            <polygon
+                              points="10 8 15 10.5 10 13 10 8"
+                              fill="currentColor"
+                            />
                           </>
                         ) : entry.kind === "image" ? (
                           <>
@@ -504,7 +520,7 @@ export function NewSessionPage() {
                     color: "var(--ink-2)",
                   }}
                 >
-                  文档解析 → 片段切分 → 概念抽取 → 图谱构建
+                  文件解析 → 片段切分 → 概念抽取 → 图谱构建
                 </div>
               </div>
 
