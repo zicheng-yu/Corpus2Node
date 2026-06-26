@@ -10,22 +10,16 @@ import re
 import time
 from pathlib import Path
 
-from corpus2node.config import settings
 from corpus2node.core.text import normalize_text
+from corpus2node.ingest.kimi_client import vision_client
 
 _PAGE_MARKER = re.compile(
     r"(?im)^\s*(?:#{1,6}\s*)?(?:-{2,}\s*)?(?:page|p\.|第)\s*(\d{1,4})\s*(?:页)?\s*[:：]?\s*(?:-{2,})?\s*$"
 )
 
 
-def kimi_pdf_configured() -> bool:
-    return bool(settings.kimi_api_key and settings.kimi_model)
-
-
 def extract_pdf_blocks(filename: str, pdf_path: str | Path) -> list[str]:
-    """Extract a PDF into page-ish text blocks via Kimi."""
-    if not kimi_pdf_configured():
-        raise RuntimeError("Kimi PDF extraction is not configured. Set KIMI_API_KEY and KIMI_MODEL.")
+    """Extract a PDF into page-ish text blocks via Kimi (vision credential from the registry)."""
     raw = _kimi_extract_file_content(pdf_path)
     blocks = [block for block in _split_into_blocks(raw) if normalize_text(block)]
     if not blocks:
@@ -33,20 +27,8 @@ def extract_pdf_blocks(filename: str, pdf_path: str | Path) -> list[str]:
     return blocks
 
 
-def _kimi_client():
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise RuntimeError("PDF ingest needs the `ml` extra (openai): run `uv sync --extra ml`.") from exc
-
-    kwargs: dict[str, object] = {"api_key": settings.kimi_api_key, "timeout": settings.kimi_timeout_seconds}
-    if settings.kimi_base_url:
-        kwargs["base_url"] = settings.kimi_base_url
-    return OpenAI(**kwargs)
-
-
 def _kimi_extract_file_content(pdf_path: str | Path) -> str:
-    client = _kimi_client()
+    client, _model = vision_client()  # file-extract needs only the endpoint+key, not the model
     file_object = client.files.create(file=Path(pdf_path), purpose="file-extract")
     file_id = file_object.id
     try:

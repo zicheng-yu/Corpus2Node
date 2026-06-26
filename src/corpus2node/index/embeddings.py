@@ -81,10 +81,21 @@ def get_embeddings() -> Embeddings:
     if provider == "openai_compatible":
         from langchain_openai import OpenAIEmbeddings
 
+        from corpus2node.llm import factory
+        from corpus2node.llm.credentials import Purpose
+        from corpus2node.llm.factory import LLMConfigError
+
+        try:
+            params = factory.credential_params(Purpose.embedding)
+        except LLMConfigError as exc:
+            raise RuntimeError(
+                "embed_provider=openai_compatible 需要在「设置 → 模型」里把一个凭据绑定到 embedding 用途"
+                "（base_url、api_key、嵌入模型名）。"
+            ) from exc
         return OpenAIEmbeddings(
-            model=settings.embedding_model,
-            base_url=settings.embedding_base_url or None,
-            api_key=settings.embedding_api_key or None,
+            model=params.model,
+            base_url=params.base_url or None,
+            api_key=params.api_key or None,
         )
     if provider == "hashing":
         return HashingEmbeddings()

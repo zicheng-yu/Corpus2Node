@@ -23,10 +23,17 @@ class Purpose(str, Enum):
     critic = "critic"
     chat = "chat"
     exam = "exam"
+    vision = "vision"  # image / PDF / video ingestion (Kimi-style multimodal, openai SDK)
+    embedding = "embedding"  # remote OpenAI-compatible embeddings (when embed_provider=openai_compatible)
 
 
 # A purpose with no binding of its own reuses another's (critic reuses graph).
+# vision/embedding have no fallback — they need their own (multimodal / embedding) endpoint.
 PURPOSE_FALLBACK: dict[Purpose, Purpose] = {Purpose.critic: Purpose.graph}
+
+# Purposes that drive chat/completion models (shown together in the UI as one group).
+# vision + embedding are non-chat purposes resolved via factory.credential_params.
+CHAT_PURPOSES: tuple[Purpose, ...] = (Purpose.graph, Purpose.chat, Purpose.critic, Purpose.exam)
 
 
 def _new_credential_id() -> str:

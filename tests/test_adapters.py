@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from corpus2node.config import settings
 from corpus2node.core.types import SourceFile, SourceKind
 from corpus2node.ingest import adapters
 
@@ -89,11 +88,29 @@ def test_multimodal_extensions_are_registered():
     assert ".mp4" in adapters.SUPPORTED_EXTENSIONS
 
 
-def test_image_adapter_requires_kimi_config(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "kimi_api_key", "")  # force unconfigured -> no network
+def _seed_vision_kimi() -> None:
+    """Bind a Kimi-style credential to the `vision` purpose in the isolated registry."""
+    from corpus2node.llm import store
+    from corpus2node.llm.credentials import (
+        LLMSettings,
+        ProviderCredential,
+        ProviderKind,
+        Purpose,
+        PurposeBinding,
+    )
+
+    cred = ProviderCredential(
+        credential_id="kimi1", label="Kimi", kind=ProviderKind.openai,
+        base_url="https://api.moonshot.cn/v1", api_key="test-key", default_model="kimi-k2.6",
+    )
+    store.save(LLMSettings(credentials=[cred], bindings={Purpose.vision: PurposeBinding(credential_id="kimi1")}))
+
+
+def test_image_adapter_requires_vision_binding(tmp_path):
+    # No `vision` binding in the (isolated, empty) registry → clear error, no network.
     p = tmp_path / "a.png"
     p.write_bytes(b"\x89PNG\r\n")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="vision"):
         adapters.extract_blocks_for(_src("a.png", p))
 
 
@@ -117,10 +134,9 @@ def test_audio_error_is_clear_if_transcriber_missing(tmp_path, monkeypatch):
 def test_video_adapter_uses_kimi_file_upload(tmp_path, monkeypatch):
     from corpus2node.ingest.video_kimi import describe_video
 
+    _seed_vision_kimi()  # Kimi credential bound to the vision purpose (was settings.kimi_*)
     p = tmp_path / "a.mp4"
     p.write_bytes(b"fake video bytes")
-    monkeypatch.setattr(settings, "kimi_api_key", "test-key")
-    monkeypatch.setattr(settings, "kimi_model", "kimi-k2.6")
 
     calls: dict[str, object] = {}
 

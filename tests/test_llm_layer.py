@@ -70,3 +70,37 @@ def test_build_anthropic_model():
     value.bindings[Purpose.chat] = PurposeBinding(credential_id="c1", model="claude-x")
     model = factory.build_chat_model(Purpose.chat, value=value)
     assert "Anthropic" in type(model).__name__
+
+
+def _kimi_settings() -> LLMSettings:
+    cred = ProviderCredential(
+        credential_id="k1", label="Kimi", kind=ProviderKind.openai,
+        base_url="https://api.moonshot.cn/v1", api_key="kimi-secret", default_model="kimi-k2.6",
+    )
+    return LLMSettings(credentials=[cred], bindings={Purpose.vision: PurposeBinding(credential_id="k1")})
+
+
+def test_credential_params_resolves_vision_for_non_chat_clients():
+    params = factory.credential_params(Purpose.vision, value=_kimi_settings(), default_timeout=99.0)
+    assert params.base_url == "https://api.moonshot.cn/v1"
+    assert params.api_key == "kimi-secret"
+    assert params.model == "kimi-k2.6"
+    assert params.timeout == 99.0  # falls back to default when the binding sets none
+
+
+def test_credential_params_missing_purpose_raises():
+    with pytest.raises(LLMConfigError):
+        factory.credential_params(Purpose.vision, value=LLMSettings())
+
+
+def test_load_auto_binds_vision_to_existing_kimi_credential():
+    # Old registry (Kimi predates living in the registry): a Kimi-looking credential
+    # with no vision binding gets auto-bound on load so multimodal ingest keeps working.
+    cred = ProviderCredential(
+        credential_id="k1", label="Kimi", kind=ProviderKind.openai,
+        base_url="https://api.moonshot.cn/v1", api_key="x", default_model="kimi-k2.6",
+    )
+    store.save(LLMSettings(credentials=[cred]))  # no vision binding
+    store.reset_cache()
+    loaded = store.load()
+    assert loaded.bindings[Purpose.vision].credential_id == "k1"

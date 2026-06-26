@@ -300,7 +300,7 @@
 
 .set-bind-row {
   display: grid;
-  grid-template-columns: 1fr 130px 96px;
+  grid-template-columns: 1fr 200px;
   gap: 8px;
   align-items: center;
   border: 1px solid var(--rule);

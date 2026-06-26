@@ -45,17 +45,15 @@ class Settings(BaseSettings):
     critic_batch_concepts: int = 40
     critic_batch_relations: int = 60
 
-    # --- Kimi (PDF extraction via Files API; NOT a LangChain chat model) ---
-    kimi_base_url: str = "https://api.moonshot.cn/v1"
-    kimi_api_key: str = ""
-    kimi_model: str = "kimi-k2.6"
-    kimi_timeout_seconds: float = 60.0
+    # --- Multimodal ingestion (Kimi image/PDF/video) ---
+    # Credentials are NOT here — bind a credential to the `vision` purpose in the
+    # registry (Settings → Models). This is just the request timeout (infra).
+    vision_timeout_seconds: float = 120.0
 
     # --- Embeddings ---
-    embed_provider: str = "bge_m3"  # bge_m3 | openai_compatible
-    embedding_base_url: str = ""
-    embedding_api_key: str = ""
-    embedding_model: str = ""
+    # embed_provider picks the engine. For `openai_compatible`, the endpoint/key/model
+    # come from the registry's `embedding` purpose (Settings → Models), not from here.
+    embed_provider: str = "bge_m3"  # bge_m3 | openai_compatible | hashing
     embedding_dimensions: int = 1024
     embedding_batch_size: int = 32
     embedding_timeout_seconds: float = 30.0

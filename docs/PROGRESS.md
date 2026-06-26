@@ -9,7 +9,8 @@
 
 ## 当前已验证状态
 
-- **后端测试 128 passed**（`.venv/bin/python -m pytest -q`，2026-06-26 实测，1.5s）。
+- **后端测试 131 passed**（`.venv/bin/python -m pytest -q`，2026-06-26 实测，1.3s）。
+- **LLM 配置已统一到注册表/UI（本轮）**：Kimi（vision）与远程 embedding 都成为注册表凭据 + 用途；`config.py` 不再有任何 LLM 凭据；`.env` 只剩基础设施 + 首次种子，`.env`/`.env.example` 格式对齐。设置面板改为「凭据=端点+密钥+模型 一体，下面单选下拉直接绑」。
 - **前端 `npm run build` 通过**（2026-06-26 实测）。
 - **ruff clean**（`.venv/bin/ruff check src tests`，2026-06-26 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/出题）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
@@ -70,12 +71,13 @@ ruff check src tests                                  # lint
 
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
-| `config.py` | 基础设施配置（**无 LLM 槽**）：API 安全开关、上传大小、Kimi PDF/vision 配置、`embed_provider`、`graph_critic_enabled` 等开关 | 加基础设施开关 / 调 Kimi 解析参数 |
+| `config.py` | 基础设施配置（**无任何 LLM 凭据**，连 Kimi/embedding 都在注册表）：API 安全开关、上传大小、`vision_timeout_seconds`、`embed_provider`、`embedding_dimensions`、`graph_critic_enabled`、whisper 等开关 | 加基础设施开关 / 调超时 |
 | `core/types.py` | **数据契约脊柱**：GraphArtifact / NoteDocument / ExamDocument / ChatDocument / DiscoveryReport / EvidenceChunk / ConceptNode / GraphEdge / SourceKind / WorkflowRunArtifact | 改 wire 契约（**必须**和 `frontend/src/types/index.ts` 一起改） |
 | `core/text.py` | 文本规范化 / 结构感知分块 / canonicalize | 调分块粒度 / 归一化规则 |
 | `core/clock.py` · `core/logging_config.py` | `utcnow()`（naive UTC）· 日志配置 | 时间/日志 |
-| `llm/credentials.py` `store.py` `factory.py` `structured.py` | **多凭据注册表 + 按 purpose 工厂**：登记凭据→绑定 graph/critic/chat/exam→`build_chat_model(Purpose)`；`structured_output_method`（openai=json_mode / anthropic=function_calling）；`make_structured` async caller | 加新 LLM purpose / 改结构化输出方式 / 改回退链 |
-| `index/embeddings.py` · `index/search.py` | LangChain Embeddings（Hashing fallback / BGE-M3）· chunk/concept cosine 检索 + bounded subgraph | 换 embedding / 调检索 |
+| `llm/credentials.py` `store.py` `factory.py` `structured.py` | **多凭据注册表 + 按 purpose 工厂**：登记凭据→绑定用途。**purpose 全集** = chat 类 `graph/critic/chat/exam`（`build_chat_model`）+ `vision`（Kimi 多模态）+ `embedding`（远程嵌入），后两类用 `factory.credential_params(purpose)` 取原始 (base_url/api_key/model/timeout)；`store` 含 env 种子 + `_ensure_vision_binding` 老注册表自动绑 vision；`structured_output_method`（openai=json_mode / anthropic=function_calling） | 加新 LLM purpose / 改结构化输出 / 改回退链 |
+| `index/embeddings.py` · `index/search.py` | LangChain Embeddings（hashing / 本地 BGE-M3 / openai_compatible 从注册表 `embedding` 用途解析）· chunk/concept cosine 检索 + bounded subgraph | 换 embedding / 调检索 |
+| `ingest/kimi_client.py` | **Kimi 多模态客户端**：从注册表 `vision` 用途解析 (base_url/api_key/model) 建 openai SDK client；pdf/image/video 适配器共用，未绑定时给清晰报错 | 改 Kimi 凭据解析 / 多模态超时 |
 | `ingest/adapters.py` | **摄入适配器注册表** + kind 路由（md/txt/docx/pptx/csv/json/yaml + 各类型扩展名表） | **加新文件类型** |
 | `ingest/chunk.py` `pdf_kimi.py` `image_kimi.py` `video_kimi.py` `audio_whisper.py` | 切块 · Kimi Files API file-extract（PDF 解析，**非 chat，几乎不计 token**）· Kimi vision（图片）· Kimi K2.6（视频先 Files API `purpose=video` 上传，再用 `ms://file_id` 的 video_url，避免大 mp4 base64 断连）· **音频 = faster-whisper 本地转写**（Kimi 平台 API 不接受音频输入，无云端路径；faster-whisper 现为 **core 依赖**，无 `--extra audio`） | 调某模态的摄入方式 / 换音频模型（如换云端 ASR 需另加可转写凭据） |
 | `graph/extract.py` `prompts.py` `schemas.py` `clean.py` | 全量并发抽取（structured，no-sample）+ 抽取 prompt + 输出 schema + `is_junk_concept` 噪声过滤 | 调抽取质量 / prompt |
@@ -104,7 +106,7 @@ ruff check src tests                                  # lint
 | `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
 | `pages/PipelinePage.tsx` | 流水线可视化（4 阶段一行：解析/切分/抽取/构建，**质检 critic 折叠进「构建图谱」**）+ per-node **run-metrics 面板**（耗时/token/repair，仍单列 `critic` 节点） | 改流水线展示 |
 | `pages/WorkspacePage.tsx` | 图谱 + 右栏**对话/笔记/试卷**标签页（选区可转对话 + ExportMenu） | 改主工作区 |
-| `components/layout/SettingsPanel.tsx` | **统一设置**：模型（凭据列表 + 按 purpose 下拉绑定）/ 外观 / 提示词（真实编辑器） | 改设置面板 |
+| `components/layout/SettingsPanel.tsx` | **统一设置**：模型（凭据=端点+密钥+模型 一体；用途 graph/chat/critic/exam/**vision/embedding** 各一个单选下拉「凭据·模型」直接绑）/ 外观 / 提示词（真实编辑器） | 改设置面板 |
 | `components/layout/CommandPalette.tsx` | ⌘K 命令面板 + **全局知识点搜索** + 按 session 状态跳转 | 改全局搜索/快捷入口 |
 | `components/layout/{AppShell,TopBar}.tsx` | 外壳 / 顶栏 | 改全局布局 |
 | `components/{chat,graph,notes,search,upload,primitives}/` | 各功能 UI 块（ReactFlow 图、引用卡、检索面板、上传等） | 改某块 UI |
@@ -125,6 +127,22 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-06-26 — LLM 配置统一进注册表（Kimi/embedding 进 UI）+ 设置面板重构
+- **本轮目标**：(1) 配置混乱（.env 与 UI 两处、.env/.env.example 格式不一）；(2) 设置改为「凭据和模型一起选，下面直接绑」。用户选「Kimi + embedding 都进 UI」。
+- **已完成**：
+  - **purpose 扩到 6 个**：`Purpose` 加 `vision`（Kimi 图片/PDF/视频）+ `embedding`（远程嵌入）；`factory.credential_params()` 给非 chat 客户端取 (base_url/api_key/model/timeout)；`purpose_available()`。
+  - **Kimi 进注册表**：新增 `ingest/kimi_client.vision_client()`，`pdf_kimi`/`image_kimi`/`video_kimi` 都从 `vision` 用途解析（不再 `settings.kimi_*`）；保留用户本轮的视频 Files API 上传（`ms://`）。
+  - **embedding 进注册表**：`index/embeddings` 的 openai_compatible 从 `embedding` 用途解析。
+  - **config.py 去 LLM 凭据**：删 `kimi_*`/`embedding_{base_url,api_key,model}`；`kimi_timeout_seconds`→`vision_timeout_seconds`。
+  - **store 种子 + 迁移**：bootstrap 额外种 Kimi(vision)/embedding；`_ensure_vision_binding` 把老注册表里 Kimi 凭据自动绑 vision（已对用户真实注册表确认会绑到 `kimi`）。
+  - **设置面板重构**：凭据=端点+密钥+模型（模型必填）；用途单选下拉「凭据·模型」直接绑（去掉每用途的 model 输入框）；加 vision/embedding；去掉「.env 配置」提示；`web/index.html` 同步。
+  - **.env 清理**：`.env.example` 重写为「模型凭据在 UI + 基础设施/首次种子」；`.env` 用脚本对齐为干净 `KEY=value`（无行内注释，避免 dotenv 把注释当值——曾导致 `API_AUTH_TOKEN` 误置触发 401）；`.gitignore` 改 `.env*` + `!.env.example`（`.env.bak` 备份不入库）。
+- **运行过的验证**：`pytest -q` → **131 passed**；`ruff` clean；前端 `tsc --noEmit` + `npm run build` 通过。
+- **新增测试证据**：`test_llm_layer`（credential_params vision / 缺用途报错 / load 自动绑 vision）；`test_adapters`（image 无 vision 绑定报错 / video 用注册表凭据走 Files API 上传）。
+- **已知风险或未解决问题**：踩坑——`.env` 行内注释会被 dotenv 当值（已改为无行内注释）；老注册表迁移在下次后端启动时写入 vision 绑定（幂等）；`.env.bak` 含旧密钥（已 gitignore，可删）；测试仍隐式依赖真实 `.env` 的 `API_AUTH_TOKEN` 为空（既有耦合）。
+- **下一步最佳动作**：用户重启后端确认 vision 自动绑 Kimi、图片/PDF/视频可建图；如要 commit 本轮可一起提（含用户的视频 Files API 改动 + UI 标签）。
+
 
 ### 2026-06-26 — 视频 mp4 摄入连接错误修复
 - **本轮目标**：用户最新音频/视频测试上传 26MB `.mp4`，workflow ingest 阶段报 `Connection error.` / `Request timed out.`；用户确认 Kimi 支持 mp4，要求排查。

@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 
 from corpus2node.config import settings
+from corpus2node.ingest.kimi_client import vision_client
 
 logger = logging.getLogger(__name__)
 
@@ -20,25 +21,9 @@ _VIDEO_PROMPT = (
 )
 
 
-def video_configured() -> bool:
-    return bool(settings.kimi_api_key and settings.kimi_model)
-
-
 def describe_video(filename: str, path: str) -> list[str]:
-    if not video_configured():
-        raise RuntimeError("Video ingestion needs Kimi configured (KIMI_API_KEY / KIMI_MODEL).")
-    try:
-        from openai import OpenAI
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("Video ingestion needs the `openai` package.") from exc
-
-    client_kwargs: dict[str, object] = {
-        "api_key": settings.kimi_api_key,
-        "timeout": max(settings.kimi_timeout_seconds, 600.0),  # video upload + decoding can be slow
-    }
-    if settings.kimi_base_url:
-        client_kwargs["base_url"] = settings.kimi_base_url
-    client = OpenAI(**client_kwargs)
+    # video upload + decoding can be slow → a long timeout regardless of the binding default
+    client, model = vision_client(timeout=max(settings.vision_timeout_seconds, 600.0))
 
     file_id: str | None = None
     try:
@@ -47,7 +32,7 @@ def describe_video(filename: str, path: str) -> list[str]:
         file_id = file_object.id
 
         completion = client.chat.completions.create(
-            model=settings.kimi_model,
+            model=model,
             messages=[
                 {"role": "system", "content": "你是 Kimi。"},
                 {

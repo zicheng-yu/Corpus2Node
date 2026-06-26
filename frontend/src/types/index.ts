@@ -372,7 +372,7 @@ export interface DiscoveryReport {
 // ── LLM credential registry (replaces the old flat runtime settings) ────────────
 
 export type ProviderKind = "openai" | "anthropic";
-export type LlmPurpose = "graph" | "critic" | "chat" | "exam";
+export type LlmPurpose = "graph" | "critic" | "chat" | "exam" | "vision" | "embedding";
 
 export interface CredentialView {
   credential_id: string;

@@ -157,19 +157,28 @@ function PromptsSettings() {
 }
 
 // ── Models ──────────────────────────────────────────────────────────────────
-const PURPOSES: LlmPurpose[] = ["graph", "chat", "critic", "exam"];
+const PURPOSES: LlmPurpose[] = ["graph", "chat", "critic", "exam", "vision", "embedding"];
+const PURPOSE_LABEL: Record<LlmPurpose, string> = {
+  graph: "建图 / 抽取",
+  chat: "问答助手",
+  critic: "质检 / 求解",
+  exam: "出卷",
+  vision: "图片 / PDF / 视频",
+  embedding: "向量嵌入",
+};
 const PURPOSE_HINT: Record<LlmPurpose, string> = {
   graph: "建图与抽取（也作笔记默认）",
   chat: "问答助手（需 tool calling）",
   critic: "质量校验 / 出题求解（空=回退 graph）",
   exam: "出卷生成",
+  vision: "多模态解析，用 Kimi 等（图片 / PDF / 视频）",
+  embedding: "向量检索（仅当 EMBED_PROVIDER=openai_compatible 时需要）",
 };
 
 function ModelSettings() {
   const [settings, setSettings] = useState<LLMSettingsView | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const toast = useToast();
 
   // add-credential form
@@ -192,8 +201,8 @@ function ModelSettings() {
   }, [load]);
 
   async function addCredential() {
-    if (!label.trim() || !apiKey.trim()) {
-      toast("标签和 API Key 必填", "error");
+    if (!label.trim() || !apiKey.trim() || !defaultModel.trim()) {
+      toast("标签、API Key、模型都必填", "error");
       return;
     }
     try {
@@ -217,9 +226,13 @@ function ModelSettings() {
     }
   }
 
-  async function applyBinding(purpose: LlmPurpose, credentialId: string, model: string) {
+  async function applyBinding(purpose: LlmPurpose, credentialId: string) {
     try {
-      setSettings(credentialId ? await bindPurpose(purpose, { credential_id: credentialId, model: model.trim() }) : await clearBinding(purpose));
+      setSettings(
+        credentialId
+          ? await bindPurpose(purpose, { credential_id: credentialId, model: "" }) // model comes from the credential
+          : await clearBinding(purpose),
+      );
     } catch (e) {
       toast(`绑定失败：${String(e)}`, "error");
     }
@@ -232,8 +245,8 @@ function ModelSettings() {
 
   return (
     <section className="set-section">
-      <h3 className="set-section-title">凭据</h3>
-      <p className="set-section-desc">暂存 API Key（OpenAI 兼容 / Anthropic），密钥仅掩码回显。图片/PDF/Embedding/语音仍由后端 .env 配置。</p>
+      <h3 className="set-section-title">模型凭据</h3>
+      <p className="set-section-desc">添加凭据（端点 + 密钥 + 模型），下面把每个用途绑定到一条；密钥仅掩码回显。本地 bge_m3 嵌入与本地语音转写仍在 .env 里开关。</p>
 
       <div className="set-cred-list">
         {credentials.length === 0 && <div className="set-empty-line">暂无凭据，请新增。</div>}
@@ -260,7 +273,7 @@ function ModelSettings() {
             </label>
             <label className="set-field set-field-wide"><span>base_url</span><input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com" /></label>
             <label className="set-field"><span>api_key</span><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-…" /></label>
-            <label className="set-field"><span>默认模型</span><input value={defaultModel} onChange={(e) => setDefaultModel(e.target.value)} placeholder="deepseek-chat" /></label>
+            <label className="set-field"><span>模型</span><input value={defaultModel} onChange={(e) => setDefaultModel(e.target.value)} placeholder="deepseek-chat / kimi-k2.6" /></label>
           </div>
           <div className="set-form-actions">
             <button className="set-mini-btn" type="button" onClick={() => setShowAdd(false)}>取消</button>
@@ -272,35 +285,30 @@ function ModelSettings() {
       )}
 
       <h3 className="set-section-title" style={{ marginTop: "var(--space-5)" }}>用途绑定</h3>
-      <p className="set-section-desc">把每个用途绑定到某个凭据 + 模型（留空用默认）。</p>
+      <p className="set-section-desc">每个用途选一条「凭据 · 模型」。critic 留空回退 graph；vision 用于图片 / PDF / 视频；embedding 仅在用远程嵌入时需要。</p>
       <div className="set-bind-list">
         {PURPOSES.map((p) => {
           const b = bindingByPurpose.get(p);
           const credId = b?.credential_id ?? "";
-          const model = drafts[p] ?? b?.model ?? "";
           return (
             <div className="set-bind-row" key={p}>
               <div className="set-bind-info">
-                <span className="set-bind-name">{p}{b && !b.resolved && <i className="set-bind-bad"> 凭据缺失</i>}</span>
+                <span className="set-bind-name">{PURPOSE_LABEL[p]}{b && !b.resolved && <i className="set-bind-bad"> 凭据缺失</i>}</span>
                 <span className="set-bind-hint">{PURPOSE_HINT[p]}</span>
               </div>
               <select
                 className="set-bind-cred"
                 value={credId}
-                onChange={(e) => applyBinding(p, e.target.value, model)}
+                onChange={(e) => applyBinding(p, e.target.value)}
                 disabled={credentials.length === 0}
               >
                 <option value="">未绑定</option>
-                {credentials.map((c) => <option key={c.credential_id} value={c.credential_id}>{c.label}</option>)}
+                {credentials.map((c) => (
+                  <option key={c.credential_id} value={c.credential_id}>
+                    {c.label} · {c.default_model || "无模型"}
+                  </option>
+                ))}
               </select>
-              <input
-                className="set-bind-model"
-                value={model}
-                placeholder="默认"
-                onChange={(e) => setDrafts((d) => ({ ...d, [p]: e.target.value }))}
-                onBlur={() => credId && applyBinding(p, credId, model)}
-                disabled={!credId}
-              />
             </div>
           );
         })}

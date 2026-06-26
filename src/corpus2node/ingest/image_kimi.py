@@ -9,7 +9,7 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
-from corpus2node.config import settings
+from corpus2node.ingest.kimi_client import vision_client
 
 _VISION_PROMPT = (
     "请把这张图片中的所有文字、公式、图表、结构与关系尽量完整地转写并描述出来，"
@@ -18,29 +18,15 @@ _VISION_PROMPT = (
 _MIME = {".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".webp": "webp", ".gif": "gif"}
 
 
-def image_configured() -> bool:
-    return bool(settings.kimi_api_key and settings.kimi_model)
-
-
 def describe_image(filename: str, path: str) -> list[str]:
-    if not image_configured():
-        raise RuntimeError("Image ingestion needs Kimi vision configured (KIMI_API_KEY / KIMI_MODEL).")
-    try:
-        from openai import OpenAI
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("Image ingestion needs the `openai` package.") from exc
+    client, model = vision_client()  # vision credential from the registry (Settings → Models)
 
     mime = _MIME.get(Path(filename).suffix.lower(), "png")
     encoded = base64.b64encode(Path(path).read_bytes()).decode("ascii")
     data_url = f"data:image/{mime};base64,{encoded}"
 
-    client_kwargs: dict[str, object] = {"api_key": settings.kimi_api_key, "timeout": settings.kimi_timeout_seconds}
-    if settings.kimi_base_url:
-        client_kwargs["base_url"] = settings.kimi_base_url
-    client = OpenAI(**client_kwargs)
-
     completion = client.chat.completions.create(
-        model=settings.kimi_model,
+        model=model,
         messages=[
             {"role": "system", "content": "你是 Kimi。"},
             {

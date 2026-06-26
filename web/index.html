@@ -35,7 +35,7 @@
     <div>
       <div class="card">
         <h2>0 · 模型配置（凭据 &amp; 绑定，免 curl）</h2>
-        <div class="muted">密钥只回显掩码。<b>graph</b>（建图抽取）和 <b>chat</b>（问答）必须各绑一个凭据。PDF 抽取的 Kimi key 仍走 <code>.env</code> 的 <code>KIMI_API_KEY</code>。</div>
+        <div class="muted">密钥只回显掩码。<b>graph</b>（建图抽取）和 <b>chat</b>（问答）必须各绑一个凭据；<b>vision</b> 绑 Kimi 处理图片/PDF/视频；<b>embedding</b> 仅当用远程嵌入时需要。所有模型凭据都在这里配置（不再走 <code>.env</code>）。</div>
         <label>已有凭据</label>
         <div id="creds" class="muted">—</div>
         <label>当前绑定</label>
@@ -56,7 +56,7 @@
         <hr style="border:none;border-top:1px solid var(--border);margin:10px 0" />
         <label>绑定用途</label>
         <div class="row">
-          <select id="b_purpose"><option>graph</option><option>chat</option><option>critic</option><option>exam</option></select>
+          <select id="b_purpose"><option>graph</option><option>chat</option><option>critic</option><option>exam</option><option>vision</option><option>embedding</option></select>
           <select id="b_cred"></select>
           <input id="b_model" placeholder="模型（留空=用凭据默认）" />
           <button onclick="bindPurpose()">绑定</button>

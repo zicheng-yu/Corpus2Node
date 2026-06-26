@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from langchain.chat_models import init_chat_model
@@ -34,6 +35,43 @@ def resolve(purpose: Purpose, value: LLMSettings) -> tuple[PurposeBinding, Provi
             f"Binding for '{purpose.value}' references missing credential '{binding.credential_id}'."
         )
     return binding, credential
+
+
+@dataclass(frozen=True)
+class CredentialParams:
+    """Raw connection params for non-LangChain clients (Kimi vision via the openai SDK,
+    OpenAI-compatible embeddings)."""
+
+    base_url: str
+    api_key: str
+    model: str
+    timeout: float | None = None
+
+
+def credential_params(
+    purpose: Purpose, *, value: LLMSettings | None = None, default_timeout: float | None = None
+) -> CredentialParams:
+    """Resolve a purpose to raw (base_url, api_key, model, timeout) for non-chat clients."""
+    value = value or store.load()
+    binding, credential = resolve(purpose, value)
+    model = binding.model or credential.default_model
+    if not model:
+        raise LLMConfigError(
+            f"No model set for purpose '{purpose.value}' (neither binding nor credential default)."
+        )
+    timeout = binding.timeout_seconds if binding.timeout_seconds is not None else default_timeout
+    return CredentialParams(
+        base_url=credential.base_url, api_key=credential.api_key, model=model, timeout=timeout
+    )
+
+
+def purpose_available(purpose: Purpose, *, value: LLMSettings | None = None) -> bool:
+    """True if the purpose resolves to a credential (used for clear pre-flight errors)."""
+    try:
+        resolve(purpose, value or store.load())
+        return True
+    except LLMConfigError:
+        return False
 
 
 def structured_output_method(purpose: Purpose, *, value: LLMSettings | None = None) -> str:
