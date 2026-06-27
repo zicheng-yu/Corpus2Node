@@ -310,7 +310,7 @@
 
 .session-row {
   display: grid;
-  grid-template-columns: 18px 56px minmax(0, 1fr) auto auto auto auto 16px;
+  grid-template-columns: 14px 18px 56px minmax(0, 1fr) auto auto auto auto 16px;
   align-items: center;
   gap: 16px;
   padding: 12px 18px;
@@ -324,6 +324,33 @@
 }
 
 .session-row:hover {
+  background: var(--accent-ghost);
+}
+
+/* drag-to-reorder */
+.drag-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--ink-4);
+  cursor: grab;
+  opacity: 0.45;
+  transition: opacity var(--dur-fast), color var(--dur-fast);
+}
+
+.drag-grip:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.drag-grip:active {
+  cursor: grabbing;
+}
+
+.session-group-header.drag-over,
+.session-row.drag-over {
+  box-shadow: inset 0 2px 0 var(--accent);
   background: var(--accent-ghost);
 }
 

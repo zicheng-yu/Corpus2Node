@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import {
@@ -53,6 +53,22 @@ function CoverMark({ seed, size = 56 }: { seed: string; size?: number }) {
 
 function TrashIcon() {
   return <span className="trash-icon" aria-hidden="true" />;
+}
+
+function GripIcon() {
+  return (
+    <svg className="grip-icon" width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true">
+      <circle cx="3.5" cy="3" r="1.4" /><circle cx="8.5" cy="3" r="1.4" />
+      <circle cx="3.5" cy="8" r="1.4" /><circle cx="8.5" cy="8" r="1.4" />
+      <circle cx="3.5" cy="13" r="1.4" /><circle cx="8.5" cy="13" r="1.4" />
+    </svg>
+  );
+}
+
+// Stable reorder by a saved id list; items not in the list keep their input order (updated_at).
+function applyOrder<T>(items: T[], order: string[], key: (item: T) => string): T[] {
+  const pos = new Map(order.map((id, i) => [id, i]));
+  return [...items].sort((a, b) => (pos.get(key(a)) ?? Infinity) - (pos.get(key(b)) ?? Infinity));
 }
 
 function PencilIcon() {
@@ -233,6 +249,17 @@ export function HomePage() {
   const [collapsedCourses, setCollapsedCourses] = useState<Set<string>>(
     () => new Set<string>(JSON.parse(localStorage.getItem("c2n:collapsedCourses") || "[]")),
   );
+  // Manual drag order (overrides the updated_at sort); persisted locally like collapse state.
+  const [courseOrder, setCourseOrder] = useState<string[]>(
+    () => JSON.parse(localStorage.getItem("c2n:courseOrder") || "[]"),
+  );
+  const [sessionOrder, setSessionOrder] = useState<Record<string, string[]>>(
+    () => JSON.parse(localStorage.getItem("c2n:sessionOrder") || "{}"),
+  );
+  const dragCourse = useRef<string | null>(null);
+  const dragSession = useRef<{ course: string; id: string } | null>(null);
+  const [dragOverCourse, setDragOverCourse] = useState<string | null>(null);
+  const [dragOverSession, setDragOverSession] = useState<string | null>(null);
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -329,6 +356,20 @@ export function HomePage() {
           const wasCollapsed = next.delete(oldTitle);
           if (wasCollapsed) next.add(value);
           localStorage.setItem("c2n:collapsedCourses", JSON.stringify([...next]));
+          return next;
+        });
+        // keep manual order intact across the rename (it's keyed by course title)
+        setCourseOrder((prev) => {
+          if (!prev.includes(oldTitle)) return prev;
+          const next = prev.map((c) => (c === oldTitle ? value : c));
+          localStorage.setItem("c2n:courseOrder", JSON.stringify(next));
+          return next;
+        });
+        setSessionOrder((prev) => {
+          if (!(oldTitle in prev)) return prev;
+          const { [oldTitle]: moved, ...rest } = prev;
+          const next = { ...rest, [value]: moved };
+          localStorage.setItem("c2n:sessionOrder", JSON.stringify(next));
           return next;
         });
         toast("知识库已改名", "success");
@@ -443,6 +484,38 @@ export function HomePage() {
   const totalConcepts = sessions.reduce((a, s) => a + (s.stats?.concept_count ?? 0), 0);
   const totalRelations = sessions.reduce((a, s) => a + (s.stats?.relation_count ?? 0), 0);
   const discoverableCount = sessions.filter(isDiscoverable).length;
+
+  function persistCourseOrder(next: string[]) {
+    setCourseOrder(next);
+    localStorage.setItem("c2n:courseOrder", JSON.stringify(next));
+  }
+  function persistSessionOrder(next: Record<string, string[]>) {
+    setSessionOrder(next);
+    localStorage.setItem("c2n:sessionOrder", JSON.stringify(next));
+  }
+  function onCourseDrop(target: string) {
+    const src = dragCourse.current;
+    dragCourse.current = null;
+    setDragOverCourse(null);
+    if (!src || src === target) return;
+    const next = applyOrder(courses, courseOrder, (c) => c).filter((c) => c !== src);
+    const idx = next.indexOf(target);
+    next.splice(idx < 0 ? next.length : idx, 0, src);
+    persistCourseOrder(next);
+  }
+  function onSessionDrop(course: string, targetId: string) {
+    const src = dragSession.current;
+    dragSession.current = null;
+    setDragOverSession(null);
+    if (!src || src.course !== course || src.id === targetId) return;
+    const inCourse = sessions.filter((s) => s.course_title === course && !s.lecture_title.startsWith("[总图谱] "));
+    const ids = applyOrder(inCourse, sessionOrder[course] ?? [], (s) => s.session_id)
+      .map((s) => s.session_id)
+      .filter((id) => id !== src.id);
+    const idx = ids.indexOf(targetId);
+    ids.splice(idx < 0 ? ids.length : idx, 0, src.id);
+    persistSessionOrder({ ...sessionOrder, [course]: ids });
+  }
 
   return (
     <div className="page">
@@ -574,15 +647,28 @@ export function HomePage() {
         </div>
       ) : (
         <div className="session-list">
-          {Array.from(groups.entries()).map(([course, rows]) => (
+          {applyOrder(Array.from(groups.entries()), courseOrder, ([c]) => c).map(([course, rows]) => (
             <div key={course}>
               <div
-                className="session-group-header"
+                className={clsx("session-group-header", { "drag-over": dragOverCourse === course })}
                 onClick={() => toggleCourse(course)}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => e.key === "Enter" && toggleCourse(course)}
+                onDragOver={(e) => { if (dragCourse.current) { e.preventDefault(); if (dragOverCourse !== course) setDragOverCourse(course); } }}
+                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCourse((c) => (c === course ? null : c)); }}
+                onDrop={(e) => { e.preventDefault(); onCourseDrop(course); }}
               >
+                <span
+                  className="drag-grip"
+                  draggable
+                  title="拖拽排序知识库"
+                  onClick={(e) => e.stopPropagation()}
+                  onDragStart={(e) => { dragCourse.current = course; e.dataTransfer.effectAllowed = "move"; }}
+                  onDragEnd={() => { dragCourse.current = null; setDragOverCourse(null); }}
+                >
+                  <GripIcon />
+                </span>
                 <svg
                   width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                   strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
@@ -615,16 +701,25 @@ export function HomePage() {
                 </button>
               </div>
               {!collapsedCourses.has(course) &&
-                rows.map((s) => (
+                applyOrder(rows, sessionOrder[course] ?? [], (s) => s.session_id).map((s) => (
                   <SessionRow
                     key={s.session_id}
                     session={s}
                     selected={selectedSessionIds.has(s.session_id)}
                     discoverable={isDiscoverable(s)}
+                    dragOver={dragOverSession === s.session_id}
                     onClick={() => navigate(sessionHref(s))}
                     onSelect={() => toggleDiscoverySelection(s.session_id)}
                     onRename={() => setRenameTarget({ type: "session", session: s })}
                     onDelete={() => handleDeleteSession(s)}
+                    onGripDragStart={() => { dragSession.current = { course, id: s.session_id }; }}
+                    onGripDragEnd={() => { dragSession.current = null; setDragOverSession(null); }}
+                    onRowDragEnter={() => {
+                      if (dragSession.current?.course === course && dragOverSession !== s.session_id) {
+                        setDragOverSession(s.session_id);
+                      }
+                    }}
+                    onRowDrop={() => onSessionDrop(course, s.session_id)}
                   />
                 ))}
             </div>
@@ -826,18 +921,28 @@ function SessionRow({
   session: s,
   selected,
   discoverable,
+  dragOver,
   onClick,
   onSelect,
   onRename,
   onDelete,
+  onGripDragStart,
+  onGripDragEnd,
+  onRowDragEnter,
+  onRowDrop,
 }: {
   session: CourseSession;
   selected: boolean;
   discoverable: boolean;
+  dragOver: boolean;
   onClick: () => void;
   onSelect: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onGripDragStart: () => void;
+  onGripDragEnd: () => void;
+  onRowDragEnter: () => void;
+  onRowDrop: () => void;
 }) {
   const date = new Date(s.updated_at).toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
   const hasDoc = s.source_files.some((f) => f.kind === "document" || f.kind === "pdf");  // PDF 归入文档
@@ -846,7 +951,26 @@ function SessionRow({
   const hasImage = s.source_files.some((f) => f.kind === "image");
 
   return (
-    <div className="session-row" onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onClick()}>
+    <div
+      className={clsx("session-row", { "drag-over": dragOver })}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onClick()}
+      onDragOver={(e) => e.preventDefault()}
+      onDragEnter={onRowDragEnter}
+      onDrop={(e) => { e.preventDefault(); onRowDrop(); }}
+    >
+      <span
+        className="drag-grip"
+        draggable
+        title="拖拽排序资料集"
+        onClick={(e) => e.stopPropagation()}
+        onDragStart={(e) => { onGripDragStart(); e.dataTransfer.effectAllowed = "move"; }}
+        onDragEnd={onGripDragEnd}
+      >
+        <GripIcon />
+      </span>
       <input
         className="session-select-box"
         type="checkbox"
