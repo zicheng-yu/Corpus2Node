@@ -20,7 +20,12 @@ import type {
   WorkflowRunResponse,
 } from "../types";
 
-const BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const DEFAULT_BASE = import.meta.env.PROD ? "/api" : "http://localhost:8000";
+const BASE = (import.meta.env.VITE_API_BASE_URL ?? DEFAULT_BASE).replace(/\/$/, "");
+
+function apiUrl(path: string): URL {
+  return new URL(`${BASE}${path}`, window.location.origin);
+}
 
 export class ApiError extends Error {
   constructor(
@@ -178,14 +183,14 @@ export function searchGraph(payload: { session_id: string; query: string; limit?
 
 /** Substring-search concepts across every built graph (global search bars). */
 export async function searchConceptsGlobal(q: string, limit = 20): Promise<GlobalConceptHit[]> {
-  const url = new URL(`${BASE}/graph/concepts`);
+  const url = apiUrl("/graph/concepts");
   url.searchParams.set("q", q);
   url.searchParams.set("limit", String(limit));
   return readJson<GlobalConceptHit[]>(await fetch(url.toString()));
 }
 
 export async function fetchSubgraph(sessionId: string, conceptId: string, depth = 1): Promise<SubgraphResponse> {
-  const url = new URL(`${BASE}/graph/${sessionId}/subgraph`);
+  const url = apiUrl(`/graph/${sessionId}/subgraph`);
   url.searchParams.set("concept_id", conceptId);
   url.searchParams.set("depth", String(depth));
   return readJson<SubgraphResponse>(await fetch(url.toString()));

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "experimentalServices": {
+    "web": {
+      "entrypoint": "frontend",
+      "routePrefix": "/"
+    },
+    "api": {
+      "entrypoint": "api/index.py",
+      "routePrefix": "/api"
+    }
+  },
+  "env": {
+    "APP_ENV": "production",
+    "DEBUG_TRACEBACKS": "false",
+    "LOCAL_STORAGE_PATH": "/tmp/corpus2node-artifacts",
+    "VECTOR_STORE_PATH": "/tmp/corpus2node-artifacts/indexes",
+    "EMBED_PROVIDER": "hashing",
+    "EMBEDDING_DIMENSIONS": "1024",
+    "VECTOR_STORE_PROVIDER": "local_cosine",
+    "GRAPH_CRITIC_ENABLED": "false",
+    "MAX_UPLOAD_BYTES": "52428800"
+  }
+}

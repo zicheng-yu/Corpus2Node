@@ -32,7 +32,7 @@ def _cors_origins() -> list[str]:
     return configured or ["*"]
 
 
-_PUBLIC_PATH_PREFIXES = ("/health", "/ui", "/docs", "/redoc", "/openapi.json")
+_PUBLIC_PATH_PREFIXES = ("/health", "/api/health", "/ui", "/docs", "/redoc", "/openapi.json")
 
 app.add_middleware(
     CORSMiddleware,
@@ -72,19 +72,26 @@ async def on_unhandled_error(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
-app.include_router(sessions_routes.router)
-app.include_router(settings_routes.router)
-app.include_router(prompts_routes.router)
-app.include_router(workflow_routes.router)
-app.include_router(graph_routes.router)
-app.include_router(chat_routes.router)
-app.include_router(discovery_routes.router)
-app.include_router(notes_routes.router)
-app.include_router(exam_routes.router)
-app.include_router(export_routes.router)
+_ROUTERS = (
+    sessions_routes.router,
+    settings_routes.router,
+    prompts_routes.router,
+    workflow_routes.router,
+    graph_routes.router,
+    chat_routes.router,
+    discovery_routes.router,
+    notes_routes.router,
+    exam_routes.router,
+    export_routes.router,
+)
+
+for router in _ROUTERS:
+    app.include_router(router)
+    app.include_router(router, prefix="/api")
 
 
 @app.get("/health")
+@app.get("/api/health")
 async def health() -> dict[str, object]:
     return {
         "status": "ok",
