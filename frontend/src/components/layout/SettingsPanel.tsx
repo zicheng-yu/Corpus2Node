@@ -6,6 +6,7 @@ import {
   deleteCredential,
   getLlmSettings,
   getPromptSettings,
+  listProviderModels,
   savePromptSettings,
   upsertCredential,
 } from "../../api/client";
@@ -171,8 +172,22 @@ const PURPOSE_HINT: Record<LlmPurpose, string> = {
   chat: "问答助手（需 tool calling）",
   critic: "质量校验 / 出题求解（空=回退 graph）",
   exam: "出卷生成",
-  vision: "多模态解析，用 Kimi 等（图片 / PDF / 视频）",
-  embedding: "向量检索（仅当 EMBED_PROVIDER=openai_compatible 时需要）",
+  vision: "多模态解析：Kimi 或本地视觉模型（图片 / PDF / 视频）",
+  embedding: "向量检索（EMBED_PROVIDER=openai_compatible 时生效，可绑 Ollama）",
+};
+
+const KIND_OPTIONS: Array<{ id: ProviderKind; label: string }> = [
+  { id: "openai", label: "openai 兼容" },
+  { id: "anthropic", label: "anthropic" },
+  { id: "ollama", label: "Ollama（本地）" },
+  { id: "lmstudio", label: "LM Studio（本地）" },
+];
+const LOCAL_KINDS: ReadonlySet<ProviderKind> = new Set(["ollama", "lmstudio"]);
+const KIND_BASE_PLACEHOLDER: Record<ProviderKind, string> = {
+  openai: "https://api.deepseek.com",
+  anthropic: "https://api.anthropic.com",
+  ollama: "http://127.0.0.1:11434（默认，可留空）",
+  lmstudio: "http://127.0.0.1:1234/v1（默认，可留空）",
 };
 
 function ModelSettings() {
@@ -187,6 +202,37 @@ function ModelSettings() {
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
+  const [numCtx, setNumCtx] = useState("");
+  const [maxConcurrency, setMaxConcurrency] = useState("");
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const isLocal = LOCAL_KINDS.has(kind);
+
+  function switchKind(next: ProviderKind) {
+    setKind(next);
+    setModelOptions([]);
+    if (!label.trim() && LOCAL_KINDS.has(next)) setLabel(next === "ollama" ? "ollama" : "lm-studio");
+  }
+
+  async function fetchModels() {
+    setLoadingModels(true);
+    try {
+      const result = await listProviderModels({ kind, base_url: baseUrl.trim(), api_key: apiKey.trim() });
+      if (result.error) {
+        toast(result.error, "error");
+      } else if (result.models.length === 0) {
+        toast(isLocal ? "服务在线，但没有已下载的模型" : "端点没有返回模型", "error");
+      } else {
+        setModelOptions(result.models);
+        if (!defaultModel.trim()) setDefaultModel(result.models[0]);
+        toast(`发现 ${result.models.length} 个模型`, "success");
+      }
+    } catch (e) {
+      toast(`读取模型失败：${String(e)}`, "error");
+    } finally {
+      setLoadingModels(false);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -201,17 +247,20 @@ function ModelSettings() {
   }, [load]);
 
   async function addCredential() {
-    if (!label.trim() || !apiKey.trim() || !defaultModel.trim()) {
-      toast("标签、API Key、模型都必填", "error");
+    if (!label.trim() || !defaultModel.trim() || (!isLocal && !apiKey.trim())) {
+      toast(isLocal ? "标签、模型必填（本地无需 API Key）" : "标签、API Key、模型都必填", "error");
       return;
     }
     try {
       setSettings(
         await upsertCredential({
           label: label.trim(), kind, base_url: baseUrl.trim(), api_key: apiKey.trim(), default_model: defaultModel.trim(),
+          num_ctx: kind === "ollama" && numCtx.trim() ? Number(numCtx) : null,
+          max_concurrency: isLocal && maxConcurrency.trim() ? Number(maxConcurrency) : null,
         }),
       );
-      setLabel(""); setApiKey(""); setBaseUrl(""); setDefaultModel(""); setShowAdd(false);
+      setLabel(""); setApiKey(""); setBaseUrl(""); setDefaultModel("");
+      setNumCtx(""); setMaxConcurrency(""); setModelOptions([]); setShowAdd(false);
       toast("凭据已保存", "success");
     } catch (e) {
       toast(`保存失败：${String(e)}`, "error");
@@ -246,7 +295,7 @@ function ModelSettings() {
   return (
     <section className="set-section">
       <h3 className="set-section-title">模型凭据</h3>
-      <p className="set-section-desc">添加凭据（端点 + 密钥 + 模型），下面把每个用途绑定到一条；密钥仅掩码回显。本地 bge_m3 嵌入与本地语音转写仍在 .env 里开关。</p>
+      <p className="set-section-desc">添加凭据（端点 + 密钥 + 模型），下面把每个用途绑定到一条；密钥仅掩码回显。选 Ollama / LM Studio 可全离线运行（无需密钥，模型可一键读取）；本地 bge_m3 嵌入与语音转写仍在 .env 里开关。</p>
 
       <div className="set-cred-list">
         {credentials.length === 0 && <div className="set-empty-line">暂无凭据，请新增。</div>}
@@ -266,14 +315,38 @@ function ModelSettings() {
           <div className="set-form-grid">
             <label className="set-field"><span>标签</span><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="如 deepseek" /></label>
             <label className="set-field"><span>类型</span>
-              <select value={kind} onChange={(e) => setKind(e.target.value as ProviderKind)}>
-                <option value="openai">openai 兼容</option>
-                <option value="anthropic">anthropic</option>
+              <select value={kind} onChange={(e) => switchKind(e.target.value as ProviderKind)}>
+                {KIND_OPTIONS.map((k) => (
+                  <option key={k.id} value={k.id}>{k.label}</option>
+                ))}
               </select>
             </label>
-            <label className="set-field set-field-wide"><span>base_url</span><input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com" /></label>
-            <label className="set-field"><span>api_key</span><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-…" /></label>
-            <label className="set-field"><span>模型</span><input value={defaultModel} onChange={(e) => setDefaultModel(e.target.value)} placeholder="deepseek-chat / kimi-k2.6" /></label>
+            <label className="set-field set-field-wide"><span>base_url</span><input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={KIND_BASE_PLACEHOLDER[kind]} /></label>
+            <label className="set-field"><span>api_key{isLocal && <em className="set-field-note">（本地可留空）</em>}</span><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={isLocal ? "本地服务无需密钥" : "sk-…"} /></label>
+            <label className="set-field"><span>模型</span>
+              <div className="set-model-pick">
+                <input
+                  list="c2n-model-options"
+                  value={defaultModel}
+                  onChange={(e) => setDefaultModel(e.target.value)}
+                  placeholder={isLocal ? "点「读取模型」或手输，如 gemma3:4b" : "deepseek-chat / kimi-k2.6"}
+                />
+                <datalist id="c2n-model-options">
+                  {modelOptions.map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+                </datalist>
+                <button className="set-mini-btn" type="button" disabled={loadingModels} onClick={fetchModels}>
+                  {loadingModels ? "读取中…" : "读取模型"}
+                </button>
+              </div>
+            </label>
+            {kind === "ollama" && (
+              <label className="set-field"><span>上下文窗口 num_ctx</span><input inputMode="numeric" value={numCtx} onChange={(e) => setNumCtx(e.target.value)} placeholder="默认 8192" /></label>
+            )}
+            {isLocal && (
+              <label className="set-field"><span>并发上限</span><input inputMode="numeric" value={maxConcurrency} onChange={(e) => setMaxConcurrency(e.target.value)} placeholder="默认 4（抽取/质检批并发）" /></label>
+            )}
           </div>
           <div className="set-form-actions">
             <button className="set-mini-btn" type="button" onClick={() => setShowAdd(false)}>取消</button>

@@ -12,8 +12,10 @@ import type {
   GraphArtifact,
   LLMSettingsView,
   LlmPurpose,
+  ModelListView,
   NoteDocument,
   PromptSettings,
+  ProviderKind,
   SearchResponse,
   SubgraphResponse,
   UploadResponse,
@@ -279,6 +281,15 @@ export async function clearBinding(purpose: LlmPurpose): Promise<LLMSettingsView
   return readJson<LLMSettingsView>(
     await fetch(`${BASE}/settings/llm/bindings/${purpose}`, { method: "DELETE" }),
   );
+}
+
+export function listProviderModels(payload: {
+  credential_id?: string;
+  kind?: ProviderKind;
+  base_url?: string;
+  api_key?: string;
+}): Promise<ModelListView> {
+  return postJson<ModelListView>("/settings/llm/models", payload);
 }
 
 // ── Prompt settings (custom instructions appended to built-in system prompts) ──

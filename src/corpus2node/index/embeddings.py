@@ -79,10 +79,8 @@ def get_embeddings() -> Embeddings:
     if provider == "bge_m3":
         return BgeM3Embeddings()
     if provider == "openai_compatible":
-        from langchain_openai import OpenAIEmbeddings
-
         from corpus2node.llm import factory
-        from corpus2node.llm.credentials import Purpose
+        from corpus2node.llm.credentials import ProviderKind, Purpose
         from corpus2node.llm.factory import LLMConfigError
 
         try:
@@ -90,12 +88,23 @@ def get_embeddings() -> Embeddings:
         except LLMConfigError as exc:
             raise RuntimeError(
                 "embed_provider=openai_compatible 需要在「设置 → 模型」里把一个凭据绑定到 embedding 用途"
-                "（base_url、api_key、嵌入模型名）。"
+                "（base_url、api_key、嵌入模型名；本地可选 Ollama / LM Studio 凭据）。"
             ) from exc
+        if params.kind == ProviderKind.ollama:
+            # Native Ollama client: batches via /api/embed, no key, no tokenizer round-trip.
+            from langchain_ollama import OllamaEmbeddings
+
+            return OllamaEmbeddings(model=params.model, base_url=params.base_url.removesuffix("/v1"))
+        from langchain_openai import OpenAIEmbeddings
+
+        # check_embedding_ctx_length=False sends plain strings; the default pre-tokenizes
+        # with tiktoken into token arrays, which non-OpenAI servers (LM Studio, Ollama's
+        # /v1, DeepSeek, ...) reject. Only real api.openai.com understands token arrays.
         return OpenAIEmbeddings(
             model=params.model,
             base_url=params.base_url or None,
             api_key=params.api_key or None,
+            check_embedding_ctx_length=not params.base_url,
         )
     if provider == "hashing":
         return HashingEmbeddings()

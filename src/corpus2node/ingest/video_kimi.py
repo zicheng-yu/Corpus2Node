@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 
 from corpus2node.config import settings
-from corpus2node.ingest.kimi_client import vision_client
+from corpus2node.ingest.kimi_client import vision_client, vision_is_moonshot
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,14 @@ _VIDEO_PROMPT = (
 
 
 def describe_video(filename: str, path: str) -> list[str]:
+    if not vision_is_moonshot():
+        # Fully-local fallback: no Moonshot Files API to upload to, so transcribe the
+        # audio track instead (faster-whisper decodes video containers via PyAV).
+        # Silent, visual-only videos won't yield text — bind vision to Kimi for those.
+        from corpus2node.ingest.audio_whisper import transcribe_audio
+
+        return transcribe_audio(filename, path)
+
     # video upload + decoding can be slow → a long timeout regardless of the binding default
     client, model = vision_client(timeout=max(settings.vision_timeout_seconds, 600.0))
 

@@ -10,10 +10,21 @@ from corpus2node.core.clock import utcnow
 
 
 class ProviderKind(str, Enum):
-    """Wire protocol of a credential's endpoint. Both support a custom base_url."""
+    """Wire protocol of a credential's endpoint. All support a custom base_url."""
 
     openai = "openai"  # OpenAI-compatible (DeepSeek, Kimi, vLLM, OpenRouter, ...)
     anthropic = "anthropic"  # Anthropic-compatible
+    ollama = "ollama"  # local Ollama (native client; OpenAI-compat /v1 for non-chat uses)
+    lmstudio = "lmstudio"  # local LM Studio (OpenAI-compatible server)
+
+
+# Local servers need no real API key; some client SDKs still require a non-empty one.
+LOCAL_KINDS: frozenset[ProviderKind] = frozenset({ProviderKind.ollama, ProviderKind.lmstudio})
+LOCAL_DUMMY_KEY = "local"
+DEFAULT_BASE_URLS: dict[ProviderKind, str] = {
+    ProviderKind.ollama: "http://127.0.0.1:11434",
+    ProviderKind.lmstudio: "http://127.0.0.1:1234/v1",
+}
 
 
 class Purpose(str, Enum):
@@ -49,6 +60,12 @@ class ProviderCredential(BaseModel):
     base_url: str = ""
     api_key: str = ""
     default_model: str = ""
+    # Local-provider tuning (ollama/lmstudio). num_ctx: Ollama's context window —
+    # its server default (4096) silently truncates extraction prompts, so we always
+    # send an explicit value. max_concurrency: client-side cap for batch stages
+    # (extract/critic) so a local server isn't flooded; None = kind default.
+    num_ctx: int | None = None
+    max_concurrency: int | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 

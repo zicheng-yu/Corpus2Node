@@ -89,7 +89,7 @@ def build_workflow(
             candidates = await extract_graph_candidates(
                 chunks,
                 astructured=astructured,
-                max_concurrency=settings.extract_max_concurrency,
+                max_concurrency=factory.concurrency_for(Purpose.graph, settings.extract_max_concurrency),
                 batch_max_chars=settings.extract_batch_max_chars,
                 batch_max_chunks=settings.extract_batch_max_chunks,
             )
@@ -111,7 +111,7 @@ def build_workflow(
                 acritic=acritic,
                 batch_concepts=settings.critic_batch_concepts,
                 batch_relations=settings.critic_batch_relations,
-                max_concurrency=settings.extract_max_concurrency,
+                max_concurrency=factory.concurrency_for(Purpose.critic, settings.extract_max_concurrency),
             )
             repaired, stats = apply_repair(candidates, report)
             _save_candidates(session_id, repaired)

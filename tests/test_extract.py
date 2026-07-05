@@ -90,6 +90,46 @@ def test_merge_keeps_richer_definition_and_max_confidence():
     assert merged.relations[0].confidence == 0.85
 
 
+def test_merge_reconciles_relation_endpoints_to_concept_canonicals():
+    # Small local models often canonicalize the concept ("balanced tree") but name the
+    # relation endpoint by its surface form ("平衡树") — the merge must remap those
+    # endpoints instead of leaving the relation dangling (and dropped downstream).
+    result = GraphExtractionResult(
+        concepts=[
+            ExtractedConcept(name="平衡树", canonical_name="balanced tree"),
+            ExtractedConcept(name="二叉搜索树", canonical_name="binary search tree"),
+        ],
+        relations=[
+            ExtractedRelation(
+                source_canonical_name="平衡树",
+                target_canonical_name="二叉搜索树",
+                edge_type="RELATES_TO",
+                relation_type="is_a",
+                confidence=0.8,
+            )
+        ],
+    )
+    merged = merge_results([result])
+    assert len(merged.relations) == 1
+    assert merged.relations[0].source_canonical_name == "balanced tree"
+    assert merged.relations[0].target_canonical_name == "binary search tree"
+
+
+def test_merge_drops_relations_that_collapse_to_self_after_remap():
+    result = GraphExtractionResult(
+        concepts=[ExtractedConcept(name="平衡树", canonical_name="balanced tree", aliases=["balance tree"])],
+        relations=[
+            ExtractedRelation(
+                source_canonical_name="平衡树",
+                target_canonical_name="balance tree",  # alias of the same concept
+                edge_type="RELATES_TO",
+                relation_type="is_a",
+            )
+        ],
+    )
+    assert merge_results([result]).relations == []
+
+
 def test_normalize_drops_noise_and_enforces_relation_rules():
     assert normalize_concept(ExtractedConcept(name="page 3", canonical_name="page 3")) is None
     assert normalize_concept(ExtractedConcept(name="B+树索引", canonical_name="B+树索引")) is not None

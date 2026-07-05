@@ -131,6 +131,81 @@ def test_audio_error_is_clear_if_transcriber_missing(tmp_path, monkeypatch):
         adapters.extract_blocks_for(_src("a.mp3", p))
 
 
+def _tiny_pdf(text: str) -> bytes:
+    """Assemble a minimal one-page PDF with computed xref offsets (valid, no deps)."""
+    stream = f"BT /F1 12 Tf 50 700 Td ({text}) Tj ET".encode()
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
+        b" /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets: list[int] = []
+    for index, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{index} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref_pos = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n".encode() + b"0000000000 65535 f \n"
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode()
+    out += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode()
+    return bytes(out)
+
+
+def test_pdf_falls_back_to_local_extraction_without_moonshot(tmp_path):
+    # vision unbound (isolated registry) → the fully-offline pypdf path, no network.
+    p = tmp_path / "a.pdf"
+    p.write_bytes(_tiny_pdf("Binary search trees enable fast lookup"))
+    blocks = adapters.extract_blocks_for(_src("a.pdf", p))
+    assert blocks and "Binary search trees" in blocks[0]
+
+
+def test_pdf_uses_kimi_when_vision_is_moonshot(tmp_path, monkeypatch):
+    import corpus2node.ingest.pdf_kimi as pdf_kimi
+
+    _seed_vision_kimi()
+    monkeypatch.setattr(pdf_kimi, "extract_pdf_blocks", lambda filename, path: ["kimi 提取内容"])
+    p = tmp_path / "a.pdf"
+    p.write_bytes(_tiny_pdf("ignored"))
+    assert adapters.extract_blocks_for(_src("a.pdf", p)) == ["kimi 提取内容"]
+
+
+def test_scanned_pdf_error_points_at_kimi(tmp_path):
+    from corpus2node.ingest.pdf_local import extract_pdf_blocks_local
+
+    p = tmp_path / "scan.pdf"
+    p.write_bytes(_tiny_pdf(""))  # a page with no extractable text ≈ scanned
+    with pytest.raises(RuntimeError, match="Kimi"):
+        extract_pdf_blocks_local("scan.pdf", p)
+
+
+def test_video_falls_back_to_local_transcription_without_moonshot(tmp_path, monkeypatch):
+    # vision bound to a local provider (no Moonshot Files API) → transcribe the audio track.
+    import corpus2node.ingest.audio_whisper as audio_whisper
+    from corpus2node.ingest.video_kimi import describe_video
+    from corpus2node.llm import store
+    from corpus2node.llm.credentials import (
+        LLMSettings,
+        ProviderCredential,
+        ProviderKind,
+        Purpose,
+        PurposeBinding,
+    )
+
+    cred = ProviderCredential(
+        credential_id="o1", label="ollama", kind=ProviderKind.ollama, default_model="gemma3:4b"
+    )
+    store.save(LLMSettings(credentials=[cred], bindings={Purpose.vision: PurposeBinding(credential_id="o1")}))
+    monkeypatch.setattr(audio_whisper, "transcribe_audio", lambda filename, path: ["本地转写文本"])
+
+    p = tmp_path / "a.mp4"
+    p.write_bytes(b"fake video bytes")
+    assert describe_video("a.mp4", str(p)) == ["本地转写文本"]
+
+
 def test_video_adapter_uses_kimi_file_upload(tmp_path, monkeypatch):
     from corpus2node.ingest.video_kimi import describe_video
 

@@ -372,7 +372,7 @@ export interface DiscoveryReport {
 
 // ── LLM credential registry (replaces the old flat runtime settings) ────────────
 
-export type ProviderKind = "openai" | "anthropic";
+export type ProviderKind = "openai" | "anthropic" | "ollama" | "lmstudio";
 export type LlmPurpose = "graph" | "critic" | "chat" | "exam" | "vision" | "embedding";
 
 export interface CredentialView {
@@ -383,6 +383,8 @@ export interface CredentialView {
   default_model: string;
   has_key: boolean;
   api_key_preview: string;
+  num_ctx?: number | null;
+  max_concurrency?: number | null;
 }
 
 export interface BindingView {
@@ -415,6 +417,13 @@ export interface CredentialUpsert {
   base_url?: string;
   api_key?: string;
   default_model?: string;
+  num_ctx?: number | null;
+  max_concurrency?: number | null;
+}
+
+export interface ModelListView {
+  models: string[];
+  error?: string | null;
 }
 
 export interface BindingUpsert {

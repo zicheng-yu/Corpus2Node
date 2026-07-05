@@ -2,8 +2,17 @@ from __future__ import annotations
 
 import math
 
+from corpus2node.config import settings
 from corpus2node.core.text import cosine_similarity
-from corpus2node.index.embeddings import HashingEmbeddings
+from corpus2node.index.embeddings import HashingEmbeddings, get_embeddings
+from corpus2node.llm import store
+from corpus2node.llm.credentials import (
+    LLMSettings,
+    ProviderCredential,
+    ProviderKind,
+    Purpose,
+    PurposeBinding,
+)
 
 
 def test_hashing_is_deterministic_and_normalized():
@@ -22,3 +31,31 @@ def test_hashing_reflects_token_overlap():
     c = embedder.embed_query("傅里叶变换 | 频域分析 | 信号处理")
     assert cosine_similarity(a, b) > 0.8  # near-duplicate
     assert cosine_similarity(a, c) < 0.5  # unrelated
+
+
+def _bind_embedding(kind: ProviderKind, *, base_url: str = "", model: str = "bge-m3") -> None:
+    cred = ProviderCredential(
+        credential_id="e1", label="emb", kind=kind, base_url=base_url, default_model=model,
+        api_key="k-1234" if kind not in (ProviderKind.ollama, ProviderKind.lmstudio) else "",
+    )
+    store.save(LLMSettings(credentials=[cred], bindings={Purpose.embedding: PurposeBinding(credential_id="e1")}))
+
+
+def test_get_embeddings_routes_ollama_to_native_client(monkeypatch):
+    monkeypatch.setattr(settings, "embed_provider", "openai_compatible")
+    _bind_embedding(ProviderKind.ollama)
+    embedder = get_embeddings()
+    assert type(embedder).__name__ == "OllamaEmbeddings"
+    assert embedder.base_url == "http://127.0.0.1:11434"  # native root, not the /v1 compat path
+    assert embedder.model == "bge-m3"
+
+
+def test_get_embeddings_disables_tokenized_input_for_compat_endpoints(monkeypatch):
+    # The OpenAIEmbeddings default pre-tokenizes with tiktoken and sends token arrays;
+    # only api.openai.com understands those — LM Studio/Ollama/DeepSeek reject them.
+    monkeypatch.setattr(settings, "embed_provider", "openai_compatible")
+    _bind_embedding(ProviderKind.lmstudio, model="text-embedding-bge-m3")
+    embedder = get_embeddings()
+    assert type(embedder).__name__ == "OpenAIEmbeddings"
+    assert embedder.openai_api_base == "http://127.0.0.1:1234/v1"
+    assert embedder.check_embedding_ctx_length is False

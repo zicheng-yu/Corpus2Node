@@ -147,10 +147,52 @@ def merge_results(results: list[GraphExtractionResult]) -> GraphExtractionResult
             else:
                 existing_rel.confidence = round(max(existing_rel.confidence, normalized_rel.confidence), 3)
 
+    concepts = sorted(concept_map.values(), key=lambda item: item.name)
     return GraphExtractionResult(
-        concepts=sorted(concept_map.values(), key=lambda item: item.name),
-        relations=list(relation_map.values()),
+        concepts=concepts,
+        relations=_reconcile_relation_endpoints(concepts, list(relation_map.values())),
     )
+
+
+def _reconcile_relation_endpoints(
+    concepts: list[ExtractedConcept], relations: list[ExtractedRelation]
+) -> list[ExtractedRelation]:
+    """Remap relation endpoints onto the merged concepts' canonical names.
+
+    Models (small local ones especially) often name a relation endpoint by the
+    concept's surface form ("平衡树") while the concept itself canonicalized to
+    something else ("balanced tree") — leaving the relation dangling, and dropped
+    downstream. Every concept name/alias already lives in ``aliases``, so a
+    deterministic alias→canonical remap rescues those relations for free.
+    """
+    alias_to_canonical: dict[str, str] = {}
+    for concept in concepts:
+        for surface in (concept.canonical_name, concept.name, *concept.aliases):
+            key = canonicalize_term(surface)
+            if key:
+                alias_to_canonical.setdefault(key, concept.canonical_name)
+
+    reconciled: list[ExtractedRelation] = []
+    seen: set[tuple[str, str, str, str | None]] = set()
+    for relation in relations:
+        source = alias_to_canonical.get(relation.source_canonical_name, relation.source_canonical_name)
+        target = alias_to_canonical.get(relation.target_canonical_name, relation.target_canonical_name)
+        if source == target:
+            continue
+        key = (source, target, relation.edge_type, relation.relation_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        reconciled.append(
+            ExtractedRelation(
+                source_canonical_name=source,
+                target_canonical_name=target,
+                edge_type=relation.edge_type,
+                relation_type=relation.relation_type,
+                confidence=relation.confidence,
+            )
+        )
+    return reconciled
 
 
 def normalize_concept(concept: ExtractedConcept) -> ExtractedConcept | None:

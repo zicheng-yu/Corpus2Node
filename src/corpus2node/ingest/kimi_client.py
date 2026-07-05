@@ -23,6 +23,21 @@ def vision_available() -> bool:
     return factory.purpose_available(Purpose.vision)
 
 
+def vision_is_moonshot() -> bool:
+    """True when the vision purpose resolves to a Moonshot/Kimi endpoint.
+
+    Gates the Moonshot-only features: the Files API (PDF file-extract, ms:// video
+    upload) and K2.6 request quirks (thinking off via extra_body, no sampling
+    params). A local vision credential (Ollama/LM Studio VLM) takes the plain
+    OpenAI-compatible paths instead.
+    """
+    try:
+        params = factory.credential_params(Purpose.vision)
+    except LLMConfigError:
+        return False
+    return "moonshot" in params.base_url.lower()
+
+
 def vision_client(*, timeout: float | None = None) -> tuple[Any, str]:
     """Return (openai_client, model) for Kimi-style multimodal ingest from the registry.
 

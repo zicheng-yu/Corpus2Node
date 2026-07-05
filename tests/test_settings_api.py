@@ -56,6 +56,76 @@ def test_delete_credential_drops_its_bindings():
     assert res.json()["bindings"] == []
 
 
+def test_local_credential_roundtrips_tuning_fields():
+    res = client.post(
+        "/settings/llm/credentials",
+        json={
+            "label": "ollama", "kind": "ollama", "default_model": "gemma3:4b",
+            "num_ctx": 16384, "max_concurrency": 2,  # no api_key — local servers need none
+        },
+    )
+    assert res.status_code == 200
+    cred = res.json()["credentials"][0]
+    assert cred["kind"] == "ollama"
+    assert cred["has_key"] is False
+    assert cred["num_ctx"] == 16384
+    assert cred["max_concurrency"] == 2
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def test_list_models_ollama_uses_native_tags(monkeypatch):
+    seen = {}
+
+    def fake_get(url, **kwargs):
+        seen["url"] = url
+        return _FakeResponse({"models": [{"name": "gemma3:4b"}, {"name": "qwen3:4b"}]})
+
+    monkeypatch.setattr("httpx.get", fake_get)
+    res = client.post("/settings/llm/models", json={"kind": "ollama"})
+    assert res.status_code == 200
+    assert res.json() == {"models": ["gemma3:4b", "qwen3:4b"], "error": None}
+    assert seen["url"] == "http://127.0.0.1:11434/api/tags"
+
+
+def test_list_models_openai_compat_uses_models_route(monkeypatch):
+    seen = {}
+
+    def fake_get(url, headers=None, **kwargs):
+        seen["url"] = url
+        seen["headers"] = headers or {}
+        return _FakeResponse({"data": [{"id": "text-embedding-bge-m3"}, {"id": "qwen3-4b"}]})
+
+    monkeypatch.setattr("httpx.get", fake_get)
+    res = client.post("/settings/llm/models", json={"kind": "lmstudio"})
+    assert res.json()["models"] == ["qwen3-4b", "text-embedding-bge-m3"]
+    assert seen["url"] == "http://127.0.0.1:1234/v1/models"
+    assert seen["headers"].get("Authorization") == "Bearer local"  # dummy key for keyless local
+
+
+def test_list_models_reports_connection_failure_as_hint(monkeypatch):
+    import httpx
+
+    def fake_get(url, **kwargs):
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr("httpx.get", fake_get)
+    res = client.post("/settings/llm/models", json={"kind": "ollama"})
+    assert res.status_code == 200  # degrades to a UI hint, not a 5xx
+    body = res.json()
+    assert body["models"] == []
+    assert "11434" in body["error"]
+
+
 def test_update_credential_keeps_secret_when_blank():
     res = client.post(
         "/settings/llm/credentials",

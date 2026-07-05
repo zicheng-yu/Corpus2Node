@@ -93,6 +93,70 @@ def test_credential_params_missing_purpose_raises():
         factory.credential_params(Purpose.vision, value=LLMSettings())
 
 
+# ── local providers (Ollama / LM Studio) ────────────────────────────────────
+
+
+def _local_settings(kind: ProviderKind, **cred_kwargs) -> LLMSettings:
+    cred = ProviderCredential(
+        credential_id="l1", label="local", kind=kind, default_model="gemma3:4b", **cred_kwargs
+    )
+    return LLMSettings(credentials=[cred], bindings={Purpose.graph: PurposeBinding(credential_id="l1")})
+
+
+def test_build_ollama_model_uses_native_client_with_num_ctx():
+    # Native ChatOllama, default endpoint filled in, explicit num_ctx (the server
+    # default 4096 would silently truncate extraction prompts).
+    model = factory.build_chat_model(Purpose.graph, value=_local_settings(ProviderKind.ollama))
+    assert type(model).__name__ == "ChatOllama"
+    assert model.base_url == "http://127.0.0.1:11434"
+    assert model.num_ctx == factory.OLLAMA_DEFAULT_NUM_CTX
+    assert model.reasoning is False  # thinking off by default — ~5x faster, same quality
+
+
+def test_build_ollama_model_respects_credential_num_ctx():
+    model = factory.build_chat_model(
+        Purpose.graph, value=_local_settings(ProviderKind.ollama, num_ctx=16384)
+    )
+    assert model.num_ctx == 16384
+
+
+def test_build_lmstudio_model_is_openai_compatible_with_dummy_key():
+    model = factory.build_chat_model(Purpose.graph, value=_local_settings(ProviderKind.lmstudio))
+    assert "OpenAI" in type(model).__name__
+    assert model.openai_api_base == "http://127.0.0.1:1234/v1"
+
+
+def test_structured_output_method_per_kind():
+    expected = {
+        ProviderKind.openai: "json_mode",
+        ProviderKind.anthropic: "function_calling",
+        # Measured on gemma4-e2b: grammar-locked json_schema collapses the relations
+        # array to []; json_mode (still valid JSON via format=json) extracts them.
+        ProviderKind.ollama: "json_mode",
+        ProviderKind.lmstudio: "json_schema",  # LM Studio's documented structured-output path
+    }
+    for kind, method in expected.items():
+        assert factory.structured_output_method(Purpose.graph, value=_local_settings(kind)) == method
+
+
+def test_credential_params_normalizes_local_endpoint_for_openai_sdk():
+    value = _local_settings(ProviderKind.ollama)
+    value.bindings[Purpose.vision] = PurposeBinding(credential_id="l1")
+    params = factory.credential_params(Purpose.vision, value=value)
+    assert params.base_url == "http://127.0.0.1:11434/v1"  # Ollama's OpenAI-compat lives under /v1
+    assert params.api_key  # dummy key — the openai SDK refuses empty keys
+    assert params.kind == ProviderKind.ollama
+
+
+def test_concurrency_for_local_defaults_and_override():
+    value = _local_settings(ProviderKind.ollama)
+    assert factory.concurrency_for(Purpose.graph, 8, value=value) == factory.LOCAL_DEFAULT_CONCURRENCY
+    value.credentials[0].max_concurrency = 2
+    assert factory.concurrency_for(Purpose.graph, 8, value=value) == 2
+    assert factory.concurrency_for(Purpose.graph, 8, value=_settings_with(ProviderKind.openai)) == 8
+    assert factory.concurrency_for(Purpose.chat, 8, value=LLMSettings()) == 8  # unbound → default
+
+
 def test_load_auto_binds_vision_to_existing_kimi_credential():
     # Old registry (Kimi predates living in the registry): a Kimi-looking credential
     # with no vision binding gets auto-bound on load so multimodal ingest keeps working.

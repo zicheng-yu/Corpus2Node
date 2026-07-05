@@ -110,9 +110,18 @@ def _read_yaml(filename: str, path: str) -> list[str]:
 
 
 def _read_pdf(filename: str, path: str) -> list[str]:
-    from corpus2node.ingest.pdf_kimi import extract_pdf_blocks
+    # Moonshot's Files API (file-extract, OCR included) when vision is bound to
+    # Kimi; otherwise the fully-local pypdf text layer — offline setups never
+    # need a cloud credential for text PDFs.
+    from corpus2node.ingest.kimi_client import vision_is_moonshot
 
-    return extract_pdf_blocks(filename, path)
+    if vision_is_moonshot():
+        from corpus2node.ingest.pdf_kimi import extract_pdf_blocks
+
+        return extract_pdf_blocks(filename, path)
+    from corpus2node.ingest.pdf_local import extract_pdf_blocks_local
+
+    return extract_pdf_blocks_local(filename, path)
 
 
 def _read_image(filename: str, path: str) -> list[str]:
