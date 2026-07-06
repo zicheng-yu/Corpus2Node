@@ -9,17 +9,20 @@
 
 ## 当前已验证状态
 
-- **后端测试 131 passed**（`.venv/bin/python -m pytest -q`，2026-06-26 实测，1.3s）。
+- **后端测试 153 passed**（`.venv/bin/python -m pytest -q`，2026-07-06 实测，1.8s）。
+- **全离线 LLM 方案已落地并本机实测（本轮）**：注册表 kind += `ollama`/`lmstudio`（免密钥、默认本地端点、`num_ctx`/`max_concurrency`）；本机 M3 用 `gemma4:e2b-it-qat` + `bge-m3`（嵌入）真 HTTP 跑通 workflow/chat/exam/models 端点全流程（`llama3.1:8b` 参照组同过）；PDF 无 Kimi 时 pypdf 本地解析、视频回退 whisper 音轨转写。速度实测：`reasoning=False` ~5×、抽取绑定 `temperature=0.2` 抑制方差、extract 并发 c=1→c=4 提速 1.6×。
 - **LLM 配置已统一到注册表/UI（本轮）**：Kimi（vision）与远程 embedding 都成为注册表凭据 + 用途；`config.py` 不再有任何 LLM 凭据；`.env` 只剩基础设施 + 首次种子，`.env`/`.env.example` 格式对齐。设置面板改为「凭据=端点+密钥+模型 一体，下面单选下拉直接绑」。
 - **前端 `npm run build` 通过**（2026-06-26 实测）。
-- **ruff clean**（`.venv/bin/ruff check src tests`，2026-06-26 实测）。分支 `feat`。
+- **ruff clean**（`.venv/bin/ruff check src tests`，2026-06-27 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/出题）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
 - **在线闭环可跑**：chat agent（强制引用 + trace + SSE）、notes（map-reduce + coverage critic）、exam（generator + verifier 回路）、export（md/tex/txt/pdf）路由齐全且有测试覆盖。
-- **多模态摄入**：文档 7 类 + PDF（Kimi file-extract）+ 图片/视频（Kimi vision/K2.6）+ 音频（faster-whisper），注册表式接入。
+- **多模态摄入**：文档 7 类 + PDF（Kimi file-extract ↔ 无 Kimi 时 pypdf 本地）+ 图片/视频（Kimi vision/K2.6；vision 绑本地 VLM 时图片走同路径、视频回退 whisper 音轨转写）+ 音频（faster-whisper），注册表式接入。
+- **真实音频/视频摄入已复核（本轮）**：纯音频 `.mp3` 样本 `BV1m2P9zsEgW.mp3` 走 faster-whisper，session `72cc6407...` 为 `graph_ready`（6 chunks / 8 concepts / 1 relation）；标题为 “05 audio” 的 `.mp4` 实际按 `video` 路由，Kimi Files API + `ms://file_id` 真实调用成功，session `6c1a004f...` 为 `graph_ready`（5 chunks / 7 concepts / 9 relations）。
 - **本轮审阅修复已落地并验证**：API 可选 Bearer token、生产环境隐藏 traceback、上传路径清洗/大小限制/分块落盘、JSON artifact 原子写、chat 多轮历史 + 预检索引用兜底、notes/exam 参数冲突保护、流式 workflow `chunk_count` 一致、前端命令面板跳转/上传全失败处理、启动脚本默认不误杀端口、最小 CI、README 按要求清空。
 - **资料集 / 知识库重命名已落地**：后端支持单个资料集 `lecture_title` 改名与知识库 `course_title` 批量改名（含虚拟总图谱 session），首页支持内联入口；已通过全量 pytest、ruff、前端 build。
 - **知识发现已落地并保存 artifact**：首页可多选资料集运行知识发现，也可随机发现；后端生成 `DiscoveryReport` 并保存到 `artifacts/discoveries/{discovery_id}.json`；支持 AI judge seam（critic 绑定可用时自动判断，失败/无凭据退回算法版）；已通过 `tests/test_discovery.py`、全量 pytest、ruff、前端 build。
 - **知识发现增强已落地（本轮）**：(1) **桥接图可视化**——bridge graph 用 ReactFlow 三列（发现→知识点→资料集）画出来（懒加载独立 chunk，首页主包 376KB→229KB）；(2) **可溯源跳转**——发现卡片的概念 chip / 证据块、桥接图概念节点点击直达 `/session/{id}?concept=`；(3) **质量增强**——judge `relation_type` 约束到 8 类枚举（含中文别名回填）、证据每侧 top-2、加结构化信号（共享邻居/标签）、大候选池分批并发 judge、novelty 重算；(4) **历史面板**——首页列出历史 `DiscoveryReport`（`list_discovery_reports` 改按 `generated_at` 倒序），可点开重载。已通过 126 passed、ruff、前端 build。
+- **mixed 多模态抽取问题已修复（本轮）**：`06 mixed` 摄入正常（image 1 chunk + PDF 40 chunks），抽取阶段曾有 84 concepts / 60 relations，问题是 critic grounding 检索给大量真实概念提示“未检索到相关片段”，且近清空保护只拦截“全删”不拦截“84 删 83”。已改为字面证据优先 + embedding 补充，并加近清空保护；用旧 artifact 无外部调用复核可为 55/84 个旧 verdict 概念找到原文片段。
 
 ## 仓库根目录
 
@@ -75,19 +78,19 @@ ruff check src tests                                  # lint
 | `core/types.py` | **数据契约脊柱**：GraphArtifact / NoteDocument / ExamDocument / ChatDocument / DiscoveryReport / EvidenceChunk / ConceptNode / GraphEdge / SourceKind / WorkflowRunArtifact | 改 wire 契约（**必须**和 `frontend/src/types/index.ts` 一起改） |
 | `core/text.py` | 文本规范化 / 结构感知分块 / canonicalize | 调分块粒度 / 归一化规则 |
 | `core/clock.py` · `core/logging_config.py` | `utcnow()`（naive UTC）· 日志配置 | 时间/日志 |
-| `llm/credentials.py` `store.py` `factory.py` `structured.py` | **多凭据注册表 + 按 purpose 工厂**：登记凭据→绑定用途。**purpose 全集** = chat 类 `graph/critic/chat/exam`（`build_chat_model`）+ `vision`（Kimi 多模态）+ `embedding`（远程嵌入），后两类用 `factory.credential_params(purpose)` 取原始 (base_url/api_key/model/timeout)；`store` 含 env 种子 + `_ensure_vision_binding` 老注册表自动绑 vision；`structured_output_method`（openai=json_mode / anthropic=function_calling） | 加新 LLM purpose / 改结构化输出 / 改回退链 |
-| `index/embeddings.py` · `index/search.py` | LangChain Embeddings（hashing / 本地 BGE-M3 / openai_compatible 从注册表 `embedding` 用途解析）· chunk/concept cosine 检索 + bounded subgraph | 换 embedding / 调检索 |
-| `ingest/kimi_client.py` | **Kimi 多模态客户端**：从注册表 `vision` 用途解析 (base_url/api_key/model) 建 openai SDK client；pdf/image/video 适配器共用，未绑定时给清晰报错 | 改 Kimi 凭据解析 / 多模态超时 |
-| `ingest/adapters.py` | **摄入适配器注册表** + kind 路由（md/txt/docx/pptx/csv/json/yaml + 各类型扩展名表） | **加新文件类型** |
-| `ingest/chunk.py` `pdf_kimi.py` `image_kimi.py` `video_kimi.py` `audio_whisper.py` | 切块 · Kimi Files API file-extract（PDF 解析，**非 chat，几乎不计 token**）· Kimi vision（图片）· Kimi K2.6（视频先 Files API `purpose=video` 上传，再用 `ms://file_id` 的 video_url，避免大 mp4 base64 断连）· **音频 = faster-whisper 本地转写**（Kimi 平台 API 不接受音频输入，无云端路径；faster-whisper 现为 **core 依赖**，无 `--extra audio`） | 调某模态的摄入方式 / 换音频模型（如换云端 ASR 需另加可转写凭据） |
-| `graph/extract.py` `prompts.py` `schemas.py` `clean.py` | 全量并发抽取（structured，no-sample）+ 抽取 prompt + 输出 schema + `is_junk_concept` 噪声过滤 | 调抽取质量 / prompt |
+| `llm/credentials.py` `store.py` `factory.py` `structured.py` | **多凭据注册表 + 按 purpose 工厂**：登记凭据→绑定用途。**kind 全集** = `openai`/`anthropic`/**`ollama`/`lmstudio`（本地离线，无需密钥，默认 127.0.0.1:11434 / :1234/v1，凭据可设 `num_ctx`/`max_concurrency`）**；**purpose 全集** = chat 类 `graph/critic/chat/exam`（`build_chat_model`）+ `vision` + `embedding`（`credential_params(purpose)` 取原始参数，本地 kind 自动补 /v1 + dummy key）。Ollama 走原生 ChatOllama：显式 `num_ctx`（默认 8192；服务端默认 4096 会静默截断抽取 prompt）+ `reasoning=False`（实测 gemma4 思考关闭快 ~5×，质量相同）；`concurrency_for(purpose, default)` 批量阶段按凭据限并发（本地默认 4）；`structured_output_method`：openai/**ollama**=json_mode（实测 gemma4 在 json_schema 语法锁定下 relations 塌缩为 []）/ anthropic=function_calling / **lmstudio=json_schema** | 加新 LLM kind/purpose / 改结构化输出 / 改回退链 / 调本地并发与上下文 |
+| `index/embeddings.py` · `index/search.py` | LangChain Embeddings（hashing / 本地 BGE-M3 / **注册表 `embedding` 用途：ollama kind→OllamaEmbeddings 原生批量，其余→OpenAIEmbeddings 且非官方端点自动 `check_embedding_ctx_length=False`**——否则发 tiktoken token 数组，本地/DeepSeek 端点 400）· chunk/concept cosine 检索 + bounded subgraph | 换 embedding / 调检索 |
+| `ingest/kimi_client.py` | **vision 客户端**：从注册表 `vision` 用途解析 (base_url/api_key/model) 建 openai SDK client（本地 VLM 同样走这条）；`vision_is_moonshot()` 门控 Moonshot 专属能力（Files API file-extract、`ms://` 视频上传、K2.6 关思考 extra_body） | 改 vision 凭据解析 / 多模态超时 / moonshot 判定 |
+| `ingest/adapters.py` | **摄入适配器注册表** + kind 路由（md/txt/docx/pptx/csv/json/yaml + 各类型扩展名表）；**PDF 双路**：vision 绑 Kimi→file-extract（含 OCR），否则→`pdf_local.py`（pypdf 全离线，扫描件报错指向 Kimi） | **加新文件类型** / 改 PDF 路由 |
+| `ingest/chunk.py` `pdf_kimi.py` **`pdf_local.py`** `image_kimi.py` `video_kimi.py` `audio_whisper.py` | 切块 · Kimi Files API file-extract（PDF 解析，**非 chat，几乎不计 token**）· **pypdf 本地 PDF 文本层**（离线路径，逐页块保留页码 locator）· vision 图片（Kimi 或本地 VLM；K2.6 专属参数按 moonshot 门控）· 视频：Kimi 时 Files API `purpose=video` 上传 + `ms://file_id`；**非 moonshot 时回退 faster-whisper 转写视频音轨（PyAV 解容器，纯视觉无声视频除外）** · **音频 = faster-whisper 本地转写**（Kimi 平台 API 不接受音频输入；faster-whisper 为 **core 依赖**） | 调某模态的摄入方式 / 换音频模型 |
+| `graph/extract.py` `prompts.py` `schemas.py` `clean.py` | 全量并发抽取（structured，no-sample）+ 抽取 prompt + 输出 schema + `is_junk_concept` 噪声过滤；merge 末尾 **`_reconcile_relation_endpoints`**：关系端点经概念 name/canonical/别名映射归一（小模型常给端点写表面名导致悬空关系被 critic 全丢，云端模型同样受益） | 调抽取质量 / prompt / 端点归一 |
 | `graph/build.py` | **建图皇冠**：语义合并(C) + Louvain 社区(A) + networkx 中心性 + 共现边(D) | 调建图算法 / 聚类 / 中心性 |
 | `graph/critic.py` | **LLM-judge 质量门**：concept grounding / 关系方向 / 同实体重复 → 确定性 repair（drop/merge/flip/retype，≤1 轮，空图保护） | 调质量门规则 |
 | `graph/workflow.py` | **LangGraph 离线 DAG**：ingest→extract→critic→build，每节点经 RunRecorder 记耗时/token/repair | 改离线流水线拓扑 |
 | `notes/generate.py` `markdown.py` `prompts.py` `schemas.py` | **笔记**：map-reduce 分章（carry-forward 去重）+ 检索 chunk 落地引用 + **确定性 coverage critic** 补未覆盖核心概念；markdown.py 是 donor 来的确定性后处理 | 调笔记结构/覆盖 |
 | `exam/generate.py` `validate.py` `prompts.py` `schemas.py` | **出卷**：generator + **verifier 独立求解回路**（solver 用 Purpose.critic 独立作答，不符/无据则打回补足到请求数）；validate 是题型/难度校验 + `answers_match` | 调出题/校验/难度 |
 | `assistant/agent.py` `tools.py` | **招牌：在线 chat agent**（单 tool-calling agent + 最近历史 + 预检索引用兜底 + 结构化 trace + SSE）；tools = retrieve_chunks / search_concepts / get_subgraph | 调问答行为 / 加 agent 工具 |
-| `discovery/engine.py` | **知识发现**：多资料集/随机模式；宽候选生成（相似度+词面+**结构信号**共享邻居/标签+图谱重要性）+ AI judge seam（Purpose.critic，**大池分批并发**，`relation_type` 约束 8 类枚举+中文别名回填）+ 算法 fallback（关系类型推断/novelty 重算）；证据每侧 top-2；输出桥接图与证据引用 | 调跨资料集发现逻辑 / 关系类型枚举(`RELATION_TYPES`) / 候选评分权重 / judge 批大小 |
+| `discovery/engine.py` | **知识发现**：多资料集/随机模式；宽候选生成（相似度+词面+**结构信号**共享邻居/标签+图谱重要性）+ AI judge seam（Purpose.critic，**大池分批并发**，`relation_type` 约束 8 类枚举+中文别名回填）+ 算法 fallback（关系类型推断/novelty 重算）；证据每侧 top-2；**LLM 标题 seam**（`_make_titler_or_none` + `_title_for`，确定性 `derive_title` 回退）；输出桥接图与证据引用 | 调发现逻辑 / 关系枚举(`RELATION_TYPES`) / 评分权重 / judge 批大小 / 标题生成 |
 | `export/renderer.py` | 导出 md/tex/txt（纯 Python）+ pdf（惰性 wkhtmltopdf→xhtml2pdf，`[export]` extra）+ render_chat_markdown | 加导出格式 |
 | `eval/metrics.py` `harness.py` `schemas.py` `__main__.py` `data/` | **离线评估**：纯指标（抽取 F1 / 关系合法+召回 / 笔记覆盖 / 出卷可溯源+客观题合法 / 问答 grounding）+ harness + CLI + gold fixture | 加评估指标 / 调 gold |
 | `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放 + 同参数复用/异参数冲突保护——notes/exam 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
@@ -101,7 +104,7 @@ ruff check src tests                                  # lint
 |------|-----------|--------------|
 | `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），含 sessions 创建/删除/资料集改名/知识库改名、knowledge discovery | 加/改一个后端调用 |
 | `types/index.ts` | 前端契约（对应 `core/types.py`，含 DiscoveryReport） | 改契约（和后端一起改） |
-| `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **资料集/知识库改名** + **多选/随机知识发现（桥接图可视化 + 卡片/证据可溯源跳转 + 历史面板）** + **全局知识点搜索** + 来源标签(文档/视频/音频/图片) | 改首页/库管理/发现结果展示 |
+| `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **拖拽排序（知识库分组 + 组内资料集，原生 HTML5 DnD + 抓手，顺序存 localStorage `c2n:courseOrder`/`c2n:sessionOrder`，覆盖 updated_at；`applyOrder` 稳定排序）** + **资料集/知识库改名** + **知识发现（单按钮：选中→对选中发现 / 未选→确认后随机；桥接图可视化 + 卡片/证据可溯源跳转 + 历史面板含 LLM 标题）** + **全局知识点搜索** + 来源标签(文档/视频/音频/图片)；通用 `ConfirmModal`(tone) | 改首页/库管理/排序/发现结果展示 |
 | `components/discovery/BridgeGraphView.tsx` | **桥接图可视化**：ReactFlow 三列布局（发现→知识点→资料集），概念节点点击溯源；懒加载独立 chunk | 改桥接图样式/布局/交互 |
 | `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
 | `pages/PipelinePage.tsx` | 流水线可视化（4 阶段一行：解析/切分/抽取/构建，**质检 critic 折叠进「构建图谱」**）+ per-node **run-metrics 面板**（耗时/token/repair，仍单列 `critic` 节点） | 改流水线展示 |
@@ -127,6 +130,52 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-07-06 — 全离线 LLM 方案（Ollama / LM Studio provider + 本机 E2E 实测）
+- **需求**：全离线处理；参照 obsidian-copilot 的 provider 设计（Ollama 走原生客户端管 `num_ctx`，LM Studio 走 OpenAI 兼容 + dummy key）；本机小模型全流程实测速度与并发。
+- **后端**：kind += `ollama`/`lmstudio`（默认端点、免密钥、凭据级 `num_ctx`/`max_concurrency`）；`build_chat_model`：ollama→ChatOllama（`num_ctx` 默认 8192、`reasoning=False`）、lmstudio→openai 路径；`credential_params` 对本地 kind 归一（补 /v1 + dummy key）供 vision/embedding 的 SDK 复用；`structured_output_method`：**ollama=json_mode**（实测 gemma4 在 json_schema 语法锁定下 relations 塌缩为 []）、lmstudio=json_schema；`concurrency_for` 接入 workflow 的 extract/critic 并发。
+- **Embedding**：注册表 `embedding` 用途绑 ollama kind→`OllamaEmbeddings` 原生批量；其余 `OpenAIEmbeddings` 且非官方端点自动 `check_embedding_ctx_length=False`（默认 tiktoken token 数组会被本地/DeepSeek 端点 400）。
+- **摄入离线化**：新增 `ingest/pdf_local.py`（pypdf 文本层逐页块，保页码 locator；扫描件报错指向 Kimi OCR）；`kimi_client.vision_is_moonshot()` 门控 Moonshot 专属（file-extract / `ms://` 视频上传 / K2.6 关思考参数）；视频非 moonshot 回退 faster-whisper 转写音轨；图片可绑本地 VLM（base64 image_url 同路径）。
+- **抽取修复（确定性，云端模型同益）**：`extract.merge_results` 末尾 `_reconcile_relation_endpoints`——关系端点经概念 name/canonical/别名映射归一，修复「小模型端点写表面名（平衡树）而概念 canonical 是英文（balanced tree）→ 关系悬空被 critic 全丢」。
+- **API/前端**：`POST /settings/llm/models` 枚举端点模型（ollama 走 `/api/tags`，其余 `{base}/models`；失败返回 `error` 字符串降级为提示）；SettingsPanel：kind 四选、base_url 按 kind 预填、本地免密钥标注、「读取模型」按钮 + datalist、ollama 显示 `num_ctx`、本地显示并发上限。
+- **本机 E2E**（Apple M3 / 24GB；Ollama 0.20.7→**0.31.1**（gemma4 需 ≥0.30.5）；`OLLAMA_NUM_PARALLEL=4`；模型 `gemma4:e2b-it-qat` 4.3GB（vision+tools+thinking）+ `bge-m3` 嵌入 + `llama3.1:8b` 参照；隔离存储、真 HTTP 驱动）：
+  - 全流程 ✅：workflow（ingest→extract→critic→build）、chat agent（工具调用 + 引用 + 语料外问题诚实拒答）、exam 4 题 verifier 回路、models 端点、bge-m3 嵌入检索。
+  - **速度三板斧**：`reasoning=False` 实测 ~**5×**（22.7s→4.7s 同批任务）；抽取类绑定 `temperature=0.2` 抑制小模型方差（默认 1.0 时同语料 22→1 概念级波动）；并发 42-chunk 语料 extract **c=1 631s → c=4 397s（1.6×**，Metal iGPU 计算受限非线性）。
+  - 模型建议：`gemma4:e2b-it-qat` 最小最快全能力；`llama3.1:8b` critic 裁决更稳（gemma4 judge 输出偶尔过不了 GraphCriticReport 校验→仅确定性修复兜底）；追求抽取一致性上 12b 级。
+- **验证**：pytest **153 passed**（+18）、ruff clean、`tsc --noEmit` + `npm run build` ✅。新依赖：`langchain-ollama==1.1.0`、`pypdf`（均 core）。
+- **待办**：LM Studio 本机未装（与 openai kind 同一 ChatOpenAI 路径，已单测覆盖；装后冒烟即可）；绑定 UI 暂未暴露 per-binding temperature（离线建库建议手动把 graph/critic/exam 绑定 temperature 设 0.2，本轮 E2E 经 API 设置）。
+
+### 2026-06-27 — 首页拖拽排序（知识库 + 资料集）
+- **本轮目标**：首页支持手动拖拽给知识库（分组）和资料集（组内）排序，覆盖当前的 updated_at 排序。
+- **已完成（纯前端，无后端/契约改动）**：原生 HTML5 DnD + 抓手图标 `GripIcon`；知识库分组头与资料集行各加抓手（仅抓手 `draggable`，避免与折叠/导航点击冲突）；`applyOrder` 稳定排序工具（不在顺序表里的项保持 updated_at）；顺序持久化到 localStorage（`c2n:courseOrder` string[] / `c2n:sessionOrder` Record<course, id[]>），与既有 `collapsedCourses` 同模式；落点高亮 `inset 0 2px 0 accent`；每次 drop 持久化**完整**顺序列表（之后稳定，新项追加到末尾）；资料集仅在**同知识库内**排序（跨库 drop 被 guard 拦截）；知识库改名时同步迁移 courseOrder/sessionOrder 的 key。
+- **运行过的验证**：前端 `npx tsc --noEmit` + `npm run build` 通过；后端未改，`pytest -q` → **135 passed**、`ruff` clean。
+- **已知风险或未解决问题**：顺序存 localStorage（不跨设备/不入库，符合 UI 偏好定位，与折叠状态一致）；删除的库/资料集 id 会留在顺序表里（applyOrder 忽略缺失项，无害，未清理）；把「知识库」拖到资料集行上是无效 drop（落点须是另一个分组头），course 拖拽会丢失需重做（轻微）。
+- **下一步最佳动作**：浏览器 `corpus dev` 实测拖拽手感（分组与组内）；其余回到 eval baseline / Step 7。
+
+### 2026-06-27 — 发现标题（LLM 命名）+ 合并发现按钮 + 去掉新增资料集按钮
+- **本轮目标**：(1) 历史发现用随机 id 命名 → 让 LLM 自动生成简短标题，并给现有两条补标题；(2) 把「知识发现」「随机发现」两个按钮合一（选了资料集就对选中发现，没选则弹确认问是否随机）；(3) 删掉首页知识库分组里的「新增资料集」按钮（与「新建知识库」功能重复）。
+- **已完成**：
+  - **后端标题**：`DiscoveryReport.title` 新字段；`engine` 加 `_make_titler_or_none`（Purpose.critic 结构化输出 `DiscoveryTitle`）+ `_title_for`（清洗书名号/标点、≤24 字）+ 确定性 `derive_title`（top finding 两个概念名 `A × B 等 N 处`，去括号/防截断悬尾）；`run_discovery` 加 `titler` seam，无凭据/失败回退确定性。
+  - **回填**：用 `derive_title` 给现有 2 条报告补标题（`a0211ce3 → Reinforcement Learning`、`52e0ff04 → 递归基准情况 × 有序列表 等 8 处`）。
+  - **前端**：`ConfirmModal` 泛化（`confirmLabel/loadingLabel/tone`）；两按钮合一为「知识发现」（`startDiscovery`：有选中→selected，无选中→`randomConfirm` 弹确认→random）；删 `group-add-btn`；历史条目 + 报告面板头显示 `title`（mono→ui 字体、省略号）。
+- **运行过的验证**：`.venv/bin/python -m pytest -q` → **135 passed**（含 2 个新 titler 测试：注入 titler 清洗标点、无 titler 回退确定性）；`ruff` clean；前端 `tsc --noEmit` + `npm run build` 通过。
+- **已知风险或未解决问题**：现有 2 条是**确定性**标题（非 LLM），如要 LLM 命名需重跑发现或单独 backfill（耗 token）；标题 LLM 调用绑 Purpose.critic（→ graph 回退），无凭据时静默用确定性。
+- **下一步最佳动作**：浏览器确认合并按钮 + 随机确认弹窗 + 历史标题观感；其余回到 eval baseline / Step 7。
+
+### 2026-06-27 — mixed 多模态抽取过少修复
+- **本轮目标**：用户反馈 `06 mixed` 同时输入文档和图片，但最终概念非常少；要求定位问题并排查其他模态是否有类似风险。
+- **核查结论**：`06 mixed` 的上传和摄入均正常：图片 1 chunk（454 字）+ PDF 40 chunks（33774 字），extract 真实抽到 84 concepts / 60 relations；最终只剩 1 concept 的根因在 `graph/critic.py`：grounding snippets 只靠 embedding 检索，许多明明在原文出现的概念被提示为“未检索到相关片段”；同时 `apply_repair` 只保护“全部删光”，未保护“84 个删 83 个”的近清空场景。
+- **已完成修复**：`_grounding_snippets` 先做字面命中（含 `_`→空格变体、过滤过短词、英文边界）再用 embedding 补充；未命中提示改为“检索器未命中不是否定证据”；`apply_repair` 增加近清空保护，避免过度激进的 critic 删除绝大多数概念。
+- **其它模态排查**：现有 artifact 中 image/audio 单模态曾出现 critic 全部判 ungrounded，但旧保护刚好拦住；PDF/Word/PPT/Video 有不同程度裁剪但未近清空。新保护对所有模态统一生效。
+- **运行过的验证**：`.venv/bin/python -m pytest tests/test_critic.py -q` → 8 passed；`.venv/bin/python -m pytest -q` → **135 passed**；`.venv/bin/ruff check src tests` → clean。用 `06 mixed` 旧 artifact 无外部调用复核：新 grounding 可为 55/84 个旧 verdict 概念找到原文片段。
+- **已知风险或未解决问题**：当前旧的 `06 mixed` graph artifact 仍是 1 concept；要让 UI 显示修复后的图谱，需要用户确认后重新跑该 session 的 workflow（会消耗真实 LLM token，并覆盖该 session 的 graph/candidates/run artifact）。
+
+### 2026-06-26 — audio 专项复核
+- **本轮目标**：用户反馈 VDN 已成功，要求专心处理 audio。
+- **核查结论**：纯音频 `.mp3` 路径正常，`Test: Modality / 03 audio` 的 `BV1m2P9zsEgW.mp3` 已是 `graph_ready`，ingest artifact 为 `source_kind=audio`，共 6 个 chunk。标题为 `05 audio` 的失败样本实际上传文件是 `.mp4`，后端按扩展名正确识别为 `video`，不走 faster-whisper。
+- **真实验证**：直接调用当前 `describe_video()` 处理 26MB `.mp4` 成功返回约 3400 字视频内容；随后跑完整 `run_workflow(6c1a004f...)` 成功，session 变为 `graph_ready`，图谱为 5 chunks / 7 concepts / 9 relations / 2 clusters。
+- **额外确认**：当前服务状态正常（backend `http://127.0.0.1:8000`，frontend `http://localhost:5173`）；`01 VDN` 也已是 `graph_ready`（68 chunks / 43 concepts / 118 edges / 10 clusters）。
+- **已知风险或未解决问题**：`.mp4` 课件标题叫 audio 容易误导；系统按文件扩展名路由，`.mp4` 永远是 video，纯 `.mp3/.wav/.m4a/...` 才是 audio。如果后续希望“只抽 mp4 音轨走 ASR”，需要新增一个显式模式，而不是复用当前 video 路径。
 
 ### 2026-06-26 — LLM 配置统一进注册表（Kimi/embedding 进 UI）+ 设置面板重构
 - **本轮目标**：(1) 配置混乱（.env 与 UI 两处、.env/.env.example 格式不一）；(2) 设置改为「凭据和模型一起选，下面直接绑」。用户选「Kimi + embedding 都进 UI」。

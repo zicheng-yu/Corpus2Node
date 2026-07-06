@@ -3,39 +3,30 @@
 > 一轮会话结束时覆盖写这份（只留最新一轮），下一轮开始时先读这份做快速定位，再去 `docs/PROGRESS.md` 看全量真相与文件夹→功能映射。
 > 这份是「30 秒看懂现状」；PROGRESS.md 是「完整账本」。
 
-**最近更新**：2026-06-26 · 分支 `feat`
+**最近更新**：2026-07-06 · 分支 `feat`
 
 ---
 
-## 当前已验证
+## 本轮做了什么（全离线 LLM 方案）
 
-- 后端 **128 passed**（`.venv/bin/python -m pytest -q`，2026-06-26）；`ruff check src tests` clean。
-- **视频 `.mp4` 摄入已修复**：不再把整个 mp4 base64 内联进 chat 请求；改为 Kimi Files API `purpose="video"` 上传，再用 `ms://file_id` 作为 `video_url`。
-- 音频 `.mp3/.wav/.m4a/...` 仍走本地 faster-whisper；Kimi/Moonshot 平台 API 不接受音频输入。
-- 离线 workflow + 在线 chat/notes/exam/export + 知识发现均有测试或构建覆盖。
-- **未在 CI 覆盖**：真实 Kimi 26MB mp4 端到端、真实 LLM 端到端、eval baseline——需用户凭据/token。
+- 注册表新增本地 provider kind：`ollama`（原生 ChatOllama，`num_ctx` 默认 8192、`reasoning=False`）与 `lmstudio`（OpenAI 兼容 + dummy key）；凭据可设 `num_ctx`/`max_concurrency`；`concurrency_for` 接入 extract/critic。
+- Embedding：`embedding` 用途绑 ollama → `OllamaEmbeddings`；其它自定义端点 `OpenAIEmbeddings` 自动关 `check_embedding_ctx_length`。
+- 摄入离线化：`pdf_local.py`（pypdf）、`vision_is_moonshot()` 门控 Kimi 专属、视频非 Kimi 回退 whisper 音轨转写。
+- 抽取确定性修复：`_reconcile_relation_endpoints` 端点别名归一（修「小模型关系端点悬空被 critic 全丢」，云端同益）。
+- 新端点 `POST /settings/llm/models`（枚举本地/远端模型）；SettingsPanel 支持本地 kind（预填端点、免密钥、一键读模型、num_ctx/并发）。
+- 本机 E2E（M3/24GB，Ollama 升到 0.31.1，`gemma4:e2b-it-qat`+`bge-m3`，隔离存储）：workflow/chat/exam 全过；速度实测 no-think ~5×、temp 0.2 抑方差、extract c4/c1 = 1.6×。
+- 验证：**pytest 153 passed** · ruff clean · tsc + vite build ✅。依赖 += `langchain-ollama`、`pypdf`。
 
-## 本轮改动（mp4 视频摄入连接错误）
+## 仍需注意
 
-- **现场证据**：失败 session `55d7e9ad-34f5-40b6-a3c2-e6578eab6606` 上传文件是 26MB `.mp4`，包含 h264 视频流和 aac 音频流，约 406 秒；workflow 失败在 `ingest -> _read_video -> describe_video`。
-- **错误性质**：日志底层是 `httpcore.ReadError: Broken pipe` / `httpx.ReadTimeout`，再被 OpenAI SDK 包成 `APIConnectionError: Connection error.` 或 `APITimeoutError: Request timed out.`；这不是 Kimi 返回的“mp4 不支持”业务错误。
-- **根因**：旧 `video_kimi.py` 将 mp4 读入内存并 base64 内联到 `video_url`，26MB 文件会变成约 35MB JSON，再经过本机代理，容易 broken pipe 或处理超时。
-- **修复**：`video_kimi.py` 现在先 `client.files.create(file=..., purpose="video")`，chat 阶段传 `{"type":"video_url","video_url":{"url":"ms://<file_id>"}}`；视频请求 timeout 至少 600 秒；完成后 best-effort 删除远端临时文件。
-- **测试**：`tests/test_adapters.py::test_video_adapter_uses_kimi_file_upload` 用 fake OpenAI 验证 `.mp4` 走 Files API，不再出现 data URL/base64。
-
-## 仍损坏或未验证
-
-- 没有直接重跑用户真实 26MB mp4，因为会调用 Kimi 外部 API 并消耗额度。用户同意后可重跑。
-- 如果文件上传模式仍超时，下一步应做本地分段：按时长切出多个短视频片段，分别上传给 Kimi，总结后再合并 chunks。
-- 当前 session JSON 中 `source_files` 为空但 uploads 目录保留了失败 mp4；这是失败/重试路径上的状态残留，后续若影响 UI 再单独修。
+- **上一轮 critic 修复（grounding 字面证据优先 + 近清空保护）仍未提交**：`graph/critic.py` + `tests/test_critic.py` 是工作区未提交改动，本轮提交刻意未包含它们。
+- gemma4 判卷（GraphCriticReport）偶尔过不了 schema 校验 → judge verdicts 为空，仅确定性修复兜底；`llama3.1:8b` 判卷更稳。
+- 离线建库建议把 graph/critic/exam 绑定的 temperature 设为 0.2（绑定 UI 暂未暴露该字段，可经 API 或换绑时补）。
+- 本机 `ollama serve` 由本轮以 `OLLAMA_NUM_PARALLEL=4` 手动拉起；用 Ollama.app 重启后走它自己的默认值。
+- LM Studio 本机未安装：lmstudio kind 与 openai 同一 ChatOpenAI 路径、已单测；装好后在设置面板加凭据冒烟即可。
 
 ## 下一步最佳动作
 
-1. 用户在浏览器用同一个 `.mp4` 重新跑一次 workflow，确认 Kimi 文件上传路径是否通过。
-2. 如仍失败，保留后端日志里的新错误，优先做视频分段上传。
-3. 之后回到 eval baseline / Step 7 工程化。
-
-**不要动**：
-- wire 契约（`core/types.py` ↔ `frontend/src/types/index.ts`）——除非专门做 Course→Corpus 重命名且两边同步。
-- `db/`、`workers/`、联网 search/synthesize 残留——不带走、不复活。
-- 把音频文件伪装成 Kimi video 输入。`.mp4` 是视频路径；纯音频仍应走 faster-whisper 或另接专门 ASR 服务。
+1. 浏览器实测：设置 → 模型 → 新增「Ollama（本地）」凭据（一键读模型列表）→ 绑全用途 → 建一个离线库走一遍。
+2. 决定是否提交上一轮的 critic 修复（当前仍在工作区）。
+3. （可选）装 LM Studio 后对 lmstudio kind 做一次真机冒烟。
