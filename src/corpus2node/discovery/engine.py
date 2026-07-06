@@ -705,7 +705,9 @@ def _proposals_from_draft(
         evidence_seen: set[str] = set()
         for participant in resolved:
             for item in evidence_by_key.get((str(participant.session_id), participant.concept_id), []):
-                marker = item.chunk_id or item.snippet[:60]
+                # Dedup by text, not chunk_id: overlapping chunks (sentence carry-over)
+                # produce near-identical quotes that read as duplicates on the card.
+                marker = item.snippet[:80]
                 if marker in evidence_seen:
                     continue
                 evidence_seen.add(marker)

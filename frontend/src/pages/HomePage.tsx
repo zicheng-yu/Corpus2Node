@@ -981,6 +981,28 @@ const PROPOSAL_STATUS_LABEL: Record<ProposalStatus, string> = {
   discarded: "已搁置",
 };
 
+// Overlapping chunks (sentence carry-over) can yield near-identical quotes; keep one.
+function dedupEvidence<T extends { snippet: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.snippet.slice(0, 80);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// deep_dive lines look like "**目标**：…" — render the label bold instead of raw asterisks.
+function DeepDiveLine({ line }: { line: string }) {
+  const match = /^\*\*(.+?)\*\*\s*[:：]?\s*(.*)$/.exec(line);
+  if (!match) return <div>{line}</div>;
+  return (
+    <div>
+      <b>{match[1]}</b>：{match[2]}
+    </div>
+  );
+}
+
 function ProposalCard({
   proposal,
   deepening,
@@ -1032,7 +1054,7 @@ function ProposalCard({
       </div>
       {proposal.evidence.length > 0 && (
         <div className="discovery-evidence">
-          {proposal.evidence.slice(0, 4).map((evidence, index) => {
+          {dedupEvidence(proposal.evidence).slice(0, 4).map((evidence, index) => {
             const clickable = Boolean(evidence.concept_id);
             return (
               <blockquote
@@ -1048,7 +1070,13 @@ function ProposalCard({
           })}
         </div>
       )}
-      {proposal.deep_dive && <div className="proposal-deep-dive">{proposal.deep_dive}</div>}
+      {proposal.deep_dive && (
+        <div className="proposal-deep-dive">
+          {proposal.deep_dive.split("\n").map((line, index) => (
+            <DeepDiveLine key={index} line={line} />
+          ))}
+        </div>
+      )}
       <div className="proposal-actions">
         <button
           className={clsx("discovery-mini-btn", { "proposal-btn-active": kept })}
