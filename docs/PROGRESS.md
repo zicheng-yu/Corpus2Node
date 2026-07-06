@@ -90,13 +90,13 @@ ruff check src tests                                  # lint
 | `notes/generate.py` `markdown.py` `prompts.py` `schemas.py` | **笔记**：map-reduce 分章（carry-forward 去重）+ 检索 chunk 落地引用 + **确定性 coverage critic** 补未覆盖核心概念；markdown.py 是 donor 来的确定性后处理 | 调笔记结构/覆盖 |
 | `exam/generate.py` `validate.py` `prompts.py` `schemas.py` | **出卷**：generator + **verifier 独立求解回路**（solver 用 Purpose.critic 独立作答，不符/无据则打回补足到请求数）；validate 是题型/难度校验 + `answers_match` | 调出题/校验/难度 |
 | `assistant/agent.py` `tools.py` | **招牌：在线 chat agent**（单 tool-calling agent + 最近历史 + 预检索引用兜底 + 结构化 trace + SSE）；tools = retrieve_chunks / search_concepts / get_subgraph | 调问答行为 / 加 agent 工具 |
-| `discovery/engine.py` | **知识发现**：多资料集/随机模式；宽候选生成（相似度+词面+**结构信号**共享邻居/标签+图谱重要性）+ AI judge seam（Purpose.critic，**大池分批并发**，`relation_type` 约束 8 类枚举+中文别名回填）+ 算法 fallback（关系类型推断/novelty 重算）；证据每侧 top-2；**LLM 标题 seam**（`_make_titler_or_none` + `_title_for`，确定性 `derive_title` 回退）；输出桥接图与证据引用 | 调发现逻辑 / 关系枚举(`RELATION_TYPES`) / 评分权重 / judge 批大小 / 标题生成 |
+| `discovery/engine.py` | **知识发现 v2（创新提案）**：多资料集/随机模式；宽候选生成（相似度+词面+结构信号+图谱重要性）+ AI judge seam（Purpose.critic，大池分批并发，`relation_type` 8 类枚举+中文别名回填）+ 算法 fallback；证据每侧 top-2；LLM 标题 seam（确定性 `derive_title` 回退）。**提案层（老板场景）**：findings → `make_proposer_or_none`（Purpose.chat→critic，temp 0.7，json_mode 需 prompt 带 `_PROPOSAL_FORMAT_HINT`）产出 `InnovationProposal`（title/pitch/组合/第一步/风险/status/deep_dive）；`_proposals_from_draft` 概念 grounding（名称多键映射：raw+去括号，同名跨集解析**优先未覆盖资料集**）+ 跨集 ≥2 校验；`_fallback_proposals` 按 relation_type 模板确定性成案；`_avoid_titles` 把历史已采纳/搁置标题喂给 proposer 避重；`deepen_proposal` + `make_deepener_or_none` 五字段深挖（目标/做法/数据/首实验/指标）确定性渲染 markdown；`intent` 全程贯穿 prompt。**桥接图 v2**：有提案时输出 资料集→概念→提案 三层（node_type=proposal 带 status/pitch），无提案回退旧 finding 布局（老报告兼容） | 调发现/提案逻辑 / 评分权重 / 提案数(`_PROPOSAL_TARGET`) / 深挖字段 / 图布局 |
 | `export/renderer.py` | 导出 md/tex/txt（纯 Python）+ pdf（惰性 wkhtmltopdf→xhtml2pdf，`[export]` extra）+ render_chat_markdown | 加导出格式 |
 | `eval/metrics.py` `harness.py` `schemas.py` `__main__.py` `data/` | **离线评估**：纯指标（抽取 F1 / 关系合法+召回 / 笔记覆盖 / 出卷可溯源+客观题合法 / 问答 grounding）+ harness + CLI + gold fixture | 加评估指标 / 调 gold |
 | `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放 + 同参数复用/异参数冲突保护——notes/exam 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
 | `prompt_store.py` | 用户自定义提示词（global + chat/notes/exam）作为「补充偏好」**追加**到内置 system prompt（不覆盖结构化/引用约束；抽取与质检不受影响） | 调自定义 prompt 接入面 |
 | `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源，原子写；含 `discoveries/{discovery_id}.json`）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
-| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions（安全上传 + 资料集/知识库重命名）· discovery(`/discovery/run`, `/discovery`, `/discovery/{id}`) · settings(`/settings/llm` 注册表 CRUD) · prompts(`/settings/prompts`) · workflow(`/workflow/run` + run-metrics) · chat(`/chat/{message,stream}`) · notes(`/generate_notes[+/stream]`,`/notes/{id}[/stream]`) · exam(同形) · export(`/export/*`) · graph(`GET /graph/{id}`、`/subgraph`、`POST /search`、`GET /graph/concepts` 全局知识点搜索) | 加/改 HTTP 接口 |
+| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions（安全上传 + 资料集/知识库重命名）· discovery(`/discovery/run`(带 intent), `/discovery`, `/discovery/{id}`, **`PATCH …/proposals/{pid}` 提案反馈、`POST …/proposals/{pid}/deepen` 深挖**) · settings(`/settings/llm` 注册表 CRUD + `POST /settings/llm/models` 枚举端点模型) · prompts(`/settings/prompts`) · workflow(`/workflow/run` + run-metrics) · chat(`/chat/{message,stream}`) · notes(`/generate_notes[+/stream]`,`/notes/{id}[/stream]`) · exam(同形) · export(`/export/*`) · graph(`GET /graph/{id}`、`/subgraph`、`POST /search`、`GET /graph/concepts` 全局知识点搜索) | 加/改 HTTP 接口 |
 
 ### 前端 `frontend/src/`
 
@@ -104,8 +104,8 @@ ruff check src tests                                  # lint
 |------|-----------|--------------|
 | `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），含 sessions 创建/删除/资料集改名/知识库改名、knowledge discovery | 加/改一个后端调用 |
 | `types/index.ts` | 前端契约（对应 `core/types.py`，含 DiscoveryReport） | 改契约（和后端一起改） |
-| `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **拖拽排序（知识库分组 + 组内资料集，原生 HTML5 DnD + 抓手，顺序存 localStorage `c2n:courseOrder`/`c2n:sessionOrder`，覆盖 updated_at；`applyOrder` 稳定排序）** + **资料集/知识库改名** + **知识发现（单按钮：选中→对选中发现 / 未选→确认后随机；桥接图可视化 + 卡片/证据可溯源跳转 + 历史面板含 LLM 标题）** + **全局知识点搜索** + 来源标签(文档/视频/音频/图片)；通用 `ConfirmModal`(tone) | 改首页/库管理/排序/发现结果展示 |
-| `components/discovery/BridgeGraphView.tsx` | **桥接图可视化**：ReactFlow 三列布局（发现→知识点→资料集），概念节点点击溯源；懒加载独立 chunk | 改桥接图样式/布局/交互 |
+| `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **拖拽排序（原生 HTML5 DnD + 抓手，`c2n:courseOrder`/`c2n:sessionOrder`）** + **资料集/知识库改名** + **知识发现 v2：单按钮 → `DiscoveryLaunchModal`（选中/随机说明 + 意图 textarea）→ 报告面板「创新提案」卡优先（`ProposalCard`：pitch/组合/第一步/风险/来源 chips/证据/深挖块 + 采纳/搁置/深挖按钮，状态实时 PATCH 持久化并同步历史）+「支撑桥接点」finding 卡 + 历史面板（提案数优先显示）** + **全局知识点搜索** + 来源标签；通用 `ConfirmModal`(tone) | 改首页/库管理/排序/提案交互 |
+| `components/discovery/BridgeGraphView.tsx` | **发现呈现图（双布局自适应）**：有 proposal 节点 → **部门(资料集)→桥接概念→创新提案** 三列（提案宽卡、采纳高亮 ring/搁置降透明、点击提案定位卡片）；旧报告（finding 节点）保留 发现→知识点→资料集 布局；概念节点点击溯源；懒加载独立 chunk | 改呈现图样式/布局/交互 |
 | `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
 | `pages/PipelinePage.tsx` | 流水线可视化（4 阶段一行：解析/切分/抽取/构建，**质检 critic 折叠进「构建图谱」**）+ per-node **run-metrics 面板**（耗时/token/repair，仍单列 `critic` 节点） | 改流水线展示 |
 | `pages/WorkspacePage.tsx` | 图谱 + 右栏**对话/笔记/试卷**标签页（选区可转对话 + ExportMenu） | 改主工作区 |
@@ -130,6 +130,17 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-07-06 (2) — 知识发现 v2：跨库创新提案（老板场景）+ 呈现图重做 + 生产模型文档
+- **场景重定义**：各部门汇报 = 资料集/知识库，老板要的不是「概念对交叉」而是**可执行的跨部门创新提案**。发现流程升级为：宽召回 → judge 桥接点 → **proposer 合成提案**（intent 导向）→ 老板反馈回路（采纳/搁置持久化 + 避重）→ 单提案深挖成最小方案。
+- **后端**：`InnovationProposal` 契约（title/pitch/combination/first_step/risks/status/deep_dive/sources/evidence）；`DiscoveryReport` += intent/proposals；proposer seam（Purpose.chat→critic 回退，无 LLM 用 relation_type 模板 fallback）；概念 grounding 防幻觉（引用名多键解析 + 跨集 ≥2 强制）；`PATCH /discovery/{id}/proposals/{pid}`（kept/discarded/new）+ `POST …/deepen`（五字段结构化 → markdown）；`_avoid_titles` 用历史反馈避重。
+- **json_mode 教训（重要）**：ollama/openai 的 json_mode 不带服务端 schema 锁定，**prompt 必须内嵌字段形状示例**（`_PROPOSAL_FORMAT_HINT`/`_DEEPEN_FORMAT_HINT`），否则小模型返回空字段/自造结构（gemma4 实测 deepen 空 plan、draft 全灭）。judge/extract 一直带 hint 所以没踩过。
+- **grounding 两个实修**：模型引用概念会带 prompt 显示后缀（`互斥锁（资料集名）`）→ raw+去括号多键映射；两集同名概念撞键 → 一键多参与者列表 + **解析时优先未覆盖资料集**（否则跨集校验永假）。
+- **前端**：发现统一走 `DiscoveryLaunchModal`（含意图输入）；报告面板提案卡优先（采纳/搁置/深挖，状态同步历史）；**BridgeGraphView 重做**：提案报告用 部门→桥接概念→提案 三列（采纳 ring 高亮/搁置降透明/点击定位卡片），旧报告自动保留 finding 布局。
+- **本机离线实测**（gemma4:e2b + bge-m3，两个 OS 语料库）：run 39s 产 4 条 **LLM 提案全部跨集**（如「跨系统资源同步机制：统一资源调度层接口，对比 Mutex/Semaphore 负载差异」）；PATCH kept ✓；deepen 6.6s 出五字段方案 ✓；无 LLM fallback 路径 ✓。
+- **同轮完成**：`docs/DEPLOYMENT_MODELS.md`（生产开源模型三档推荐：单模型全包 Qwen3-VL-32B / 甜点 Qwen3.5-35B-A3B / 旗舰 DeepSeek-V4-Flash + vLLM 参数与注册表绑定表）；上一轮遗留全部入库（critic grounding 修复 20ebc2a、Docker deploy 栈 96d39b1、docs ed2394d）。
+- **验证**：pytest **159 passed**（discovery 17 条，+6 新增）· ruff clean · tsc + vite build ✅。
+- **待办**：浏览器实测提案交互手感；深挖按钮可考虑流式；`_PROPOSAL_TARGET`/深挖字段可再按真实使用调。
 
 ### 2026-07-06 — 全离线 LLM 方案（Ollama / LM Studio provider + 本机 E2E 实测）
 - **需求**：全离线处理；参照 obsidian-copilot 的 provider 设计（Ollama 走原生客户端管 `num_ctx`，LM Studio 走 OpenAI 兼容 + dummy key）；本机小模型全流程实测速度与并发。

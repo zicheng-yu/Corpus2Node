@@ -3,30 +3,32 @@
 > 一轮会话结束时覆盖写这份（只留最新一轮），下一轮开始时先读这份做快速定位，再去 `docs/PROGRESS.md` 看全量真相与文件夹→功能映射。
 > 这份是「30 秒看懂现状」；PROGRESS.md 是「完整账本」。
 
-**最近更新**：2026-07-06 · 分支 `feat`
+**最近更新**：2026-07-06 (2) · 分支 `feat`
 
 ---
 
-## 本轮做了什么（全离线 LLM 方案）
+## 本轮做了什么
 
-- 注册表新增本地 provider kind：`ollama`（原生 ChatOllama，`num_ctx` 默认 8192、`reasoning=False`）与 `lmstudio`（OpenAI 兼容 + dummy key）；凭据可设 `num_ctx`/`max_concurrency`；`concurrency_for` 接入 extract/critic。
-- Embedding：`embedding` 用途绑 ollama → `OllamaEmbeddings`；其它自定义端点 `OpenAIEmbeddings` 自动关 `check_embedding_ctx_length`。
-- 摄入离线化：`pdf_local.py`（pypdf）、`vision_is_moonshot()` 门控 Kimi 专属、视频非 Kimi 回退 whisper 音轨转写。
-- 抽取确定性修复：`_reconcile_relation_endpoints` 端点别名归一（修「小模型关系端点悬空被 critic 全丢」，云端同益）。
-- 新端点 `POST /settings/llm/models`（枚举本地/远端模型）；SettingsPanel 支持本地 kind（预填端点、免密钥、一键读模型、num_ctx/并发）。
-- 本机 E2E（M3/24GB，Ollama 升到 0.31.1，`gemma4:e2b-it-qat`+`bge-m3`，隔离存储）：workflow/chat/exam 全过；速度实测 no-think ~5×、temp 0.2 抑方差、extract c4/c1 = 1.6×。
-- 验证：**pytest 153 passed** · ruff clean · tsc + vite build ✅。依赖 += `langchain-ollama`、`pypdf`。
+1. **工作区清零**：上轮遗留全部入库——critic grounding 修复（`20ebc2a`）、Docker 生产栈 deploy/（`96d39b1`）、docs（`ed2394d`）。
+2. **`docs/DEPLOYMENT_MODELS.md`**：生产开源模型推荐（三档：单模型全包 Qwen3-VL-32B / 甜点 Qwen3.5-35B-A3B / 旗舰 DeepSeek-V4-Flash；vLLM 部署参数、注册表绑定表、显存速查；扫描 PDF OCR 局限已注明）。
+3. **知识发现 v2「跨库创新提案」**（老板看各部门汇报找创新的场景）：
+   - 后端：findings 之上加 proposer 层（Purpose.chat→critic，fallback 模板成案）；`InnovationProposal` 契约；意图 intent 贯穿；采纳/搁置 PATCH 持久化 + 历史避重；深挖 POST 出五字段最小方案。
+   - 前端：发现统一弹窗（含意图输入）；提案卡（采纳/搁置/深挖）优先于 finding 卡；**呈现图重做**：部门→桥接概念→提案 三列（旧报告自动保留旧布局）。
+   - 本机 gemma4 离线实测：39s 产 4 条全跨集 LLM 提案，deepen 6.6s 成案。
+
+## 关键教训（别再踩）
+
+- **json_mode 必须在 prompt 里给字段形状示例**（服务端不锁 schema）；新加结构化调用先抄 `_PROPOSAL_FORMAT_HINT` 的做法。
+- 小模型引用概念名会带显示后缀/中英括号变体 → grounding 一律多键（raw+去括号）+ 一键多参与者 + 优先未覆盖资料集。
 
 ## 仍需注意
 
-- **上一轮 critic 修复（grounding 字面证据优先 + 近清空保护）仍未提交**：`graph/critic.py` + `tests/test_critic.py` 是工作区未提交改动，本轮提交刻意未包含它们。
-- gemma4 判卷（GraphCriticReport）偶尔过不了 schema 校验 → judge verdicts 为空，仅确定性修复兜底；`llama3.1:8b` 判卷更稳。
-- 离线建库建议把 graph/critic/exam 绑定的 temperature 设为 0.2（绑定 UI 暂未暴露该字段，可经 API 或换绑时补）。
-- 本机 `ollama serve` 由本轮以 `OLLAMA_NUM_PARALLEL=4` 手动拉起；用 Ollama.app 重启后走它自己的默认值。
-- LM Studio 本机未安装：lmstudio kind 与 openai 同一 ChatOpenAI 路径、已单测；装好后在设置面板加凭据冒烟即可。
+- 本机 `ollama serve` 是手动 `OLLAMA_NUM_PARALLEL=4` 拉起的；Ollama.app 重启后用它自己的默认值。
+- 离线建库建议 graph/critic/exam 绑定 temperature=0.2（绑定 UI 未暴露该字段，走 API）。
+- LM Studio 本机未装（代码路径同 openai kind，已单测）。
 
 ## 下一步最佳动作
 
-1. 浏览器实测：设置 → 模型 → 新增「Ollama（本地）」凭据（一键读模型列表）→ 绑全用途 → 建一个离线库走一遍。
-2. 决定是否提交上一轮的 critic 修复（当前仍在工作区）。
-3. （可选）装 LM Studio 后对 lmstudio kind 做一次真机冒烟。
+1. 浏览器实测：选 2+ 资料集 → 知识发现（填意图）→ 检查提案卡交互、图上点提案定位、采纳后刷新仍在。
+2. 真实多领域语料（非同一讲义的两次构建）跑一次提案质量评估。
+3. 可选：深挖流式化；把 per-binding temperature 暴露到设置面板。
