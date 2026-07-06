@@ -124,12 +124,21 @@ ruff check src tests                                  # lint
 | `tests/` | 后端测试（TestClient + 注入 seam 离线跑 LLM 路径 + `conftest` 用 tmp_path 隔离存储/重置 llm store 缓存） |
 | `web/index.html` | 零构建最小验证 UI（挂 `/ui`，含凭据配置面板） |
 | `docs/PROGRESS.md` · `docs/SESSION.md` | 本进度真相 · 会话交接摘要 |
+| `docs/demo/` | **产品演示套件**：`DEMO.md`（六幕图文 + 3–5min 现场台本 + runbook）· `assets/`（10 张实拍截图）· `Corpus2Node-演示.pptx`（11 页，deck.js 可重建）；演示数据 = 主秀库「Python 程序设计」(b4f59dff) + 发现「Reinforcement Learning · 4 提案」 |
+| `docs/DEPLOYMENT_MODELS.md` | 生产开源模型三档推荐（vLLM 参数 + 注册表绑定表 + 显存速查） |
 | `CLAUDE.md` | 操作手册（定位/架构/原则/约定）；`AGENTS.md` 是其旧副本（已 stale，两者均 gitignore） |
 | `README.md` | 按当前要求暂时清空，早期开发阶段不维护对外说明 |
 
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-07-06 (3) — 产品演示套件（图文 + 幻灯片 + 台本，全自动产出）
+- **产出**：`docs/demo/`——`DEMO.md`（六幕产品叙事 + 3–5 分钟现场台本表 + runbook）、10 张 playwright 实拍截图、`Corpus2Node-演示.pptx`（11 页 16:9，暖米白 #faf9f5 + 赭石橙 #bc6a3a，宋体标题/苹方正文；deck.js 附 repo 可重建）。两大卖点主线：可溯源可解释 + 全本地私有化。
+- **演示数据（deepseek/kimi，全部落盘缓存，现场零生成）**：主秀库「Python 程序设计 / Python 基础与数据结构」重建于当前流水线（100 页 PDF → **87 概念 / 819 关系 / 7 社区**，session b4f59dff；旧 `python基础` 119/1816 是修复前产物，保留但不上镜）；chat 2 问带引用、notes 7 节、exam 6 题；发现「Reinforcement Learning · 4 提案」（VDN×QMIX + 意图，1 条已采纳 + 深挖五字段）与「递归×树×搜索」教学向副例；注册表加 ollama-本地凭据道具（绑定未动）。
+- **顺手修的上镜缺陷（已提交代码）**：提案证据按文本前 80 字去重（chunk 重叠导致引文重复）；deep_dive 的 `**标签**` 前端渲染为粗体；proposer 失败/全灭时补 warning 日志（原来静默吞）。
+- **QC**：slides_test 无溢出、detect_font 无缺字体；LibreOffice 渲染的手写体是代理替换假象，qlmanage 原生渲染确认宋体/苹方正确。pytest 159 · ruff · tsc · build 全绿。
+- **注意**：前后端服务保持运行中（用户原本就开着，未动）；演示前跑一遍 DEMO.md 的 runbook 即可。
 
 ### 2026-07-06 (2) — 知识发现 v2：跨库创新提案（老板场景）+ 呈现图重做 + 生产模型文档
 - **场景重定义**：各部门汇报 = 资料集/知识库，老板要的不是「概念对交叉」而是**可执行的跨部门创新提案**。发现流程升级为：宽召回 → judge 桥接点 → **proposer 合成提案**（intent 导向）→ 老板反馈回路（采纳/搁置持久化 + 避重）→ 单提案深挖成最小方案。

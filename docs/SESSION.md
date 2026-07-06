@@ -3,32 +3,27 @@
 > 一轮会话结束时覆盖写这份（只留最新一轮），下一轮开始时先读这份做快速定位，再去 `docs/PROGRESS.md` 看全量真相与文件夹→功能映射。
 > 这份是「30 秒看懂现状」；PROGRESS.md 是「完整账本」。
 
-**最近更新**：2026-07-06 (2) · 分支 `feat`
+**最近更新**：2026-07-06 (3) · 分支 `feat`
 
 ---
 
-## 本轮做了什么
+## 本轮做了什么（产品演示套件）
 
-1. **工作区清零**：上轮遗留全部入库——critic grounding 修复（`20ebc2a`）、Docker 生产栈 deploy/（`96d39b1`）、docs（`ed2394d`）。
-2. **`docs/DEPLOYMENT_MODELS.md`**：生产开源模型推荐（三档：单模型全包 Qwen3-VL-32B / 甜点 Qwen3.5-35B-A3B / 旗舰 DeepSeek-V4-Flash；vLLM 部署参数、注册表绑定表、显存速查；扫描 PDF OCR 局限已注明）。
-3. **知识发现 v2「跨库创新提案」**（老板看各部门汇报找创新的场景）：
-   - 后端：findings 之上加 proposer 层（Purpose.chat→critic，fallback 模板成案）；`InnovationProposal` 契约；意图 intent 贯穿；采纳/搁置 PATCH 持久化 + 历史避重；深挖 POST 出五字段最小方案。
-   - 前端：发现统一弹窗（含意图输入）；提案卡（采纳/搁置/深挖）优先于 finding 卡；**呈现图重做**：部门→桥接概念→提案 三列（旧报告自动保留旧布局）。
-   - 本机 gemma4 离线实测：39s 产 4 条全跨集 LLM 提案，deepen 6.6s 成案。
-
-## 关键教训（别再踩）
-
-- **json_mode 必须在 prompt 里给字段形状示例**（服务端不锁 schema）；新加结构化调用先抄 `_PROPOSAL_FORMAT_HINT` 的做法。
-- 小模型引用概念名会带显示后缀/中英括号变体 → grounding 一律多键（raw+去括号）+ 一键多参与者 + 优先未覆盖资料集。
+1. **`docs/demo/` 全套演示材料**（用户要拿产品去推销，3–5 分钟现场）：
+   - `DEMO.md`：六幕图文（首页 → 图谱 → 问答溯源 → 笔记试卷 → 创新提案压轴 → 全本地）+ 台本表 + runbook。
+   - `assets/` 10 张 playwright 实拍截图；`Corpus2Node-演示.pptx` 11 页（deck.js 可重建）。
+2. **演示数据已全部缓存**（现场零生成）：主秀库 = 「Python 程序设计」b4f59dff（当前流水线重建，87 概念/819 关系；**旧 `python基础` 是修复前产物，勿上镜**）；chat×2 / notes 7 节 / exam 6 题；发现「Reinforcement Learning · 4 提案」（1 条已采纳+深挖）。
+3. 顺手修三处上镜缺陷（已提交）：提案证据文本去重、deep_dive `**标签**` 渲染为粗体、proposer 静默失败补日志。
 
 ## 仍需注意
 
-- 本机 `ollama serve` 是手动 `OLLAMA_NUM_PARALLEL=4` 拉起的；Ollama.app 重启后用它自己的默认值。
-- 离线建库建议 graph/critic/exam 绑定 temperature=0.2（绑定 UI 未暴露该字段，走 API）。
-- LM Studio 本机未装（代码路径同 openai kind，已单测）。
+- 前后端**保持运行中**（用户原本就开着）；演示当天按 `docs/demo/DEMO.md` runbook 走。
+- 注册表里 `ollama-本地` 凭据是演示道具，**绑定全部仍指 deepseek/kimi**，未改。
+- LibreOffice 渲染 pptx 会显示替换字体（手写风）——假象；Keynote/PowerPoint 原生正确（qlmanage 已验证）。
+- 幻灯片重建：`deck.js` 需要 slides skill 的 `pptxgenjs_helpers` + npm 依赖（文件头有注释）。
 
 ## 下一步最佳动作
 
-1. 浏览器实测：选 2+ 资料集 → 知识发现（填意图）→ 检查提案卡交互、图上点提案定位、采纳后刷新仍在。
-2. 真实多领域语料（非同一讲义的两次构建）跑一次提案质量评估。
-3. 可选：深挖流式化；把 per-binding temperature 暴露到设置面板。
+1. 用户亲自过一遍 3–5 分钟台本（DEMO.md 台本表），顺手感后微调台词。
+2. 如需对外发材料：DEMO.md 可直接导出 PDF；pptx 可按受众删减到 6–8 页。
+3. （可选）用真实业务多领域语料再跑一次发现，替换 VDN×QMIX 为客户行业案例。
