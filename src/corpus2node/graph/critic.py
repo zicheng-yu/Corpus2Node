@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 
 import numpy as np
 
-from corpus2node.core.text import canonicalize_term
+from corpus2node.core.text import canonicalize_term, normalize_text
 from corpus2node.core.types import EvidenceChunk
 from corpus2node.graph.clean import VALID_RELATION_TYPES
 from corpus2node.graph.schemas import ExtractedConcept, ExtractedRelation, GraphCriticReport
@@ -139,10 +140,13 @@ def apply_repair(candidates, report: GraphCriticReport):
         if target and target in by_name and target != name:
             remap[name] = target
 
-    # safety: never let an over-eager judge wipe the whole graph
-    if drop and len(drop) >= len(by_name):
-        logger.warning("critic flagged all %d concepts ungrounded — skipping repair", len(by_name))
-        return candidates, RepairStats()
+    # safety: never let an over-eager judge wipe (or nearly wipe) the graph.
+    if _drop_is_too_aggressive(len(by_name), len(drop)):
+        logger.warning(
+            "critic flagged %d/%d concepts ungrounded — skipping concept drops",
+            len(drop), len(by_name),
+        )
+        drop.clear()
 
     # don't merge into a target that is itself dropped or remapped (keep it one level)
     remap = {src: tgt for src, tgt in remap.items() if tgt not in drop and tgt not in remap}
@@ -214,21 +218,54 @@ def _grounding_snippets(
     concepts: list[ExtractedConcept], chunks: list[EvidenceChunk], embeddings, *, k: int = 2
 ) -> dict[str, list[str]]:
     pool = [chunk for chunk in chunks if chunk.embedding]
-    if not pool or not concepts:
+    if not chunks or not concepts:
         return {}
+    indexed = [
+        (chunk, chunk.text.lower(), canonicalize_term(chunk.text))
+        for chunk in chunks
+    ]
+    out: dict[str, list[str]] = {}
+    for concept in concepts:
+        snippets: list[str] = []
+        for chunk, lowered, canonical_text in indexed:
+            if _chunk_mentions_concept(concept, lowered, canonical_text):
+                snippets.append(chunk.text[:200])
+                if len(snippets) >= k:
+                    break
+        if snippets:
+            out[concept.canonical_name] = snippets
+
+    if not pool:
+        return out
+
     vectors = embeddings.embed_documents([f"{c.name} {c.definition}".strip() for c in concepts])
     matrix = np.asarray([chunk.embedding for chunk in pool], dtype=float)
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     unit = matrix / norms
-    out: dict[str, list[str]] = {}
     for concept, vector in zip(concepts, vectors):
+        snippets = out.setdefault(concept.canonical_name, [])
+        if len(snippets) >= k:
+            continue
         query = np.asarray(vector, dtype=float)
         if query.shape[0] != matrix.shape[1]:
             continue
-        scores = unit @ (query / (float(np.linalg.norm(query)) or 1.0))
+        query_norm = float(np.linalg.norm(query))
+        if query_norm == 0.0:
+            continue
+        scores = unit @ (query / query_norm)
         order = np.argsort(-scores)[:k]
-        out[concept.canonical_name] = [pool[i].text[:200] for i in order if scores[i] > 0.15]
+        seen = set(snippets)
+        for i in order:
+            if scores[i] <= 0.15:
+                continue
+            snippet = pool[i].text[:200]
+            if snippet in seen:
+                continue
+            snippets.append(snippet)
+            seen.add(snippet)
+            if len(snippets) >= k:
+                break
     return out
 
 
@@ -250,12 +287,62 @@ def _concept_prompt(concepts: list[ExtractedConcept], grounding: dict[str, list[
         if snippets:
             lines.extend(f"    原文：{snippet}" for snippet in snippets)
         else:
-            lines.append("    原文：（未检索到相关片段）")
+            lines.append("    原文：（检索器未命中；这不是否定证据，除非概念/定义明显不受资料支持，否则保持 grounded=true）")
     lines.extend([
         "",
         '只返回 JSON：{"concept_verdicts":[{"canonical_name":"","grounded":true,"duplicate_of":"","issue":""}],"relation_verdicts":[]}',
     ])
     return "\n".join(lines)
+
+
+def _drop_is_too_aggressive(total: int, drop_count: int) -> bool:
+    if drop_count <= 0 or total <= 0:
+        return False
+    kept = total - drop_count
+    if kept <= 0:
+        return True
+    if total >= 5 and kept < 2:
+        return True
+    if total >= 8 and kept < max(3, int(total * 0.2)):
+        return True
+    return drop_count / total >= 0.85
+
+
+def _chunk_mentions_concept(concept: ExtractedConcept, lowered: str, canonical_text: str) -> bool:
+    for term in _concept_terms(concept):
+        if _term_in_text(term, lowered):
+            return True
+        canonical = canonicalize_term(term)
+        if canonical and canonical in canonical_text:
+            return True
+    return False
+
+
+def _concept_terms(concept: ExtractedConcept) -> list[str]:
+    terms: list[str] = []
+    for value in [concept.name, concept.canonical_name, *concept.aliases]:
+        normalized = normalize_text(value)
+        if normalized:
+            terms.append(normalized)
+            underscored = normalized.replace("_", " ")
+            if underscored != normalized:
+                terms.append(underscored)
+    return [term for term in dict.fromkeys(terms) if _useful_grounding_term(term)]
+
+
+def _useful_grounding_term(term: str) -> bool:
+    compact = canonicalize_term(term).replace(" ", "")
+    if not compact:
+        return False
+    ascii_only = all(ord(char) < 128 for char in compact)
+    return len(compact) >= (3 if ascii_only else 2)
+
+
+def _term_in_text(term: str, lowered: str) -> bool:
+    needle = term.lower()
+    if all(ord(char) < 128 for char in needle):
+        return re.search(rf"(?<![A-Za-z0-9_]){re.escape(needle)}(?![A-Za-z0-9_])", lowered) is not None
+    return needle in lowered
 
 
 def _relation_prompt(relations: list[ExtractedRelation], def_map: dict[str, str]) -> str:

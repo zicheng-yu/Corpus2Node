@@ -74,6 +74,37 @@ def test_apply_repair_empty_guard_keeps_everything():
     assert stats.total == 0
 
 
+def test_apply_repair_near_empty_guard_keeps_everything():
+    from corpus2node.graph.schemas import GraphExtractionResult
+
+    cands = GraphExtractionResult(
+        concepts=[
+            ExtractedConcept(name=f"概念{i}", canonical_name=f"概念{i}", definition=f"定义{i}")
+            for i in range(10)
+        ],
+        relations=[
+            ExtractedRelation(
+                source_canonical_name="概念0",
+                target_canonical_name="概念9",
+                edge_type="RELATES_TO",
+                relation_type="used_for",
+            )
+        ],
+    )
+    report = GraphCriticReport(
+        concept_verdicts=[
+            ConceptVerdict(canonical_name=f"概念{i}", grounded=False)
+            for i in range(9)
+        ]
+    )
+
+    repaired, stats = apply_repair(cands, report)
+
+    assert len(repaired.concepts) == len(cands.concepts)
+    assert len(repaired.relations) == len(cands.relations)
+    assert stats.total == 0
+
+
 def test_invalid_corrected_relation_type_is_ignored():
     report = GraphCriticReport(
         relation_verdicts=[RelationVerdict(source_canonical_name="二叉搜索树", target_canonical_name="树结构", corrected_relation_type="nonsense")]
@@ -102,3 +133,44 @@ def test_critique_candidates_merges_concept_and_relation_verdicts():
     report = asyncio.run(critique_candidates(_candidates(), chunks, EMB, acritic=fake_acritic))
     assert any(v.canonical_name == "树结构" and not v.grounded for v in report.concept_verdicts)
     assert any(v.flip for v in report.relation_verdicts)
+
+
+def test_critique_candidates_uses_literal_grounding_before_embedding():
+    class ZeroEmbeddings:
+        def embed_documents(self, texts):
+            return [[0.0, 0.0, 0.0, 0.0] for _ in texts]
+
+    chunks = [
+        EvidenceChunk(
+            chunk_id="c0",
+            source_id="s",
+            source_type=SourceKind.pdf,
+            text="ggplot2 是 R 语言中的可视化包，用于构建统计图形。",
+            summary="",
+            embedding=[0.0, 0.0, 0.0, 0.0],
+        )
+    ]
+    cands = _candidates().model_copy(
+        update={
+            "concepts": [
+                ExtractedConcept(
+                    name="ggplot2",
+                    canonical_name="ggplot2",
+                    definition="R 语言中的统计图形可视化包",
+                    aliases=["ggplot2"],
+                )
+            ],
+            "relations": [],
+        }
+    )
+    prompts: list[str] = []
+
+    async def fake_acritic(prompt: str) -> GraphCriticReport:
+        prompts.append(prompt)
+        return GraphCriticReport()
+
+    asyncio.run(critique_candidates(cands, chunks, ZeroEmbeddings(), acritic=fake_acritic))
+
+    assert prompts
+    assert "ggplot2 是 R 语言中的可视化包" in prompts[0]
+    assert "检索器未命中" not in prompts[0]
