@@ -22,6 +22,10 @@ from corpus2node.discovery.engine import (
     RELATION_TYPES,
     JudgedFinding,
     JudgeReport,
+    ProposalDeepDive,
+    ProposalDraft,
+    ProposedIdea,
+    _avoid_titles,
     run_discovery,
 )
 from corpus2node.storage import local
@@ -301,6 +305,151 @@ def test_discovery_evidence_can_include_two_chunks_per_side():
     finding = report.findings[0]
     from_multi = [e for e in finding.evidence if str(e.session_id) == str(session_id)]
     assert len(from_multi) >= 2  # both chunks surfaced as evidence for that concept
+
+
+def test_run_discovery_synthesizes_grounded_proposals_with_injected_proposer():
+    left = _seed_session(
+        course_title="市场部", lecture_title="市场季报",
+        concepts=[("用户分层", [1.0, 0.0, 0.0], "按活跃度和价值给用户分层。")],
+    )
+    right = _seed_session(
+        course_title="算法部", lecture_title="算法季报",
+        concepts=[("召回策略", [0.9, 0.1, 0.0], "先粗排召回可能相关的候选。")],
+    )
+
+    async def fake_proposer(prompt: str) -> ProposalDraft:
+        assert "老板的意图：降本增效" in prompt  # intent steers the prompt
+        return ProposalDraft(
+            ideas=[
+                ProposedIdea(
+                    title="分层召回试点",
+                    pitch="用市场部的分层喂算法部的召回。",
+                    combination="把用户分层作为召回策略的特征输入。",
+                    first_step="选一个活动页做两周 AB。",
+                    risks="分层口径可能不一致。",
+                    concept_names=["用户分层", "召回策略"],
+                    confidence=0.8,
+                ),
+                ProposedIdea(title="幻觉提案", concept_names=["不存在的概念", "用户分层"]),  # ungrounded → dropped
+            ]
+        )
+
+    report = asyncio.run(
+        run_discovery(
+            DiscoveryRequest(session_ids=[left, right], intent="降本增效"),
+            judge=None, titler=None, proposer=fake_proposer,
+        )
+    )
+
+    assert report.intent == "降本增效"
+    assert len(report.proposals) == 1  # the hallucinated one was filtered out
+    proposal = report.proposals[0]
+    assert proposal.title == "分层召回试点"
+    assert proposal.status == "new"
+    assert len({str(s.session_id) for s in proposal.sources}) == 2  # spans both departments
+    assert proposal.evidence  # evidence copied from the underlying findings
+    node_types = {n.node_type for n in report.bridge_graph.nodes}
+    assert node_types == {"session", "concept", "proposal"}  # proposal-centric graph
+
+
+def test_proposal_grounding_resolves_same_named_concepts_across_sets():
+    # Both departments report the same two concept names (common in practice); an
+    # idea citing them with prompt-style suffixes must still resolve cross-set —
+    # preferring an unused set per citation instead of collapsing onto one side.
+    left = _seed_session(
+        course_title="后端组", lecture_title="后端季报",
+        concepts=[("互斥锁", [1.0, 0.0, 0.0], "临界区保护。"), ("信号量", [0.0, 1.0, 0.0], "计数同步。")],
+    )
+    right = _seed_session(
+        course_title="平台组", lecture_title="平台季报",
+        concepts=[("互斥锁 (Mutex Lock)", [0.9, 0.1, 0.0], "锁的实现。"), ("信号量 (Semaphore)", [0.1, 0.9, 0.0], "限流原语。")],
+    )
+
+    async def fake_proposer(prompt: str) -> ProposalDraft:
+        return ProposalDraft(
+            ideas=[
+                ProposedIdea(
+                    title="并发原语统一",
+                    concept_names=["互斥锁（后端季报）", "信号量 (Semaphore)（平台季报）"],
+                )
+            ]
+        )
+
+    report = asyncio.run(
+        run_discovery(DiscoveryRequest(session_ids=[left, right]), judge=None, titler=None, proposer=fake_proposer)
+    )
+
+    assert len(report.proposals) == 1
+    assert len({str(s.session_id) for s in report.proposals[0].sources}) == 2
+
+
+def test_run_discovery_builds_fallback_proposals_without_llm():
+    left = _seed_session(course_title="A部", lecture_title="A汇报", concepts=[("概念A", [1.0, 0.0], "证据 A")])
+    right = _seed_session(course_title="B部", lecture_title="B汇报", concepts=[("概念B", [0.8, 0.2], "证据 B")])
+
+    report = asyncio.run(
+        run_discovery(DiscoveryRequest(session_ids=[left, right]), judge=None, titler=None, proposer=None)
+    )
+
+    assert report.proposals  # deterministic fallback keeps the feature alive without credentials
+    proposal = report.proposals[0]
+    assert proposal.first_step  # actionable template per relation type
+    assert len(proposal.sources) == 2
+    assert any(n.node_type == "proposal" for n in report.bridge_graph.nodes)
+
+
+def test_proposal_status_roundtrip_and_avoid_titles():
+    left = _seed_session(course_title="A部", lecture_title="A汇报", concepts=[("概念A", [1.0, 0.0], "证据 A")])
+    right = _seed_session(course_title="B部", lecture_title="B汇报", concepts=[("概念B", [0.8, 0.2], "证据 B")])
+
+    run = client.post("/discovery/run", json={"session_ids": [str(left), str(right)], "mode": "selected"})
+    assert run.status_code == 200
+    body = run.json()
+    assert body["proposals"]
+    discovery_id, proposal_id = body["discovery_id"], body["proposals"][0]["proposal_id"]
+
+    updated = client.patch(f"/discovery/{discovery_id}/proposals/{proposal_id}", json={"status": "kept"})
+    assert updated.status_code == 200
+    assert updated.json()["proposals"][0]["status"] == "kept"
+    # persisted, and surfaces in the avoid-list for later runs over the same sets
+    assert local.load_discovery_report(discovery_id).proposals[0].status == "kept"
+    from corpus2node.discovery.engine import _load_contexts
+    import random as _random
+    contexts = _load_contexts(DiscoveryRequest(session_ids=[left, right]), _random.Random(0))
+    assert body["proposals"][0]["title"] in _avoid_titles(contexts)
+
+    missing = client.patch(f"/discovery/{discovery_id}/proposals/nope", json={"status": "kept"})
+    assert missing.status_code == 404
+
+
+def test_deepen_proposal_route_uses_seam_and_persists(monkeypatch):
+    left = _seed_session(course_title="A部", lecture_title="A汇报", concepts=[("概念A", [1.0, 0.0], "证据 A")])
+    right = _seed_session(course_title="B部", lecture_title="B汇报", concepts=[("概念B", [0.8, 0.2], "证据 B")])
+    run = client.post("/discovery/run", json={"session_ids": [str(left), str(right)]})
+    body = run.json()
+    discovery_id, proposal_id = body["discovery_id"], body["proposals"][0]["proposal_id"]
+
+    async def fake_deepener(prompt: str) -> ProposalDeepDive:
+        assert body["proposals"][0]["title"] in prompt
+        return ProposalDeepDive(goal="验证组合可行", approach="两周试点", first_experiment="小流量 AB", metrics="转化率")
+
+    monkeypatch.setattr("corpus2node.api.routes.discovery.make_deepener_or_none", lambda: fake_deepener)
+    response = client.post(f"/discovery/{discovery_id}/proposals/{proposal_id}/deepen")
+    assert response.status_code == 200
+    deep = response.json()["proposals"][0]["deep_dive"]
+    assert "**目标**" in deep and "小流量 AB" in deep
+    assert local.load_discovery_report(discovery_id).proposals[0].deep_dive == deep
+
+
+def test_deepen_without_llm_binding_is_a_clear_400(monkeypatch):
+    left = _seed_session(course_title="A部", lecture_title="A汇报", concepts=[("概念A", [1.0, 0.0], "证据 A")])
+    right = _seed_session(course_title="B部", lecture_title="B汇报", concepts=[("概念B", [0.8, 0.2], "证据 B")])
+    body = client.post("/discovery/run", json={"session_ids": [str(left), str(right)]}).json()
+
+    monkeypatch.setattr("corpus2node.api.routes.discovery.make_deepener_or_none", lambda: None)
+    response = client.post(f"/discovery/{body['discovery_id']}/proposals/{body['proposals'][0]['proposal_id']}/deepen")
+    assert response.status_code == 400
+    assert "设置" in response.json()["detail"]
 
 
 def test_random_discovery_ignores_virtual_course_graph_sessions():

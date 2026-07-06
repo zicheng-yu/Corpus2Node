@@ -450,12 +450,34 @@ class DiscoveryFinding(BaseModel):
     score_components: dict[str, float] = Field(default_factory=dict)
 
 
+class InnovationProposal(BaseModel):
+    """A cross-corpus innovation idea synthesized on top of discovery findings.
+
+    The "boss" scenario: each material set is a department's report; a proposal
+    combines concepts from ≥2 of them into an actionable idea with evidence.
+    """
+
+    proposal_id: str = Field(default_factory=lambda: str(uuid4()))
+    title: str
+    pitch: str = ""  # one-line why-this-matters
+    combination: str = ""  # what × what, and how they combine
+    first_step: str = ""  # the smallest first experiment / action
+    risks: str = ""
+    status: str = "new"  # new | kept | discarded (boss feedback, persisted)
+    deep_dive: str = ""  # markdown plan filled by the deepen endpoint
+    confidence: float = 0.0
+    sources: list[DiscoveryParticipant] = Field(default_factory=list)
+    evidence: list[DiscoveryEvidence] = Field(default_factory=list)
+
+
 class DiscoveryReport(BaseModel):
     discovery_id: str = Field(default_factory=lambda: str(uuid4()))
     title: str = ""  # short LLM-generated (or derived) name shown in history
     mode: DiscoveryMode = DiscoveryMode.selected
+    intent: str = ""  # the user's steering goal for this run (optional)
     session_ids: list[UUID] = Field(default_factory=list)
     findings: list[DiscoveryFinding] = Field(default_factory=list)
+    proposals: list[InnovationProposal] = Field(default_factory=list)
     bridge_graph: DiscoveryBridgeGraph = Field(default_factory=DiscoveryBridgeGraph)
     generated_at: datetime = Field(default_factory=utcnow)
 
@@ -463,6 +485,7 @@ class DiscoveryReport(BaseModel):
 class DiscoveryRequest(BaseModel):
     session_ids: list[UUID] = Field(default_factory=list)
     mode: DiscoveryMode = DiscoveryMode.selected
+    intent: str = Field(default="", max_length=600)
     focus_concept_ids: dict[str, list[str]] = Field(default_factory=dict)
     limit: int = Field(default=8, ge=1, le=20)
     seed: int | None = None

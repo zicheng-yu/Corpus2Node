@@ -360,12 +360,30 @@ export interface DiscoveryFinding {
   score_components: Record<string, number>;
 }
 
+export type ProposalStatus = "new" | "kept" | "discarded";
+
+export interface InnovationProposal {
+  proposal_id: string;
+  title: string;
+  pitch: string;
+  combination: string;
+  first_step: string;
+  risks: string;
+  status: ProposalStatus;
+  deep_dive: string;
+  confidence: number;
+  sources: DiscoveryParticipant[];
+  evidence: DiscoveryEvidence[];
+}
+
 export interface DiscoveryReport {
   discovery_id: string;
   title: string;
   mode: DiscoveryMode;
+  intent: string;
   session_ids: string[];
   findings: DiscoveryFinding[];
+  proposals: InnovationProposal[];
   bridge_graph: DiscoveryBridgeGraph;
   generated_at: string;
 }

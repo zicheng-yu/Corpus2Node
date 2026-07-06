@@ -15,6 +15,7 @@ import type {
   ModelListView,
   NoteDocument,
   PromptSettings,
+  ProposalStatus,
   ProviderKind,
   SearchResponse,
   SubgraphResponse,
@@ -203,10 +204,29 @@ export async function fetchSubgraph(sessionId: string, conceptId: string, depth 
 export function runDiscovery(payload: {
   session_ids?: string[];
   mode?: "selected" | "random";
+  intent?: string;
   limit?: number;
   seed?: number;
 }): Promise<DiscoveryReport> {
   return postJson<DiscoveryReport>("/discovery/run", payload);
+}
+
+export async function updateProposalStatus(
+  discoveryId: string,
+  proposalId: string,
+  status: ProposalStatus,
+): Promise<DiscoveryReport> {
+  return readJson<DiscoveryReport>(
+    await fetch(`${BASE}/discovery/${discoveryId}/proposals/${proposalId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    }),
+  );
+}
+
+export function deepenProposal(discoveryId: string, proposalId: string): Promise<DiscoveryReport> {
+  return postJson<DiscoveryReport>(`/discovery/${discoveryId}/proposals/${proposalId}/deepen`, {});
 }
 
 export async function listDiscoveries(): Promise<DiscoveryReport[]> {

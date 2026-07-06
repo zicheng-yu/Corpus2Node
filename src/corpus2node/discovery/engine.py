@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import logging
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ from corpus2node.core.types import (
     DiscoveryRequest,
     EvidenceChunk,
     GraphArtifact,
+    InnovationProposal,
 )
 from corpus2node.llm import factory
 from corpus2node.llm.credentials import Purpose
@@ -72,6 +74,9 @@ _CN_RELATION_ALIASES: dict[str, str] = {
 _JUDGE_BATCH = 12
 
 
+logger = logging.getLogger(__name__)
+
+
 class DiscoveryInputError(ValueError):
     """Raised for user-fixable discovery input problems."""
 
@@ -105,10 +110,42 @@ class DiscoveryTitle(BaseModel):
     title: str = ""
 
 
+class ProposedIdea(BaseModel):
+    """One LLM-drafted innovation idea; concept_names must reference finding concepts."""
+
+    title: str = ""
+    pitch: str = ""
+    combination: str = ""
+    first_step: str = ""
+    risks: str = ""
+    concept_names: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.6, ge=0.0, le=1.0)
+
+
+class ProposalDraft(BaseModel):
+    ideas: list[ProposedIdea] = Field(default_factory=list)
+
+
+class ProposalDeepDive(BaseModel):
+    """Structured deepen output — rendered to markdown deterministically."""
+
+    goal: str = ""
+    approach: str = ""
+    data_needed: str = ""
+    first_experiment: str = ""
+    metrics: str = ""
+
+
 DiscoveryJudge = Callable[[str], Awaitable[JudgeReport]]
 DiscoveryTitler = Callable[[str], Awaitable[str]]
+DiscoveryProposer = Callable[[str], Awaitable[ProposalDraft]]
+DiscoveryDeepener = Callable[[str], Awaitable[ProposalDeepDive]]
 _AUTO_JUDGE = object()
 _AUTO_TITLER = object()
+_AUTO_PROPOSER = object()
+
+# How many proposals one run aims for — enough to react to, not a wall of text.
+_PROPOSAL_TARGET = 4
 
 
 @dataclass(frozen=True)
@@ -144,6 +181,7 @@ async def run_discovery(
     *,
     judge: DiscoveryJudge | None | object = _AUTO_JUDGE,
     titler: DiscoveryTitler | None | object = _AUTO_TITLER,
+    proposer: DiscoveryProposer | None | object = _AUTO_PROPOSER,
 ) -> DiscoveryReport:
     """Create a persisted-ready discovery report from selected or random sessions.
 
@@ -151,8 +189,10 @@ async def run_discovery(
     lexical, structural and graph-importance signals). If an LLM judge is
     available, it decides which broad candidates are real knowledge crossings;
     otherwise deterministic findings are still returned so the feature remains
-    useful without credentials. An LLM titler names the report (with a
-    deterministic fallback), so history shows a readable title not a uuid.
+    useful without credentials. On top of the findings, a proposer synthesizes
+    boss-facing innovation proposals (steered by ``request.intent``, avoiding
+    titles already kept/discarded in earlier runs over the same sets), with a
+    deterministic template fallback. An LLM titler names the report.
     """
     rng = random.Random(request.seed)
     contexts = _load_contexts(request, rng)
@@ -163,6 +203,7 @@ async def run_discovery(
         return DiscoveryReport(
             title=_fallback_title([], contexts),
             mode=request.mode,
+            intent=request.intent,
             session_ids=[ctx.session.session_id for ctx in contexts],
         )
 
@@ -177,13 +218,18 @@ async def run_discovery(
         findings = [_finding_from_candidate(candidate) for candidate in candidates[: request.limit]]
 
     capped = findings[: request.limit]
+    if proposer is _AUTO_PROPOSER:
+        proposer = make_proposer_or_none()
+    proposals = await _synthesize_proposals(capped, contexts, request.intent, proposer)
     title = await _title_for(capped, contexts, titler)
     return DiscoveryReport(
         title=title,
         mode=request.mode,
+        intent=request.intent,
         session_ids=[ctx.session.session_id for ctx in contexts],
         findings=capped,
-        bridge_graph=_bridge_graph(capped),
+        proposals=proposals,
+        bridge_graph=_bridge_graph(capped, proposals),
     )
 
 
@@ -463,6 +509,295 @@ def _fallback_title(findings: list[DiscoveryFinding], contexts: list[DiscoveryCo
     return "知识发现"
 
 
+# ── innovation proposals (the "boss over department reports" layer) ─────────
+
+_PROPOSER_SYSTEM = (
+    "你是企业创新顾问。各部门各交了一份资料（知识库），下面给出算法找到的跨资料知识桥接点。"
+    "你的任务是替老板把桥接点变成可执行的跨部门创新提案：组合两边已有的能力，而不是空想。"
+    "每条提案必须点名用到的概念（concept_names 必须逐字取自候选桥接点中的概念名，且至少两个、来自不同资料）。"
+    "只输出 JSON。"
+)
+
+_DEEPEN_SYSTEM = (
+    "你是企业创新顾问。把给定的跨部门创新提案展开成一个最小可执行方案。"
+    "只基于提供的证据与提案内容，不要虚构不存在的资源。每个字段一两句话，中文。只输出 JSON。"
+)
+
+# relation_type → first-step template for the no-LLM fallback proposals.
+_FALLBACK_FIRST_STEP: dict[str, str] = {
+    "method_to_application": "挑一个真实业务场景，把一方的方法做成最小迁移试点",
+    "complement": "把两边的做法拼成一个组合方案，先在小范围试运行",
+    "same_under_different_terms": "统一两边术语并合并文档，消除重复建设",
+    "contradiction": "组织两个团队对齐口径，明确各自成立的边界条件",
+    "analogy": "按类比把一方的成熟做法映射到另一方的问题上做 PoC",
+    "prerequisite": "把前置知识做成对方团队的入门材料，打通协作语言",
+    "shared_context": "围绕共同场景立一个跨部门联合调研课题",
+    "open_question": "把这个开放问题立项为联合探索任务，先收集双方数据",
+}
+
+
+def make_proposer_or_none() -> DiscoveryProposer | None:
+    """Structured proposal drafter — prefers the chat binding (generative quality),
+    falls back to critic(→graph). Public so the API layer reuses the same seam."""
+    for purpose in (Purpose.chat, Purpose.critic):
+        try:
+            model = factory.build_chat_model(purpose, temperature=0.7)
+            method = factory.structured_output_method(purpose)
+        except Exception:
+            continue
+        caller = make_structured(model, ProposalDraft, system=_PROPOSER_SYSTEM, method=method)
+
+        async def _proposer(prompt: str) -> ProposalDraft:
+            return await caller(prompt)
+
+        return _proposer
+    return None
+
+
+def make_deepener_or_none() -> DiscoveryDeepener | None:
+    for purpose in (Purpose.chat, Purpose.critic):
+        try:
+            model = factory.build_chat_model(purpose, temperature=0.4)
+            method = factory.structured_output_method(purpose)
+        except Exception:
+            continue
+        caller = make_structured(model, ProposalDeepDive, system=_DEEPEN_SYSTEM, method=method)
+
+        async def _deepener(prompt: str) -> ProposalDeepDive:
+            return await caller(prompt)
+
+        return _deepener
+    return None
+
+
+async def _synthesize_proposals(
+    findings: list[DiscoveryFinding],
+    contexts: list[DiscoveryContext],
+    intent: str,
+    proposer: DiscoveryProposer | None,
+) -> list[InnovationProposal]:
+    if not findings:
+        return []
+    if proposer is not None:
+        try:
+            draft = await proposer(_proposal_prompt(findings, contexts, intent, _avoid_titles(contexts)))
+            proposals = _proposals_from_draft(draft, findings, contexts)
+            if proposals:
+                return proposals
+            logger.warning(
+                "proposer returned %d ideas but none survived grounding — using fallback proposals",
+                len(draft.ideas),
+            )
+        except Exception:
+            logger.exception("proposer failed — using fallback proposals")
+    return _fallback_proposals(findings)
+
+
+# json_mode relies on the prompt to convey the exact shape (only json_schema mode
+# enforces it server-side), so both LLM prompts embed an explicit format example.
+_PROPOSAL_FORMAT_HINT = (
+    '{"ideas":[{"title":"≤20字","pitch":"一句话价值","combination":"怎么组合两边能力",'
+    '"first_step":"最小的第一步行动","risks":"主要风险或未知",'
+    '"concept_names":["概念名A","概念名B"],"confidence":0.7}]}'
+)
+
+_DEEPEN_FORMAT_HINT = (
+    '{"goal":"目标","approach":"做法","data_needed":"所需数据或资源",'
+    '"first_experiment":"首个实验","metrics":"衡量指标"}'
+)
+
+
+def _proposal_prompt(
+    findings: list[DiscoveryFinding],
+    contexts: list[DiscoveryContext],
+    intent: str,
+    avoid: list[str],
+) -> str:
+    lines = [
+        f"请基于下面的桥接点提出最多 {_PROPOSAL_TARGET} 条跨部门创新提案。",
+        f"输出 JSON object，形如：{_PROPOSAL_FORMAT_HINT}",
+        "concept_names 必须逐字取自下方桥接点中的概念名，每条提案至少两个、且来自不同资料。",
+    ]
+    if intent.strip():
+        lines.append(f"老板的意图：{intent.strip()}（提案要向这个方向靠拢）")
+    if avoid:
+        lines.append("以下提案此前已被处理过，不要重复或换皮再提：" + "；".join(avoid))
+    lines.append("")
+    lines.append("各部门资料：")
+    for ctx in contexts:
+        lines.append(f"- {ctx.session.course_title} / {ctx.session.lecture_title}")
+    lines.append("")
+    lines.append("桥接点：")
+    for finding in findings:
+        parts = "、".join(
+            f"{p.concept_name}（{p.lecture_title}）" for p in finding.participants
+        )
+        lines.append(f"- [{finding.relation_type}] {finding.title}：{finding.summary}｜概念：{parts}")
+    return "\n".join(lines)
+
+
+def _avoid_titles(contexts: list[DiscoveryContext], *, cap: int = 12) -> list[str]:
+    """Titles of proposals the boss already kept/discarded over any of these sets —
+    fed to the proposer so reruns explore instead of repeating."""
+    selected = {ctx.session.session_id for ctx in contexts}
+    titles: list[str] = []
+    try:
+        reports = local.list_discovery_reports()
+    except Exception:
+        return []
+    for report in reports:
+        if selected.isdisjoint(set(report.session_ids)):
+            continue
+        for proposal in report.proposals:
+            if proposal.status in ("kept", "discarded") and proposal.title:
+                titles.append(proposal.title)
+    return list(dict.fromkeys(titles))[:cap]
+
+
+def _proposals_from_draft(
+    draft: ProposalDraft, findings: list[DiscoveryFinding], contexts: list[DiscoveryContext]
+) -> list[InnovationProposal]:
+    """Ground LLM ideas: every referenced concept must exist in the findings, and a
+    proposal must span ≥2 concepts (from ≥2 sets when the run is cross-set)."""
+    # Concept lookup is forgiving: raw and parenthetical-stripped forms both key the
+    # map (models cite "信号量" while the graph stored "信号量 (Semaphore)", or append
+    # the set name shown in the prompt). A key maps to ALL matching participants so
+    # the same surface name on two sets resolves to both — not just the first one.
+    by_name: dict[str, list[DiscoveryParticipant]] = {}
+    registered: set[tuple[str, str, str]] = set()
+    evidence_by_key: dict[tuple[str, str], list[DiscoveryEvidence]] = {}
+    for finding in findings:
+        for participant in finding.participants:
+            for key in {participant.concept_name.strip().lower(), _clean_concept_name(participant.concept_name).lower()}:
+                marker = (key, str(participant.session_id), participant.concept_id)
+                if key and marker not in registered:
+                    registered.add(marker)
+                    by_name.setdefault(key, []).append(participant)
+        for item in finding.evidence:
+            evidence_by_key.setdefault((str(item.session_id), item.concept_id), []).append(item)
+
+    cross_set_run = len({str(ctx.session.session_id) for ctx in contexts}) >= 2
+    out: list[InnovationProposal] = []
+    seen_titles: set[str] = set()
+    for idea in draft.ideas[: _PROPOSAL_TARGET * 2]:
+        resolved: list[DiscoveryParticipant] = []
+        seen_keys: set[tuple[str, str]] = set()
+        for name in idea.concept_names:
+            matches = by_name.get(name.strip().lower()) or by_name.get(_clean_concept_name(name).lower()) or []
+            unused = [p for p in matches if (str(p.session_id), p.concept_id) not in seen_keys]
+            if not unused:
+                continue
+            # Prefer a participant from a set not yet in the proposal, so citing two
+            # concepts that both exist in several sets still yields a cross-set idea.
+            used_sessions = {str(p.session_id) for p in resolved}
+            participant = next((p for p in unused if str(p.session_id) not in used_sessions), unused[0])
+            seen_keys.add((str(participant.session_id), participant.concept_id))
+            resolved.append(participant)
+        if len(resolved) < 2:
+            continue
+        if cross_set_run and len({str(p.session_id) for p in resolved}) < 2:
+            continue
+        title = idea.title.strip() or " × ".join(p.concept_name for p in resolved[:2])
+        if title.lower() in seen_titles:
+            continue
+        seen_titles.add(title.lower())
+        evidence: list[DiscoveryEvidence] = []
+        evidence_seen: set[str] = set()
+        for participant in resolved:
+            for item in evidence_by_key.get((str(participant.session_id), participant.concept_id), []):
+                marker = item.chunk_id or item.snippet[:60]
+                if marker in evidence_seen:
+                    continue
+                evidence_seen.add(marker)
+                evidence.append(item)
+        out.append(
+            InnovationProposal(
+                title=title[:60],
+                pitch=idea.pitch.strip(),
+                combination=idea.combination.strip(),
+                first_step=idea.first_step.strip(),
+                risks=idea.risks.strip(),
+                confidence=round(idea.confidence, 4),
+                sources=resolved,
+                evidence=evidence[:4],
+            )
+        )
+        if len(out) >= _PROPOSAL_TARGET:
+            break
+    return out
+
+
+def _fallback_proposals(findings: list[DiscoveryFinding], *, cap: int = 3) -> list[InnovationProposal]:
+    """No-LLM proposals composed from the strongest cross-set findings."""
+    ranked = sorted(findings, key=lambda f: f.confidence, reverse=True)
+    cross = [f for f in ranked if len({str(p.session_id) for p in f.participants}) >= 2]
+    out: list[InnovationProposal] = []
+    seen_pairs: set[frozenset[str]] = set()
+    for finding in cross or ranked:
+        participants = finding.participants[:2]
+        if len(participants) < 2:
+            continue
+        pair = frozenset(f"{p.session_id}:{p.concept_id}" for p in participants)
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+        left, right = participants[0], participants[1]
+        out.append(
+            InnovationProposal(
+                title=f"{_clean_concept_name(left.concept_name)} × {_clean_concept_name(right.concept_name)}"[:60],
+                pitch=f"把「{left.lecture_title}」与「{right.lecture_title}」的这两块能力组合起来。",
+                combination=finding.summary,
+                first_step=_FALLBACK_FIRST_STEP.get(finding.relation_type, _FALLBACK_FIRST_STEP["shared_context"]),
+                risks="桥接点由算法信号提示，尚未经模型或人工确认，需要先验证关联是否真实成立。",
+                confidence=round(min(0.9, finding.confidence), 4),
+                sources=list(participants),
+                evidence=finding.evidence[:4],
+            )
+        )
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _render_deep_dive(dive: ProposalDeepDive) -> str:
+    rows = [
+        ("目标", dive.goal),
+        ("做法", dive.approach),
+        ("所需数据 / 资源", dive.data_needed),
+        ("首个实验", dive.first_experiment),
+        ("衡量指标", dive.metrics),
+    ]
+    return "\n".join(f"**{label}**：{value.strip()}" for label, value in rows if value.strip())
+
+
+async def deepen_proposal(
+    report: DiscoveryReport, proposal_id: str, deepener: DiscoveryDeepener
+) -> DiscoveryReport:
+    """Expand one proposal into a minimal executable plan (persisted by the caller)."""
+    proposal = next((p for p in report.proposals if p.proposal_id == proposal_id), None)
+    if proposal is None:
+        raise KeyError(proposal_id)
+    lines = [
+        f"把下面的提案展开成最小可执行方案，输出 JSON object，形如：{_DEEPEN_FORMAT_HINT}",
+        f"提案：{proposal.title}",
+        f"价值：{proposal.pitch}",
+        f"组合：{proposal.combination}",
+        f"第一步：{proposal.first_step}",
+        f"风险：{proposal.risks}",
+        "涉及：" + "、".join(f"{p.lecture_title}/{p.concept_name}" for p in proposal.sources),
+        "证据：",
+        *[f"- {e.lecture_title}/{e.concept_name}: {e.snippet}" for e in proposal.evidence[:4]],
+    ]
+    if report.intent:
+        lines.insert(1, f"老板意图：{report.intent}")
+    dive = await deepener("\n".join(lines))
+    rendered = _render_deep_dive(dive)
+    if not rendered:
+        raise ValueError("deepen returned an empty plan")
+    proposal.deep_dive = rendered
+    return report
+
+
 _RELATION_GUIDE = (
     "same_under_different_terms=异名同义, prerequisite=前置依赖, complement=互补, "
     "analogy=类比, method_to_application=方法迁移, contradiction=矛盾张力, "
@@ -637,7 +972,13 @@ def _chunk_evidence(record: ConceptRecord, chunk: EvidenceChunk) -> DiscoveryEvi
     )
 
 
-def _bridge_graph(findings: list[DiscoveryFinding]) -> DiscoveryBridgeGraph:
+def _bridge_graph(
+    findings: list[DiscoveryFinding], proposals: list[InnovationProposal] | None = None
+) -> DiscoveryBridgeGraph:
+    """Proposal-centric graph (set → concept → proposal) when proposals exist;
+    the legacy finding-centric layout otherwise (old persisted reports keep it too)."""
+    if proposals:
+        return _proposal_graph(proposals)
     nodes: dict[str, DiscoveryBridgeNode] = {}
     edges: dict[tuple[str, str, str], DiscoveryBridgeEdge] = {}
     for finding in findings:
@@ -679,6 +1020,57 @@ def _bridge_graph(findings: list[DiscoveryFinding]) -> DiscoveryBridgeGraph:
                 target=concept_node,
                 edge_type=finding.relation_type,
                 weight=finding.confidence,
+            )
+    return DiscoveryBridgeGraph(nodes=list(nodes.values()), edges=list(edges.values()))
+
+
+def _proposal_graph(proposals: list[InnovationProposal]) -> DiscoveryBridgeGraph:
+    nodes: dict[str, DiscoveryBridgeNode] = {}
+    edges: dict[tuple[str, str, str], DiscoveryBridgeEdge] = {}
+    for proposal in proposals:
+        proposal_node = f"proposal:{proposal.proposal_id}"
+        nodes[proposal_node] = DiscoveryBridgeNode(
+            id=proposal_node,
+            label=proposal.title,
+            node_type="proposal",
+            metadata={
+                "proposal_id": proposal.proposal_id,
+                "pitch": proposal.pitch,
+                "status": proposal.status,
+                "confidence": proposal.confidence,
+            },
+        )
+        for participant in proposal.sources:
+            session_node = f"session:{participant.session_id}"
+            concept_node = f"concept:{participant.session_id}:{participant.concept_id}"
+            nodes.setdefault(
+                session_node,
+                DiscoveryBridgeNode(
+                    id=session_node,
+                    label=participant.lecture_title,
+                    node_type="session",
+                    session_id=participant.session_id,
+                    metadata={"course_title": participant.course_title},
+                ),
+            )
+            nodes.setdefault(
+                concept_node,
+                DiscoveryBridgeNode(
+                    id=concept_node,
+                    label=participant.concept_name,
+                    node_type="concept",
+                    session_id=participant.session_id,
+                    metadata={"concept_id": participant.concept_id},
+                ),
+            )
+            edges[(session_node, concept_node, "provides")] = DiscoveryBridgeEdge(
+                source=session_node, target=concept_node, edge_type="provides", weight=1.0
+            )
+            edges[(concept_node, proposal_node, "feeds")] = DiscoveryBridgeEdge(
+                source=concept_node,
+                target=proposal_node,
+                edge_type="feeds",
+                weight=proposal.confidence,
             )
     return DiscoveryBridgeGraph(nodes=list(nodes.values()), edges=list(edges.values()))
 

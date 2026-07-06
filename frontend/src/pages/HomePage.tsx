@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import {
   ApiError,
+  deepenProposal,
   deleteSession,
   getDiscovery,
   listDiscoveries,
@@ -11,8 +12,17 @@ import {
   renameSession,
   runDiscovery,
   searchConceptsGlobal,
+  updateProposalStatus,
 } from "../api/client";
-import type { CourseSession, DiscoveryFinding, DiscoveryReport, GlobalConceptHit, SessionStatus } from "../types";
+import type {
+  CourseSession,
+  DiscoveryFinding,
+  DiscoveryReport,
+  GlobalConceptHit,
+  InnovationProposal,
+  ProposalStatus,
+  SessionStatus,
+} from "../types";
 import { useToast } from "../components/primitives/Toast";
 import "./HomePage.css";
 
@@ -175,6 +185,52 @@ function ConfirmModal({
   );
 }
 
+function DiscoveryLaunchModal({
+  mode,
+  selectedCount,
+  loading,
+  onConfirm,
+  onCancel,
+}: {
+  mode: "selected" | "random";
+  selectedCount: number;
+  loading: boolean;
+  onConfirm: (intent: string) => void;
+  onCancel: () => void;
+}) {
+  const [intent, setIntent] = useState("");
+  return (
+    <div className="confirm-overlay" onClick={() => !loading && onCancel()}>
+      <div className="confirm-dialog discovery-launch" onClick={(e) => e.stopPropagation()}>
+        <p className="confirm-message">
+          {mode === "selected"
+            ? `将对选中的 ${selectedCount} 个资料集做知识发现，并生成跨库创新提案。`
+            : "未选择资料集：将随机挑选若干已建图资料集做知识发现，并生成跨库创新提案。"}
+        </p>
+        <label className="discovery-intent-field">
+          <span>意图（可选）——提案会朝这个方向靠拢</span>
+          <textarea
+            rows={2}
+            value={intent}
+            onChange={(e) => setIntent(e.target.value)}
+            placeholder="例：从各部门本季度汇报里找跨部门协作与新产品机会 / 降本增效"
+            maxLength={600}
+            disabled={loading}
+          />
+        </label>
+        <div className="confirm-actions">
+          <button className="btn btn-outline btn-sm" onClick={onCancel} disabled={loading} type="button">
+            取消
+          </button>
+          <button className="btn btn-sm btn-accent" onClick={() => onConfirm(intent)} disabled={loading} type="button">
+            {loading ? "发现中…" : "开始发现"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RenameModal({
   title,
   label,
@@ -241,7 +297,8 @@ export function HomePage() {
   const [renaming, setRenaming] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const [discovering, setDiscovering] = useState(false);
-  const [randomConfirm, setRandomConfirm] = useState(false);
+  const [discoveryLaunch, setDiscoveryLaunch] = useState<"selected" | "random" | null>(null);
+  const [deepeningId, setDeepeningId] = useState<string | null>(null);
   const [discoveryReport, setDiscoveryReport] = useState<DiscoveryReport | null>(null);
   const [discoveryHistory, setDiscoveryHistory] = useState<DiscoveryReport[]>([]);
   const [showBridgeGraph, setShowBridgeGraph] = useState(true);
@@ -399,7 +456,7 @@ export function HomePage() {
     }
   };
 
-  const handleDiscovery = async (mode: "selected" | "random") => {
+  const handleDiscovery = async (mode: "selected" | "random", intent: string) => {
     const ids = [...selectedSessionIds];
     if (mode === "selected" && ids.length === 0) {
       toast("先勾选至少一个已建图资料集", "error");
@@ -410,12 +467,14 @@ export function HomePage() {
       const report = await runDiscovery({
         mode,
         session_ids: ids,
+        intent: intent.trim(),
         limit: 8,
         seed: mode === "random" ? Date.now() : undefined,
       });
       setDiscoveryReport(report);
       setShowBridgeGraph(true);
       setDiscoveryHistory((prev) => [report, ...prev.filter((r) => r.discovery_id !== report.discovery_id)]);
+      setDiscoveryLaunch(null);
       toast(`知识发现已保存：${report.title || report.discovery_id.slice(0, 8)}`, "success");
     } catch {
       toast("知识发现失败，请确认资料集已完成建图", "error");
@@ -424,15 +483,41 @@ export function HomePage() {
     }
   };
 
-  // One entry point: discover on the selected sets, or (if none selected) confirm a random run.
+  // One entry point: the launch modal collects an optional steering intent, for
+  // both "discover the selected sets" and "pick sets at random".
   const startDiscovery = () => {
-    if (selectedSessionIds.size > 0) void handleDiscovery("selected");
-    else setRandomConfirm(true);
+    setDiscoveryLaunch(selectedSessionIds.size > 0 ? "selected" : "random");
   };
 
-  const confirmRandomDiscovery = async () => {
-    await handleDiscovery("random");
-    setRandomConfirm(false);
+  // Proposal feedback: keep the open report AND its history entry in sync.
+  const applyReportUpdate = (report: DiscoveryReport) => {
+    setDiscoveryReport(report);
+    setDiscoveryHistory((prev) => prev.map((r) => (r.discovery_id === report.discovery_id ? report : r)));
+  };
+
+  const handleProposalStatus = async (proposalId: string, status: ProposalStatus) => {
+    if (!discoveryReport) return;
+    try {
+      applyReportUpdate(await updateProposalStatus(discoveryReport.discovery_id, proposalId, status));
+    } catch {
+      toast("更新提案状态失败", "error");
+    }
+  };
+
+  const handleDeepen = async (proposalId: string) => {
+    if (!discoveryReport || deepeningId) return;
+    setDeepeningId(proposalId);
+    try {
+      applyReportUpdate(await deepenProposal(discoveryReport.discovery_id, proposalId));
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "深挖失败", "error");
+    } finally {
+      setDeepeningId(null);
+    }
+  };
+
+  const scrollToProposal = (proposalId: string) => {
+    document.getElementById(`proposal-${proposalId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
   const openConcept = (sessionId: string, conceptId: string) =>
@@ -629,6 +714,10 @@ export function HomePage() {
           showBridgeGraph={showBridgeGraph}
           onToggleBridge={() => setShowBridgeGraph((v) => !v)}
           onOpenConcept={openConcept}
+          onProposalStatus={handleProposalStatus}
+          onDeepen={handleDeepen}
+          deepeningId={deepeningId}
+          onProposalLocate={scrollToProposal}
           onClose={() => setDiscoveryReport(null)}
         />
       )}
@@ -736,15 +825,13 @@ export function HomePage() {
         />
       )}
 
-      {randomConfirm && (
-        <ConfirmModal
-          message="未选择资料集。将从已建图的资料集中随机挑选若干进行知识发现，是否继续？"
-          confirmLabel="开始随机发现"
-          loadingLabel="发现中…"
-          tone="accent"
+      {discoveryLaunch && (
+        <DiscoveryLaunchModal
+          mode={discoveryLaunch}
+          selectedCount={selectedSessionIds.size}
           loading={discovering}
-          onConfirm={confirmRandomDiscovery}
-          onCancel={() => !discovering && setRandomConfirm(false)}
+          onConfirm={(intent) => void handleDiscovery(discoveryLaunch, intent)}
+          onCancel={() => !discovering && setDiscoveryLaunch(null)}
         />
       )}
 
@@ -786,7 +873,8 @@ function DiscoveryHistoryBar({
           >
             <b>{report.title || report.discovery_id.slice(0, 8)}</b>
             <span>
-              {report.mode === "random" ? "随机" : `${report.session_ids.length} 资料集`} · {report.findings.length} 发现
+              {report.mode === "random" ? "随机" : `${report.session_ids.length} 资料集`} ·{" "}
+              {(report.proposals?.length ?? 0) > 0 ? `${report.proposals.length} 提案` : `${report.findings.length} 发现`}
             </span>
           </button>
         ))}
@@ -800,21 +888,34 @@ function DiscoveryReportPanel({
   showBridgeGraph,
   onToggleBridge,
   onOpenConcept,
+  onProposalStatus,
+  onDeepen,
+  deepeningId,
+  onProposalLocate,
   onClose,
 }: {
   report: DiscoveryReport;
   showBridgeGraph: boolean;
   onToggleBridge: () => void;
   onOpenConcept: (sessionId: string, conceptId: string) => void;
+  onProposalStatus: (proposalId: string, status: ProposalStatus) => void;
+  onDeepen: (proposalId: string) => void;
+  deepeningId: string | null;
+  onProposalLocate: (proposalId: string) => void;
   onClose: () => void;
 }) {
   const hasBridge = report.bridge_graph.nodes.length > 0;
+  const proposals = report.proposals ?? [];
   return (
     <section className="discovery-panel">
       <div className="discovery-panel-head">
         <div>
           <div className="discovery-report-title">{report.title || "知识发现"}</div>
-          <div className="discovery-id">{report.findings.length} 处交叉 · {report.discovery_id.slice(0, 8)}</div>
+          <div className="discovery-id">
+            {proposals.length > 0 && `${proposals.length} 条提案 · `}
+            {report.findings.length} 处交叉 · {report.discovery_id.slice(0, 8)}
+          </div>
+          {report.intent && <div className="discovery-intent-line">意图：{report.intent}</div>}
         </div>
         <div className="discovery-head-actions">
           <span className="discovery-graph-stat">
@@ -822,7 +923,7 @@ function DiscoveryReportPanel({
           </span>
           {hasBridge && (
             <button className="discovery-mini-btn" type="button" onClick={onToggleBridge}>
-              {showBridgeGraph ? "隐藏桥接图" : "显示桥接图"}
+              {showBridgeGraph ? "隐藏图" : "显示图"}
             </button>
           )}
           <button className="discovery-mini-btn" type="button" onClick={onClose}>
@@ -833,20 +934,147 @@ function DiscoveryReportPanel({
       {showBridgeGraph && hasBridge && (
         <div className="discovery-bridge-wrap">
           <Suspense fallback={<div className="bridge-graph" />}>
-            <BridgeGraphView graph={report.bridge_graph} onConceptClick={onOpenConcept} />
+            <BridgeGraphView
+              graph={report.bridge_graph}
+              onConceptClick={onOpenConcept}
+              onProposalClick={onProposalLocate}
+            />
           </Suspense>
         </div>
+      )}
+      {proposals.length > 0 && (
+        <>
+          <div className="discovery-section-title">创新提案</div>
+          <div className="discovery-list">
+            {proposals.map((proposal) => (
+              <ProposalCard
+                key={proposal.proposal_id}
+                proposal={proposal}
+                deepening={deepeningId === proposal.proposal_id}
+                onOpenConcept={onOpenConcept}
+                onStatus={onProposalStatus}
+                onDeepen={onDeepen}
+              />
+            ))}
+          </div>
+        </>
       )}
       {report.findings.length === 0 ? (
         <div className="discovery-empty">没有发现足够证据支撑的交叉点。</div>
       ) : (
-        <div className="discovery-list">
-          {report.findings.map((finding) => (
-            <DiscoveryFindingCard key={finding.finding_id} finding={finding} onOpenConcept={onOpenConcept} />
-          ))}
-        </div>
+        <>
+          {proposals.length > 0 && <div className="discovery-section-title">支撑桥接点</div>}
+          <div className="discovery-list">
+            {report.findings.map((finding) => (
+              <DiscoveryFindingCard key={finding.finding_id} finding={finding} onOpenConcept={onOpenConcept} />
+            ))}
+          </div>
+        </>
       )}
     </section>
+  );
+}
+
+const PROPOSAL_STATUS_LABEL: Record<ProposalStatus, string> = {
+  new: "待定",
+  kept: "已采纳",
+  discarded: "已搁置",
+};
+
+function ProposalCard({
+  proposal,
+  deepening,
+  onOpenConcept,
+  onStatus,
+  onDeepen,
+}: {
+  proposal: InnovationProposal;
+  deepening: boolean;
+  onOpenConcept: (sessionId: string, conceptId: string) => void;
+  onStatus: (proposalId: string, status: ProposalStatus) => void;
+  onDeepen: (proposalId: string) => void;
+}) {
+  const kept = proposal.status === "kept";
+  const discarded = proposal.status === "discarded";
+  return (
+    <article
+      id={`proposal-${proposal.proposal_id}`}
+      className={clsx("discovery-card proposal-card", { "proposal-kept": kept, "proposal-discarded": discarded })}
+    >
+      <div className="discovery-card-top">
+        <h2>{proposal.title}</h2>
+        <span className={clsx("proposal-status", `proposal-status-${proposal.status}`)}>
+          {PROPOSAL_STATUS_LABEL[proposal.status]}
+        </span>
+      </div>
+      {proposal.pitch && <p className="discovery-summary proposal-pitch">{proposal.pitch}</p>}
+      {proposal.combination && (
+        <p className="proposal-row"><b>组合</b>{proposal.combination}</p>
+      )}
+      {proposal.first_step && (
+        <p className="proposal-row"><b>第一步</b>{proposal.first_step}</p>
+      )}
+      {proposal.risks && (
+        <p className="proposal-row proposal-risks"><b>风险</b>{proposal.risks}</p>
+      )}
+      <div className="discovery-participants">
+        {proposal.sources.map((source) => (
+          <button
+            key={`${source.session_id}-${source.concept_id}`}
+            className="discovery-chip-link"
+            type="button"
+            title="打开该资料集图谱并聚焦此知识点"
+            onClick={() => onOpenConcept(source.session_id, source.concept_id)}
+          >
+            {source.lecture_title} · {source.concept_name}
+          </button>
+        ))}
+      </div>
+      {proposal.evidence.length > 0 && (
+        <div className="discovery-evidence">
+          {proposal.evidence.slice(0, 4).map((evidence, index) => {
+            const clickable = Boolean(evidence.concept_id);
+            return (
+              <blockquote
+                key={`${evidence.session_id}-${evidence.concept_id}-${evidence.chunk_id || index}`}
+                className={clickable ? "discovery-evidence-link" : undefined}
+                onClick={clickable ? () => onOpenConcept(evidence.session_id, evidence.concept_id) : undefined}
+              >
+                <b>{evidence.lecture_title} / {evidence.concept_name}</b>
+                <span>{evidence.locator}</span>
+                {evidence.snippet}
+              </blockquote>
+            );
+          })}
+        </div>
+      )}
+      {proposal.deep_dive && <div className="proposal-deep-dive">{proposal.deep_dive}</div>}
+      <div className="proposal-actions">
+        <button
+          className={clsx("discovery-mini-btn", { "proposal-btn-active": kept })}
+          type="button"
+          onClick={() => onStatus(proposal.proposal_id, kept ? "new" : "kept")}
+        >
+          {kept ? "取消采纳" : "采纳"}
+        </button>
+        <button
+          className={clsx("discovery-mini-btn", { "proposal-btn-active": discarded })}
+          type="button"
+          onClick={() => onStatus(proposal.proposal_id, discarded ? "new" : "discarded")}
+        >
+          {discarded ? "恢复" : "搁置"}
+        </button>
+        <button
+          className="discovery-mini-btn"
+          type="button"
+          disabled={deepening}
+          onClick={() => onDeepen(proposal.proposal_id)}
+        >
+          {deepening ? "深挖中…" : proposal.deep_dive ? "重新深挖" : "深挖"}
+        </button>
+        <span className="proposal-confidence">{Math.round(proposal.confidence * 100)}%</span>
+      </div>
+    </article>
   );
 }
 
