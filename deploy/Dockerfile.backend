@@ -1,0 +1,33 @@
+# Corpus2Node backend — FastAPI + uvicorn, uv-managed, core deps only (no torch).
+# Build context is the repo root (see deploy/docker-compose.yml).
+FROM python:3.12-slim
+
+# Runtime libs for faster-whisper (ctranslate2 / onnxruntime link against libgomp).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv (fast resolver/installer). Tsinghua mirror keeps the pip bootstrap quick in CN.
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple uv
+
+# Point uv at the Tsinghua PyPI mirror too (fast wheel downloads in CN). Override with
+# --build-arg PIP_INDEX=https://pypi.org/simple for non-CN builds.
+ARG PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV UV_INDEX_URL=$PIP_INDEX
+ENV UV_DEFAULT_INDEX=$PIP_INDEX
+
+WORKDIR /app
+
+# 1) Dependency layer first (cache-friendly): resolve the env without the project,
+#    so source edits don't bust the (slow) dependency install layer.
+#    README.md is referenced by pyproject `readme=`, so it must be present to build.
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev --extra export --no-install-project
+
+# 2) App source, then install the project itself into the same venv.
+COPY src ./src
+COPY web ./web
+RUN uv sync --frozen --no-dev --extra export
+
+EXPOSE 8000
+CMD ["uv", "run", "uvicorn", "corpus2node.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

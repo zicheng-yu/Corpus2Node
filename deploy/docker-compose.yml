@@ -1,0 +1,44 @@
+# Corpus2Node — production stack: private backend + public nginx.
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Model credentials are NOT here — they live in artifacts/llm_settings.json, mounted
+# as a volume below. Everything in `environment:` is non-secret infrastructure config
+# (read by pydantic-settings from the container environment; see src/corpus2node/config.py).
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    environment:
+      APP_ENV: production
+      DEBUG_TRACEBACKS: "false"
+      CORS_ALLOW_ORIGINS: "*"            # same-origin via nginx, so CORS isn't exercised
+      API_AUTH_TOKEN: ""                # fully open (no auth gate)
+      MAX_UPLOAD_BYTES: "524288000"     # 500 MB
+      EMBED_PROVIDER: hashing           # zero-dep embeddings (no torch); matches local setup
+      EMBEDDING_DIMENSIONS: "1024"
+      VECTOR_STORE_PROVIDER: local_cosine
+      VISION_TIMEOUT_SECONDS: "120"
+      WHISPER_MODEL_SIZE: base
+      WHISPER_LANGUAGE: auto
+      HF_ENDPOINT: "https://hf-mirror.com"   # China-friendly faster-whisper model download
+      LANGCHAIN_TRACING: "false"
+    volumes:
+      - ../artifacts:/app/artifacts                 # data + llm_settings.json persist on host
+      - whisper-cache:/root/.cache/huggingface      # whisper model cache (downloaded on 1st audio)
+    expose:
+      - "8000"                                       # internal only — reachable from nginx, not the host
+    restart: unless-stopped
+
+  nginx:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  whisper-cache:
