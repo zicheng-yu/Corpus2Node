@@ -1,29 +1,28 @@
 # SESSION — 会话交接摘要
 
-> 一轮会话结束时覆盖写这份（只留最新一轮），下一轮开始时先读这份做快速定位，再去 `docs/PROGRESS.md` 看全量真相与文件夹→功能映射。
-> 这份是「30 秒看懂现状」；PROGRESS.md 是「完整账本」。
+> 下一轮先读本文件，再读 `docs/PROGRESS.md`。PROGRESS 是完整进度真相。
 
-**最近更新**：2026-07-06 (3) · 分支 `feat`
+**最近更新**：2026-07-10 (2) · 分支 `feat`
 
----
+## 本轮完成
 
-## 本轮做了什么（产品演示套件）
+1. **删除失败已解决**：不是 DELETE 实现错误，而是前端已 HMR、后端仍是 7 月 6 日旧进程，运行中 DELETE 返回 405。旧进程无 pidfile，已 `force-stop` 后用 `corpus dev` 重新启动 reload/HMR。
+2. **真实验证**：临时 discovery/session 经运行中 API 删除均 200；浏览器点击临时历史发现删除、确认后条目消失并显示成功 toast。临时 artifact 已清理，用户原 4 条历史报告未改动。
+3. **防再犯提示**：前端删除遇到 405 时明确提示“后端仍是旧版本，请运行 corpus restart 后重试”。
+4. **科研与 R&D 方向**：新增 `docs/SCIENTIFIC_RD.md`，将科研版定位为 Scientific Evidence Graph：
+   - 原始 PDF/JATS/TEI → 科研结构、表格、公式和引用定位；
+   - typed scientific entities + document-level experiment relations；
+   - claim → evidence → experiment → PDF/table locator；
+   - 跨论文证据矩阵、矛盾、空白、技术路线和 R&D 决策卡。
+   `docs/CUSTOMIZATION.md` 已把 scientific profile 列为首个推荐垂直包。
+5. **验证**：162 passed；ruff clean；前端 production build 通过；diff check 通过。
 
-1. **`docs/demo/` 全套演示材料**（用户要拿产品去推销，3–5 分钟现场）：
-   - `DEMO.md`：六幕图文（首页 → 图谱 → 问答溯源 → 笔记试卷 → 创新提案压轴 → 全本地）+ 台本表 + runbook。
-   - `assets/` 10 张 playwright 实拍截图；`Corpus2Node-演示.pptx` 11 页（deck.js 可重建）。
-2. **演示数据已全部缓存**（现场零生成）：主秀库 = 「Python 程序设计」b4f59dff（当前流水线重建，87 概念/819 关系；**旧 `python基础` 是修复前产物，勿上镜**）；chat×2 / notes 7 节 / exam 6 题；发现「Reinforcement Learning · 4 提案」（1 条已采纳+深挖）。
-3. 顺手修三处上镜缺陷（已提交）：提案证据文本去重、deep_dive `**标签**` 渲染为粗体、proposer 静默失败补日志。
+## 当前运行状态
 
-## 仍需注意
-
-- 前后端**保持运行中**（用户原本就开着）；演示当天按 `docs/demo/DEMO.md` runbook 走。
-- 注册表里 `ollama-本地` 凭据是演示道具，**绑定全部仍指 deepseek/kimi**，未改。
-- LibreOffice 渲染 pptx 会显示替换字体（手写风）——假象；Keynote/PowerPoint 原生正确（qlmanage 已验证）。
-- 幻灯片重建：`deck.js` 需要 slides skill 的 `pptxgenjs_helpers` + npm 依赖（文件头有注释）。
+- `corpus dev` 正在运行，后端启用 reload、前端启用 HMR。
+- 如果改用后台 `corpus start`，代码变化后必须重启；普通 restart 无法清理丢失 pidfile 的进程时使用 `corpus force-stop`，但只针对本项目 8000/5173 端口。
+- 工作树包含两轮未提交改动，未 commit、未 push。
 
 ## 下一步最佳动作
 
-1. 用户亲自过一遍 3–5 分钟台本（DEMO.md 台本表），顺手感后微调台词。
-2. 如需对外发材料：DEMO.md 可直接导出 PDF；pptx 可按受众删减到 6–8 页。
-3. （可选）用真实业务多领域语料再跑一次发现，替换 VDN×QMIX 为客户行业案例。
+选择一个真实科研垂直领域和约 30 篇论文，建立带实体、关系、claim、实验数值和 locator 的 gold corpus，再按 `docs/SCIENTIFIC_RD.md` Phase 1 实现 Scientific ingestion MVP。

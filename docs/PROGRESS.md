@@ -9,19 +9,24 @@
 
 ## 当前已验证状态
 
-- **后端测试 153 passed**（`.venv/bin/python -m pytest -q`，2026-07-06 实测，1.8s）。
-- **全离线 LLM 方案已落地并本机实测（本轮）**：注册表 kind += `ollama`/`lmstudio`（免密钥、默认本地端点、`num_ctx`/`max_concurrency`）；本机 M3 用 `gemma4:e2b-it-qat` + `bge-m3`（嵌入）真 HTTP 跑通 workflow/chat/exam/models 端点全流程（`llama3.1:8b` 参照组同过）；PDF 无 Kimi 时 pypdf 本地解析、视频回退 whisper 音轨转写。速度实测：`reasoning=False` ~5×、抽取绑定 `temperature=0.2` 抑制方差、extract 并发 c=1→c=4 提速 1.6×。
+- **后端测试 162 passed**（`.venv/bin/python -m pytest -q`，2026-07-10 实测，2.29s）。
+- **全离线 LLM 方案已落地并本机实测**：注册表 kind += `ollama`/`lmstudio`（免密钥、默认本地端点、`num_ctx`/`max_concurrency`）；本机 M3 用 `gemma4:e2b-it-qat` + `bge-m3`（嵌入）真 HTTP 跑通 workflow/chat/测试/models 全流程（`llama3.1:8b` 参照组同过）；PDF 无 Kimi 时 pypdf 本地解析、视频回退 whisper 音轨转写。
 - **LLM 配置已统一到注册表/UI（本轮）**：Kimi（vision）与远程 embedding 都成为注册表凭据 + 用途；`config.py` 不再有任何 LLM 凭据；`.env` 只剩基础设施 + 首次种子，`.env`/`.env.example` 格式对齐。设置面板改为「凭据=端点+密钥+模型 一体，下面单选下拉直接绑」。
-- **前端 `npm run build` 通过**（2026-06-26 实测）。
-- **ruff clean**（`.venv/bin/ruff check src tests`，2026-06-27 实测）。分支 `feat`。
-- **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/出题）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
-- **在线闭环可跑**：chat agent（强制引用 + trace + SSE）、notes（map-reduce + coverage critic）、exam（generator + verifier 回路）、export（md/tex/txt/pdf）路由齐全且有测试覆盖。
+- **前端 `npm run build` 通过**（2026-07-10 实测）。
+- **ruff clean**（`.venv/bin/ruff check src tests`，2026-07-10 实测）。分支 `feat`。
+- **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/水平测试）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
+- **在线闭环可跑**：chat agent（强制引用 + trace + SSE）、notes（map-reduce + coverage critic）、水平测试（importance plan + generator + verifier 回路）、export（md/tex/txt/pdf）路由齐全且有测试覆盖。
 - **多模态摄入**：文档 7 类 + PDF（Kimi file-extract ↔ 无 Kimi 时 pypdf 本地）+ 图片/视频（Kimi vision/K2.6；vision 绑本地 VLM 时图片走同路径、视频回退 whisper 音轨转写）+ 音频（faster-whisper），注册表式接入。
 - **真实音频/视频摄入已复核（本轮）**：纯音频 `.mp3` 样本 `BV1m2P9zsEgW.mp3` 走 faster-whisper，session `72cc6407...` 为 `graph_ready`（6 chunks / 8 concepts / 1 relation）；标题为 “05 audio” 的 `.mp4` 实际按 `video` 路由，Kimi Files API + `ms://file_id` 真实调用成功，session `6c1a004f...` 为 `graph_ready`（5 chunks / 7 concepts / 9 relations）。
 - **本轮审阅修复已落地并验证**：API 可选 Bearer token、生产环境隐藏 traceback、上传路径清洗/大小限制/分块落盘、JSON artifact 原子写、chat 多轮历史 + 预检索引用兜底、notes/exam 参数冲突保护、流式 workflow `chunk_count` 一致、前端命令面板跳转/上传全失败处理、启动脚本默认不误杀端口、最小 CI、README 按要求清空。
 - **资料集 / 知识库重命名已落地**：后端支持单个资料集 `lecture_title` 改名与知识库 `course_title` 批量改名（含虚拟总图谱 session），首页支持内联入口；已通过全量 pytest、ruff、前端 build。
 - **知识发现已落地并保存 artifact**：首页可多选资料集运行知识发现，也可随机发现；后端生成 `DiscoveryReport` 并保存到 `artifacts/discoveries/{discovery_id}.json`；支持 AI judge seam（critic 绑定可用时自动判断，失败/无凭据退回算法版）；已通过 `tests/test_discovery.py`、全量 pytest、ruff、前端 build。
 - **知识发现增强已落地（本轮）**：(1) **桥接图可视化**——bridge graph 用 ReactFlow 三列（发现→知识点→资料集）画出来（懒加载独立 chunk，首页主包 376KB→229KB）；(2) **可溯源跳转**——发现卡片的概念 chip / 证据块、桥接图概念节点点击直达 `/session/{id}?concept=`；(3) **质量增强**——judge `relation_type` 约束到 8 类枚举（含中文别名回填）、证据每侧 top-2、加结构化信号（共享邻居/标签）、大候选池分批并发 judge、novelty 重算；(4) **历史面板**——首页列出历史 `DiscoveryReport`（`list_discovery_reports` 改按 `generated_at` 倒序），可点开重载。已通过 126 passed、ruff、前端 build。
+- **历史知识发现可删除**：新增 `DELETE /discovery/{discovery_id}`、artifact 删除函数与首页历史条目删除确认；删除当前打开的报告会同步关闭面板，刷新后不再出现。
+- **删除失败运行态问题已解决**：根因是前端 HMR 已加载新代码、后端仍是 7 月 6 日无 reload 的旧进程，DELETE 实际返回 405；已清理未受 pidfile 管理的旧进程并用 `corpus dev` 重启。真实 API 临时 artifact 删除 + 浏览器确认框/成功 toast 均通过，用户原 4 条报告未改动；前端遇到 405 现在明确提示重启后端。
+- **“试卷”已迁移为“水平测试”**：前端不再选择题型；后端先按 `importance_score` 确定知识点测试计划，再让模型自动选题目形式并经独立求解器校验。主接口/产物为 `/generate_test`、`/test/*`、`test.json`、`test_id`；旧 `/exam`、`exam.json`、Python alias 保留读取兼容且从 OpenAPI 隐藏。
+- **多客户定制策略已定**：见 `docs/CUSTOMIZATION.md`，采用“单产品核心 + 客户配置包 + 客户适配器 + 独立部署”，不复制仓库、不维护长期客户分支；当前未提前实现缺少真实客户字段的配置框架。
+- **科研与 R&D 垂直方向已形成方案**：见 `docs/SCIENTIFIC_RD.md`；定位从通用概念图谱升级为“原始科技文献 → 科研实体/实验关系 → claim-evidence graph → 证据矩阵/矛盾/空白 → R&D 决策卡”，建议作为客户配置体系的首个 scientific profile。
 - **mixed 多模态抽取问题已修复（本轮）**：`06 mixed` 摄入正常（image 1 chunk + PDF 40 chunks），抽取阶段曾有 84 concepts / 60 relations，问题是 critic grounding 检索给大量真实概念提示“未检索到相关片段”，且近清空保护只拦截“全删”不拦截“84 删 83”。已改为字面证据优先 + embedding 补充，并加近清空保护；用旧 artifact 无外部调用复核可为 55/84 个旧 verdict 概念找到原文片段。
 
 ## 仓库根目录
@@ -56,9 +61,11 @@ ruff check src tests                                  # lint
 
 ## 当前最高优先级未完成功能
 
-1. **记录真实 eval baseline 数字**（抽取 F1 / 问答 grounding / 出卷可溯源率）——需要用户凭据跑一份真实小语料，把数字写进本文件「已验证状态」。这是 §10 叙事的最后一块。
-2. **Step 7 工程化收尾**：`Course→Corpus` 契约重命名（`core/types.py` + `frontend/src/types/index.ts` 一起改）、持久化向量库（Chroma，`VECTOR_STORE_PROVIDER` 可插拔）、Docker、README 补全。
-3. （低优先）Plan-Execute-Report / FusionAgent 作为 chat 的可选 deep-research 子模式。
+1. **确定一个科研垂直领域和约 30 篇 gold 论文**，按 `docs/SCIENTIFIC_RD.md` Phase 1 实现 Scientific ingestion MVP：JATS/TEI/GROBID、Paper/Claim/Experiment/EvidenceSpan、PDF locator。
+2. **收集前两个真实客户的差异矩阵**（品牌 / 能力 / 限制 / 集成 / 数据边界），据此落地第一版 profile schema 与 loader；scientific profile 作为首个垂直包。
+3. **记录真实 eval baseline 数字**（抽取 F1 / 问答 grounding / 水平测试可溯源率）。
+4. **Step 7 工程化收尾**：`Course→Corpus` 契约重命名、持久化向量库、Docker、README 补全。
+5. （低优先）Plan-Execute-Report / FusionAgent 作为 chat 的可选 deep-research 子模式。
 
 ## 当前 blocker
 
@@ -75,7 +82,7 @@ ruff check src tests                                  # lint
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
 | `config.py` | 基础设施配置（**无任何 LLM 凭据**，连 Kimi/embedding 都在注册表）：API 安全开关、上传大小、`vision_timeout_seconds`、`embed_provider`、`embedding_dimensions`、`graph_critic_enabled`、whisper 等开关 | 加基础设施开关 / 调超时 |
-| `core/types.py` | **数据契约脊柱**：GraphArtifact / NoteDocument / ExamDocument / ChatDocument / DiscoveryReport / EvidenceChunk / ConceptNode / GraphEdge / SourceKind / WorkflowRunArtifact | 改 wire 契约（**必须**和 `frontend/src/types/index.ts` 一起改） |
+| `core/types.py` | **数据契约脊柱**：GraphArtifact / NoteDocument / TestDocument / ChatDocument / DiscoveryReport / EvidenceChunk / ConceptNode / GraphEdge / SourceKind / WorkflowRunArtifact；旧 Exam 类型为兼容 alias | 改 wire 契约（**必须**和 `frontend/src/types/index.ts` 一起改） |
 | `core/text.py` | 文本规范化 / 结构感知分块 / canonicalize | 调分块粒度 / 归一化规则 |
 | `core/clock.py` · `core/logging_config.py` | `utcnow()`（naive UTC）· 日志配置 | 时间/日志 |
 | `llm/credentials.py` `store.py` `factory.py` `structured.py` | **多凭据注册表 + 按 purpose 工厂**：登记凭据→绑定用途。**kind 全集** = `openai`/`anthropic`/**`ollama`/`lmstudio`（本地离线，无需密钥，默认 127.0.0.1:11434 / :1234/v1，凭据可设 `num_ctx`/`max_concurrency`）**；**purpose 全集** = chat 类 `graph/critic/chat/exam`（`build_chat_model`）+ `vision` + `embedding`（`credential_params(purpose)` 取原始参数，本地 kind 自动补 /v1 + dummy key）。Ollama 走原生 ChatOllama：显式 `num_ctx`（默认 8192；服务端默认 4096 会静默截断抽取 prompt）+ `reasoning=False`（实测 gemma4 思考关闭快 ~5×，质量相同）；`concurrency_for(purpose, default)` 批量阶段按凭据限并发（本地默认 4）；`structured_output_method`：openai/**ollama**=json_mode（实测 gemma4 在 json_schema 语法锁定下 relations 塌缩为 []）/ anthropic=function_calling / **lmstudio=json_schema** | 加新 LLM kind/purpose / 改结构化输出 / 改回退链 / 调本地并发与上下文 |
@@ -88,27 +95,27 @@ ruff check src tests                                  # lint
 | `graph/critic.py` | **LLM-judge 质量门**：concept grounding / 关系方向 / 同实体重复 → 确定性 repair（drop/merge/flip/retype，≤1 轮，空图保护） | 调质量门规则 |
 | `graph/workflow.py` | **LangGraph 离线 DAG**：ingest→extract→critic→build，每节点经 RunRecorder 记耗时/token/repair | 改离线流水线拓扑 |
 | `notes/generate.py` `markdown.py` `prompts.py` `schemas.py` | **笔记**：map-reduce 分章（carry-forward 去重）+ 检索 chunk 落地引用 + **确定性 coverage critic** 补未覆盖核心概念；markdown.py 是 donor 来的确定性后处理 | 调笔记结构/覆盖 |
-| `exam/generate.py` `validate.py` `prompts.py` `schemas.py` | **出卷**：generator + **verifier 独立求解回路**（solver 用 Purpose.critic 独立作答，不符/无据则打回补足到请求数）；validate 是题型/难度校验 + `answers_match` | 调出题/校验/难度 |
+| `exam/generate.py` `validate.py` `prompts.py` `schemas.py` | **水平测试**：确定性按 `importance_score` 规划知识点 → generator 自动选题目形式 → **verifier 独立求解回路**；目录名与 `Purpose.exam` 暂留作内部兼容键 | 调测试覆盖/校验/难度 |
 | `assistant/agent.py` `tools.py` | **招牌：在线 chat agent**（单 tool-calling agent + 最近历史 + 预检索引用兜底 + 结构化 trace + SSE）；tools = retrieve_chunks / search_concepts / get_subgraph | 调问答行为 / 加 agent 工具 |
 | `discovery/engine.py` | **知识发现 v2（创新提案）**：多资料集/随机模式；宽候选生成（相似度+词面+结构信号+图谱重要性）+ AI judge seam（Purpose.critic，大池分批并发，`relation_type` 8 类枚举+中文别名回填）+ 算法 fallback；证据每侧 top-2；LLM 标题 seam（确定性 `derive_title` 回退）。**提案层（老板场景）**：findings → `make_proposer_or_none`（Purpose.chat→critic，temp 0.7，json_mode 需 prompt 带 `_PROPOSAL_FORMAT_HINT`）产出 `InnovationProposal`（title/pitch/组合/第一步/风险/status/deep_dive）；`_proposals_from_draft` 概念 grounding（名称多键映射：raw+去括号，同名跨集解析**优先未覆盖资料集**）+ 跨集 ≥2 校验；`_fallback_proposals` 按 relation_type 模板确定性成案；`_avoid_titles` 把历史已采纳/搁置标题喂给 proposer 避重；`deepen_proposal` + `make_deepener_or_none` 五字段深挖（目标/做法/数据/首实验/指标）确定性渲染 markdown；`intent` 全程贯穿 prompt。**桥接图 v2**：有提案时输出 资料集→概念→提案 三层（node_type=proposal 带 status/pitch），无提案回退旧 finding 布局（老报告兼容） | 调发现/提案逻辑 / 评分权重 / 提案数(`_PROPOSAL_TARGET`) / 深挖字段 / 图布局 |
 | `export/renderer.py` | 导出 md/tex/txt（纯 Python）+ pdf（惰性 wkhtmltopdf→xhtml2pdf，`[export]` extra）+ render_chat_markdown | 加导出格式 |
-| `eval/metrics.py` `harness.py` `schemas.py` `__main__.py` `data/` | **离线评估**：纯指标（抽取 F1 / 关系合法+召回 / 笔记覆盖 / 出卷可溯源+客观题合法 / 问答 grounding）+ harness + CLI + gold fixture | 加评估指标 / 调 gold |
-| `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放 + 同参数复用/异参数冲突保护——notes/exam 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
+| `eval/metrics.py` `harness.py` `schemas.py` `__main__.py` `data/` | **离线评估**：纯指标（抽取 F1 / 关系合法+召回 / 笔记覆盖 / 水平测试可溯源+客观题合法 / 问答 grounding）+ harness + CLI + gold fixture | 加评估指标 / 调 gold |
+| `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放 + 同参数复用/异参数冲突保护——notes/test 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
 | `prompt_store.py` | 用户自定义提示词（global + chat/notes/exam）作为「补充偏好」**追加**到内置 system prompt（不覆盖结构化/引用约束；抽取与质检不受影响） | 调自定义 prompt 接入面 |
 | `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源，原子写；含 `discoveries/{discovery_id}.json`）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
-| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions（安全上传 + 资料集/知识库重命名）· discovery(`/discovery/run`(带 intent), `/discovery`, `/discovery/{id}`, **`PATCH …/proposals/{pid}` 提案反馈、`POST …/proposals/{pid}/deepen` 深挖**) · settings(`/settings/llm` 注册表 CRUD + `POST /settings/llm/models` 枚举端点模型) · prompts(`/settings/prompts`) · workflow(`/workflow/run` + run-metrics) · chat(`/chat/{message,stream}`) · notes(`/generate_notes[+/stream]`,`/notes/{id}[/stream]`) · exam(同形) · export(`/export/*`) · graph(`GET /graph/{id}`、`/subgraph`、`POST /search`、`GET /graph/concepts` 全局知识点搜索) | 加/改 HTTP 接口 |
+| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions（安全上传 + 资料集/知识库重命名）· discovery(`/discovery/run`、列表/读取/**删除**、提案反馈/深挖) · settings · prompts · workflow · chat · notes · test(`/generate_test[+/stream]`,`/test/{id}[/stream]`) · export · graph；旧 exam 路径隐藏兼容 | 加/改 HTTP 接口 |
 
 ### 前端 `frontend/src/`
 
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
-| `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），含 sessions 创建/删除/资料集改名/知识库改名、knowledge discovery | 加/改一个后端调用 |
+| `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），含 sessions 管理、knowledge discovery 运行/删除、notes/test 生成与导出 | 加/改一个后端调用 |
 | `types/index.ts` | 前端契约（对应 `core/types.py`，含 DiscoveryReport） | 改契约（和后端一起改） |
-| `pages/HomePage.tsx` | 知识库列表 + **折叠（localStorage 记忆）** + **拖拽排序（原生 HTML5 DnD + 抓手，`c2n:courseOrder`/`c2n:sessionOrder`）** + **资料集/知识库改名** + **知识发现 v2：单按钮 → `DiscoveryLaunchModal`（选中/随机说明 + 意图 textarea）→ 报告面板「创新提案」卡优先（`ProposalCard`：pitch/组合/第一步/风险/来源 chips/证据/深挖块 + 采纳/搁置/深挖按钮，状态实时 PATCH 持久化并同步历史）+「支撑桥接点」finding 卡 + 历史面板（提案数优先显示）** + **全局知识点搜索** + 来源标签；通用 `ConfirmModal`(tone) | 改首页/库管理/排序/提案交互 |
+| `pages/HomePage.tsx` | 知识库列表 + 折叠/拖拽排序 + 资料集/知识库改名 + **知识发现 v2**（运行、提案、历史读取/**确认删除**、桥接图）+ 全局知识点搜索；通用 `ConfirmModal` | 改首页/库管理/发现交互 |
 | `components/discovery/BridgeGraphView.tsx` | **发现呈现图（双布局自适应）**：有 proposal 节点 → **部门(资料集)→桥接概念→创新提案** 三列（提案宽卡、采纳高亮 ring/搁置降透明、点击提案定位卡片）；旧报告（finding 节点）保留 发现→知识点→资料集 布局；概念节点点击溯源；懒加载独立 chunk | 改呈现图样式/布局/交互 |
 | `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
 | `pages/PipelinePage.tsx` | 流水线可视化（4 阶段一行：解析/切分/抽取/构建，**质检 critic 折叠进「构建图谱」**）+ per-node **run-metrics 面板**（耗时/token/repair，仍单列 `critic` 节点） | 改流水线展示 |
-| `pages/WorkspacePage.tsx` | 图谱 + 右栏**对话/笔记/试卷**标签页（选区可转对话 + ExportMenu） | 改主工作区 |
+| `pages/WorkspacePage.tsx` | 图谱 + 右栏**对话/笔记/测试**标签页（选区可转对话 + ExportMenu）；测试只选题数，覆盖按知识点重要度自动规划 | 改主工作区 |
 | `components/layout/SettingsPanel.tsx` | **统一设置**：模型（凭据=端点+密钥+模型 一体；用途 graph/chat/critic/exam/**vision/embedding** 各一个单选下拉「凭据·模型」直接绑）/ 外观 / 提示词（真实编辑器） | 改设置面板 |
 | `components/layout/CommandPalette.tsx` | ⌘K 命令面板 + **全局知识点搜索** + 按 session 状态跳转 | 改全局搜索/快捷入口 |
 | `components/layout/{AppShell,TopBar}.tsx` | 外壳 / 顶栏 | 改全局布局 |
@@ -132,6 +139,26 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-07-10 (2) — 删除失败运行态修复 + 科研证据图谱方向
+- **删除失败根因**：前端 Vite HMR 已加载本轮 DELETE 代码，后台 uvicorn 是 7 月 6 日启动的旧版本；运行 OpenAPI 无 DELETE 和 `/test` 路由，日志确认历史发现 DELETE 全部为 405。普通 `corpus restart` 因 pidfile 丢失无法接管旧进程。
+- **处理**：用项目 `force-stop` 清理 8000/5173 未跟踪进程，再以 `corpus dev` 启动 reload/HMR；前端 `confirmDelete` 对 405 给出“后端仍是旧版本，请运行 corpus restart”提示。
+- **真实验收**：创建临时 DiscoveryReport 和 CourseSession，经运行中 HTTP API 删除均 200 且 artifact 消失；浏览器创建第二个临时报告，点击历史删除 → 确认 → 条目 detached + “历史发现已删除” toast。临时数据已清净，用户原 4 条报告仍在。
+- **科研方向**：新增 `docs/SCIENTIFIC_RD.md`，提出 Scientific Evidence Graph：科学文献身份/版本、JATS/TEI/GROBID 结构解析、typed scientific entities、document-level experiment relations、claim-evidence locator、跨论文证据矩阵/矛盾/研究空白/方法迁移与 R&D 决策卡；`CUSTOMIZATION.md` 将 scientific profile 列为首个推荐垂直包。
+- **验证**：162 passed；ruff clean；前端 production build 通过；`git diff --check` 通过。
+- **下一步**：选择一个领域和约 30 篇论文建立 gold corpus，再做 Phase 1，而不是直接接全网论文搜索。
+
+### 2026-07-10 — 多客户定制策略 + 历史发现删除 + 水平测试迁移
+- **本轮目标**：安排面向不同服务客户的定制版本开发方式；新增历史知识发现删除；将“试卷”全面调整为不选题型、按知识点重要度规划的水平测试。
+- **已完成**：
+  - 新增 `docs/CUSTOMIZATION.md`：确定“单产品核心 + 客户配置包 + 客户适配器 + 独立部署”，列出分层、目录、数据隔离、需求进入流程、测试矩阵和四阶段落地顺序。
+  - 历史发现新增 artifact 删除、`DELETE /discovery/{id}`、前端历史条目删除按钮与不可撤销确认；删除当前报告同步关闭详情。
+  - 新契约为 `TestDocument/TestQuestion/GenerateTestRequest`；新主接口 `/generate_test`、`/test/*`、导出 `/export/{id}/test/*`，新 artifact 为 `test.json`。旧 Exam Python 类型、`/exam` 路径和 `exam.json` 读取保留兼容，旧路径不出现在 OpenAPI。
+  - 测试生成改为确定性先按 `importance_score` 选择主知识点（小图额外题优先重复 top half），LLM 只决定合适的题目形式；每题保存 `primary_concept_id` / `importance_score`，仍经独立 verifier 回路。
+  - 前端移除题型选择，仅保留题数；标签、设置、导出、选区问答和文档均改称“测试/水平测试”，题卡展示知识点重要度与测试依据。
+- **验证**：`.venv/bin/python -m pytest -q` → **162 passed**；`.venv/bin/ruff check src tests` clean；`frontend npm run build` 通过；OpenAPI 仅公开 test 主路径；旧 `exam_id` artifact 有迁移测试。
+- **已知风险**：未调用真实 LLM 重跑测试，重要度计划的结构化服从度仍需用一个真实资料集浏览器验收；`Purpose.exam`、`exam/` 目录和旧路由仅作为内部/外部兼容层暂留。现有演示 PPTX/截图仍是迁移前画面，若继续用于销售演示需另行重拍/重建。
+- **下一步最佳动作**：先收集两个真实客户的差异矩阵，再实现第一版 customer profile；不要只根据一个客户需求提前抽象。
 
 ### 2026-07-06 (3) — 产品演示套件（图文 + 幻灯片 + 台本，全自动产出）
 - **产出**：`docs/demo/`——`DEMO.md`（六幕产品叙事 + 3–5 分钟现场台本表 + runbook）、10 张 playwright 实拍截图、`Corpus2Node-演示.pptx`（11 页 16:9，暖米白 #faf9f5 + 赭石橙 #bc6a3a，宋体标题/苹方正文；deck.js 附 repo 可重建）。两大卖点主线：可溯源可解释 + 全本地私有化。
