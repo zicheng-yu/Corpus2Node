@@ -14,6 +14,8 @@ frontend/dist/
 artifacts/
 .run/
 .playwright-mcp/
+# Local slide renders generated while previewing the tracked demo deck.
+docs/demo/Corpus2Node-演示/
 AGENTS.md
 CLAUDE.md
 .vercel
