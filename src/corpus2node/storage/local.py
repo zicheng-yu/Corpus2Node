@@ -14,10 +14,10 @@ from corpus2node.core.types import (
     ChatDocument,
     CourseSession,
     DiscoveryReport,
-    ExamDocument,
     GraphArtifact,
     IngestArtifact,
     NoteDocument,
+    TestDocument,
 )
 
 T = TypeVar("T", bound=BaseModel)
@@ -201,16 +201,37 @@ def exam_path(session_id: uuid.UUID) -> Path:
     return session_dir(session_id) / "exam.json"
 
 
-def save_exam(exam: ExamDocument) -> Path:
-    return _write_model(exam_path(exam.session_id), exam)
+def test_path(session_id: uuid.UUID) -> Path:
+    return session_dir(session_id) / "test.json"
 
 
-def load_exam(session_id: uuid.UUID) -> ExamDocument:
-    return _read_model(exam_path(session_id), ExamDocument)
+def save_test(test: TestDocument) -> Path:
+    return _write_model(test_path(test.session_id), test)
+
+
+def load_test(session_id: uuid.UUID) -> TestDocument:
+    path = test_path(session_id)
+    if not path.exists():
+        path = exam_path(session_id)
+    return _read_model(path, TestDocument)
+
+
+def delete_test(session_id: uuid.UUID) -> None:
+    test_path(session_id).unlink(missing_ok=True)
+    exam_path(session_id).unlink(missing_ok=True)
+
+
+# Compatibility wrappers for older callers and exam.json artifacts.
+def save_exam(exam: TestDocument) -> Path:
+    return save_test(exam)
+
+
+def load_exam(session_id: uuid.UUID) -> TestDocument:
+    return load_test(session_id)
 
 
 def delete_exam(session_id: uuid.UUID) -> None:
-    exam_path(session_id).unlink(missing_ok=True)
+    delete_test(session_id)
 
 
 def chat_path(session_id: uuid.UUID) -> Path:
@@ -245,6 +266,10 @@ def save_discovery_report(report: DiscoveryReport) -> Path:
 
 def load_discovery_report(discovery_id: str) -> DiscoveryReport:
     return _read_model(discovery_path(discovery_id), DiscoveryReport)
+
+
+def delete_discovery_report(discovery_id: str) -> None:
+    discovery_path(discovery_id).unlink(missing_ok=True)
 
 
 def list_discovery_reports() -> list[DiscoveryReport]:

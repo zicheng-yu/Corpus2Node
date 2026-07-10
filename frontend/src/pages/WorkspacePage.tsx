@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { getGraph, getSession } from "../api/client";
 import { ChatView } from "../components/chat/ChatView";
 import { NoteView } from "../components/notes/NoteView";
-import { ExamView } from "../components/notes/ExamView";
+import { TestView } from "../components/notes/ExamView";
 import { SearchPanel } from "../components/search/SearchPanel";
 import { ConceptDrawer } from "../components/graph/ConceptDrawer";
 import { Skeleton } from "../components/primitives/Skeleton";
@@ -41,7 +41,7 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [leftWidth, setLeftWidth] = useState(() => Number(localStorage.getItem("c2n:leftW")) || 320);
   const [rightWidth, setRightWidth] = useState(() => Number(localStorage.getItem("c2n:rightW")) || 420);
-  const [activeTab, setActiveTab] = useState<"chat" | "notes" | "exam">("chat");
+  const [activeTab, setActiveTab] = useState<"chat" | "notes" | "test">("chat");
   const [pendingContext, setPendingContext] = useState<ChatContextItem | null>(null);
 
   useEffect(() => {
@@ -321,14 +321,14 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
           <>
             <div className="ws-head">
               <div className="ws-tool-tabs">
-                {(["chat", "notes", "exam"] as const).map((tab) => (
+                {(["chat", "notes", "test"] as const).map((tab) => (
                   <button
                     key={tab}
                     type="button"
                     className={clsx("ws-tool-tab", activeTab === tab && "ws-tool-tab-active")}
                     onClick={() => setActiveTab(tab)}
                   >
-                    {{ chat: "对话", notes: "笔记", exam: "试卷" }[tab]}
+                    {{ chat: "对话", notes: "笔记", test: "测试" }[tab]}
                   </button>
                 ))}
               </div>
@@ -346,7 +346,7 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
             </div>
             <div className="ws-notes-body">
               {/* Chat stays mounted (hidden) so an in-flight stream / history survives tab switches.
-                  Notes/Exam re-attach to their server-side job on (re)mount, so they survive too. */}
+                  Notes/Test re-attach to their server-side job on (re)mount, so they survive too. */}
               <div style={{ display: activeTab === "chat" ? "contents" : "none" }}>
                 <ChatView
                   sessionId={id}
@@ -356,7 +356,7 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
                 />
               </div>
               {activeTab === "notes" && <NoteView sessionId={id} onAskSelection={askFromSelection} />}
-              {activeTab === "exam" && <ExamView sessionId={id} onAskSelection={askFromSelection} />}
+              {activeTab === "test" && <TestView sessionId={id} onAskSelection={askFromSelection} />}
             </div>
           </>
         )}

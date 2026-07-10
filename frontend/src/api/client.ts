@@ -7,7 +7,6 @@ import type {
   CourseSession,
   CredentialUpsert,
   DiscoveryReport,
-  ExamDocument,
   GlobalConceptHit,
   GraphArtifact,
   LLMSettingsView,
@@ -19,6 +18,7 @@ import type {
   ProviderKind,
   SearchResponse,
   SubgraphResponse,
+  TestDocument,
   UploadResponse,
   WorkflowRunResponse,
 } from "../types";
@@ -237,6 +237,12 @@ export async function getDiscovery(discoveryId: string): Promise<DiscoveryReport
   return readJson<DiscoveryReport>(await fetch(`${BASE}/discovery/${discoveryId}`));
 }
 
+export async function deleteDiscovery(discoveryId: string): Promise<void> {
+  await readJson<{ ok: boolean }>(
+    await fetch(`${BASE}/discovery/${discoveryId}`, { method: "DELETE" }),
+  );
+}
+
 // ── Chat (streaming + fallback) ───────────────────────────────────────────────
 
 export async function getChat(sessionId: string): Promise<ChatDocument> {
@@ -326,7 +332,7 @@ export function savePromptSettings(payload: PromptSettings): Promise<PromptSetti
   }).then((r) => readJson<PromptSettings>(r));
 }
 
-// ── Notes / Exam (streaming generation; survives navigation via server-side jobs) ─
+// ── Notes / level test (streaming generation; survives navigation via server-side jobs) ─
 
 export interface GenStreamEvent {
   type: "section" | "question" | "done" | "idle" | "error" | string;
@@ -357,12 +363,12 @@ export async function attachNotesStream(
   await pumpSSE<GenStreamEvent>(await fetch(`${BASE}/notes/${sessionId}/stream`, { signal }), onEvent);
 }
 
-export async function streamGenerateExam(
-  payload: { session_id: string; question_count?: number; question_types?: string[] },
+export async function streamGenerateTest(
+  payload: { session_id: string; question_count?: number },
   onEvent: (event: GenStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${BASE}/generate_exam/stream`, {
+  const response = await fetch(`${BASE}/generate_test/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -371,15 +377,15 @@ export async function streamGenerateExam(
   await pumpSSE<GenStreamEvent>(response, onEvent);
 }
 
-export async function attachExamStream(
+export async function attachTestStream(
   sessionId: string,
   onEvent: (event: GenStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  await pumpSSE<GenStreamEvent>(await fetch(`${BASE}/exam/${sessionId}/stream`, { signal }), onEvent);
+  await pumpSSE<GenStreamEvent>(await fetch(`${BASE}/test/${sessionId}/stream`, { signal }), onEvent);
 }
 
-// ── Notes / Exam (non-streaming + export) ─────────────────────────────────────
+// ── Notes / level test (non-streaming + export) ───────────────────────────────
 
 export function generateNotes(payload: { session_id: string; topic?: string; concept_ids?: string[] }): Promise<NoteDocument> {
   return postJson<NoteDocument>("/generate_notes", payload);
@@ -389,12 +395,12 @@ export async function getNote(sessionId: string): Promise<NoteDocument> {
   return readJson<NoteDocument>(await fetch(`${BASE}/notes/${sessionId}`));
 }
 
-export function generateExam(payload: { session_id: string; question_count?: number; question_types?: string[] }): Promise<ExamDocument> {
-  return postJson<ExamDocument>("/generate_exam", payload);
+export function generateTest(payload: { session_id: string; question_count?: number }): Promise<TestDocument> {
+  return postJson<TestDocument>("/generate_test", payload);
 }
 
-export async function getExam(sessionId: string): Promise<ExamDocument> {
-  return readJson<ExamDocument>(await fetch(`${BASE}/exam/${sessionId}`));
+export async function getTest(sessionId: string): Promise<TestDocument> {
+  return readJson<TestDocument>(await fetch(`${BASE}/test/${sessionId}`));
 }
 
 export async function exportNote(sessionId: string, fmt: "markdown" | "tex" | "txt" | "pdf"): Promise<Blob> {
@@ -403,8 +409,8 @@ export async function exportNote(sessionId: string, fmt: "markdown" | "tex" | "t
   return response.blob();
 }
 
-export async function exportExam(sessionId: string, fmt: "markdown" | "tex" | "txt" | "pdf"): Promise<Blob> {
-  const response = await fetch(`${BASE}/export/${sessionId}/exam/${fmt}`);
+export async function exportTest(sessionId: string, fmt: "markdown" | "tex" | "txt" | "pdf"): Promise<Blob> {
+  const response = await fetch(`${BASE}/export/${sessionId}/test/${fmt}`);
   if (!response.ok) throw new ApiError(response.status, await response.text());
   return response.blob();
 }

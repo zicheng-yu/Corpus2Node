@@ -26,9 +26,9 @@ def _print_report(report: EvalReport) -> None:
         n = report.notes
         print("\n[notes]")
         print(f"  coverage={n.coverage}  ({n.covered}/{n.core_concepts} core concepts, {n.sections} sections)")
-    if report.exam:
-        x = report.exam
-        print("\n[exam]")
+    if report.test:
+        x = report.test
+        print("\n[test]")
         print(f"  traceability={x.traceability}  ({x.traceable}/{x.questions})")
         print(f"  objective validity={x.objective_validity}  ({x.objective_valid}/{x.objective})")
     if report.qa:

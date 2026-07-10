@@ -1,7 +1,7 @@
 # 生产部署模型推荐（开源可自托管，2026-07）
 
 > 目标读者：要把 Corpus2Node 部署到生产、且模型必须**开源权重 + 私有化部署**的人。
-> 覆盖全功能所需的 6 个用途：`graph`（建图抽取）/ `critic`（质检+求解）/ `chat`（问答 agent，**需 tool calling**）/ `exam`（出卷）/ `vision`（图片 + 扫描件）/ `embedding`（向量检索）。音频/视频模态不在本文范围（音频始终走本地 faster-whisper，与模型选型无关）。
+> 覆盖全功能所需的 6 个用途：`graph`（建图抽取）/ `critic`（质检+求解）/ `chat`（问答 agent，**需 tool calling**）/ `exam`（水平测试生成，内部兼容键）/ `vision`（图片 + 扫描件）/ `embedding`（向量检索）。音频/视频模态不在本文范围（音频始终走本地 faster-whisper，与模型选型无关）。
 > 本机小模型（Ollama + gemma4-e2b 级）只够功能验证；生产请按下表升级。
 
 ---
@@ -11,9 +11,9 @@
 | 档位 | 硬件 | chat 类模型（graph/critic/chat/exam） | vision | embedding | 一句话 |
 |------|------|--------------------------------------|--------|-----------|--------|
 | **单模型全包**（运维最省） | 1×80GB（H100/A100/H800）或 2×48GB | **Qwen3-VL-32B-Instruct**（一个实例同时当 chat 类 + vision） | 同左 | BGE-M3（内置本地路径，免部署） | 一个 vLLM 实例覆盖全部 6 用途，最少活的部件 |
-| **甜点位**（推荐默认） | 1×80GB 或 2×48GB（chat 类）+ 1×24~48GB（vision） | **Qwen3.5-35B-A3B**（MoE，激活 3B，吞吐极高）或 Qwen3.5-27B（dense，更稳） | **Qwen3-VL-32B-Instruct**（预算紧用 Qwen3-VL-8B） | BGE-M3 或 Qwen3-Embedding-4B | 抽取/质检/出卷质量与吞吐的最佳平衡 |
+| **甜点位**（推荐默认） | 1×80GB 或 2×48GB（chat 类）+ 1×24~48GB（vision） | **Qwen3.5-35B-A3B**（MoE，激活 3B，吞吐极高）或 Qwen3.5-27B（dense，更稳） | **Qwen3-VL-32B-Instruct**（预算紧用 Qwen3-VL-8B） | BGE-M3 或 Qwen3-Embedding-4B | 抽取/质检/测试质量与吞吐的最佳平衡 |
 | **单卡极简** | 1×24GB（4090/L4/A10） | Qwen3.5-9B（FP8/AWQ） | Qwen3-VL-8B（与 chat 类分时复用同卡，或 Qwen3-VL-2B 常驻） | BGE-M3（CPU 可跑） | 能跑全功能的最低生产形态 |
-| **旗舰** | ≥8×H100 | **DeepSeek-V4-Flash**（284B-A13B，性价比旗舰）；预算无上限再看 Kimi-K2.5（1T-A32B）/ GLM-5.2 / Qwen3.5-397B-A17B | Qwen3-VL 最大杯 | Qwen3-Embedding-8B | 抽取一致性、critic 判卷、长文出卷全面上台阶 |
+| **旗舰** | ≥8×H100 | **DeepSeek-V4-Flash**（284B-A13B，性价比旗舰）；预算无上限再看 Kimi-K2.5（1T-A32B）/ GLM-5.2 / Qwen3.5-397B-A17B | Qwen3-VL 最大杯 | Qwen3-Embedding-8B | 抽取一致性、critic 校验、水平测试生成全面上台阶 |
 
 所有推荐均为**开源权重 + vLLM 官方支持**（Apache 2.0 / MIT 系许可，可商用；GLM/Kimi 为宽松自定义许可，商用前读一遍原文）。
 
@@ -26,7 +26,7 @@
 | `graph` 抽取 | 结构化输出（json_mode）、中文概念抽取、长 prompt | 稳定 JSON、≥8K 上下文、**低温度下不塌缩** | 小模型（4B 级）方差大、关系端点写表面名（已在 merge 端点归一里兜底）；14B+ 显著更稳 |
 | `critic` 质检 | LLM-judge：grounding 判断、结构化裁决 | schema 服从性最敏感的用途 | gemma4-e2b 偶尔过不了 `GraphCriticReport` 校验；**这是最不该省的用途** |
 | `chat` 问答 | **tool calling**（search/retrieve/subgraph 三工具）+ 流式 + 引用 | 必须原生支持函数调用；思考模型需可关思考 | DeepSeek V4 思考模式拒绝 forced tool_choice 的教训 → 选非思考或可关思考的模型 |
-| `exam` 出卷 | 结构化长输出 + verifier 独立求解 | 同 graph；题面质量吃模型规模 | verifier 回路能兜住部分答案错误，但源头质量仍取决于模型 |
+| `exam` 水平测试 | 结构化长输出 + verifier 独立求解 | 同 graph；题面质量吃模型规模 | verifier 回路能兜住部分答案错误，但源头质量仍取决于模型 |
 | `vision` | 图片转写 + 扫描件 OCR（中文密集版面） | 开源 VLM 文档能力 | Qwen3-VL 系是 2026 年开源文档 OCR 天花板（动态分辨率 4096²，中日韩英 OCR） |
 | `embedding` | 中英混合语料检索 | 多语种、8K 输入 | BGE-M3 已内置（`EMBED_PROVIDER=bge_m3` 进程内跑，免部署）；要独立服务再上 Qwen3-Embedding |
 
@@ -76,7 +76,7 @@ vllm serve Qwen/Qwen3-Embedding-4B --task embed --api-key YOUR_TOKEN
 - **tool calling**：`chat` 用途必需 `--enable-auto-tool-choice --tool-call-parser hermes`（Qwen3 系用 `hermes`；用 coder 变体则 `qwen3_coder`）。不开这两个参数，问答 agent 的三件工具全部失效。
 - **结构化输出**：本项目 openai kind 走 `json_mode`（`response_format={"type":"json_object"}`），vLLM 原生支持，无需额外参数。
 - **量化**：优先 FP8（Hopper 卡近乎无损）；Ampere 用 AWQ-INT4。critic 用途尽量少量化。
-- **上下文**：`--max-model-len 32768` 足够（抽取批 ≤8 chunks ≈ 5K 字符；出卷/笔记 prompt 更长一些）。这是 vLLM 侧的「num_ctx」，注册表里无需再设。
+- **上下文**：`--max-model-len 32768` 足够（抽取批 ≤8 chunks ≈ 5K 字符；测试/笔记 prompt 更长一些）。这是 vLLM 侧的「num_ctx」，注册表里无需再设。
 - **并发**：vLLM 吃得下默认并发（`extract_max_concurrency=8`）；单卡极简档建议在 `.env` 降到 4。
 
 ## 4. 注册表怎么填（设置 → 模型）

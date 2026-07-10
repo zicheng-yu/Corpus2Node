@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 
 import pytest
@@ -8,11 +9,11 @@ import pytest
 from corpus2node.core.types import (
     CourseSession,
     EvidenceChunk,
-    GenerateExamRequest,
+    GenerateTestRequest,
     IngestArtifact,
     SourceKind,
 )
-from corpus2node.exam.generate import generate_exam
+from corpus2node.exam.generate import generate_test, select_test_targets
 from corpus2node.exam.schemas import LLMExamChoice, LLMExamDocument, LLMExamQuestion, SolvedAnswer
 from corpus2node.graph.build import build_graph_artifact
 from corpus2node.graph.schemas import ExtractedConcept, ExtractedRelation, GraphExtractionResult
@@ -60,56 +61,61 @@ def _q(stem: str, answer: str, concept_id: str, qtype: str = "short_answer") -> 
     )
 
 
-def test_generate_exam_returns_requested_count_despite_invalid_questions():
+def _target_ids(prompt: str) -> list[str]:
+    return re.findall(r"primary_concept_id=([^ |\n]+)", prompt)
+
+
+def test_generate_test_returns_requested_count_despite_invalid_questions():
     """Donor bug: invalid questions were dropped then sliced, yielding < requested. We top up."""
-    session_id, vid = _setup_graph()
+    session_id, _ = _setup_graph()
+
+    rounds = 0
 
     async def exam_caller(prompt: str) -> LLMExamDocument:
+        nonlocal rounds
+        rounds += 1
+        questions = [_q(f"知识点 {index} 的用途是什么？", "用于解决问题", cid) for index, cid in enumerate(_target_ids(prompt))]
+        if rounds == 1:
+            questions[0] = LLMExamQuestion(question_type="short_answer", stem="", answer="", explanation="")
         return LLMExamDocument(
-            title="树测验", summary="覆盖核心",
-            questions=[
-                _q("二叉搜索树的用途是什么？", "高效查找", vid),
-                _q("平衡树解决了什么问题？", "退化为链表", vid),
-                LLMExamQuestion(question_type="short_answer", stem="", answer="", explanation=""),  # invalid → dropped
-                _q("树结构有什么特点？", "层次结构", vid),
-                _q("二叉搜索树和平衡树的区别？", "是否自平衡", vid),
-            ],
+            title="树水平测试", summary="覆盖核心", questions=questions,
         )
 
-    exam = asyncio.run(
-        generate_exam(
-            GenerateExamRequest(session_id=session_id, question_count=4, question_types=["short_answer"]),
+    test = asyncio.run(
+        generate_test(
+            GenerateTestRequest(session_id=session_id, question_count=4),
             exam_caller=exam_caller,
             verify=False,
             embeddings=EMB,
         )
     )
-    assert len(exam.questions) == 4  # exactly the requested count, the invalid one didn't reduce it
-    assert all(q.stem for q in exam.questions)
+    assert len(test.questions) == 4
+    assert all(q.stem for q in test.questions)
+    assert all(q.primary_concept_id == q.concept_ids[0] for q in test.questions)
+    assert rounds == 2
 
 
 def test_verifier_rejects_wrong_answer_and_tops_up():
-    session_id, vid = _setup_graph()
+    session_id, _ = _setup_graph()
     rounds: list[int] = []
 
     async def exam_caller(prompt: str) -> LLMExamDocument:
         rounds.append(1)
+        questions = [
+            _q(f"Q-good{index}: 正确答案的题", "A", cid, qtype="single_choice")
+            for index, cid in enumerate(_target_ids(prompt))
+        ]
         if len(rounds) == 1:
-            return LLMExamDocument(questions=[
-                _q("Q-bad: 错误答案的题", "A", vid, qtype="single_choice"),
-                _q("Q-good1: 正确答案的题一", "A", vid, qtype="single_choice"),
-                _q("Q-good2: 正确答案的题二", "A", vid, qtype="single_choice"),
-                _q("Q-good3: 正确答案的题三", "A", vid, qtype="single_choice"),
-            ])
-        return LLMExamDocument(questions=[_q("Q-extra: 补充的题", "A", vid, qtype="single_choice")])
+            questions[0].stem = "Q-bad: 错误答案的题"
+        return LLMExamDocument(questions=questions)
 
     async def solve_caller(prompt: str) -> SolvedAnswer:
         # the solver disagrees only with the "bad" question
         return SolvedAnswer(answer="B" if "Q-bad" in prompt else "A", grounded=True)
 
-    exam = asyncio.run(
-        generate_exam(
-            GenerateExamRequest(session_id=session_id, question_count=4, question_types=["single_choice"]),
+    test = asyncio.run(
+        generate_test(
+            GenerateTestRequest(session_id=session_id, question_count=4),
             exam_caller=exam_caller,
             solve_caller=solve_caller,
             verify=True,
@@ -117,21 +123,23 @@ def test_verifier_rejects_wrong_answer_and_tops_up():
             max_rounds=2,
         )
     )
-    assert len(exam.questions) == 4  # bad one rejected, then topped up to the requested count
-    assert all("Q-bad" not in q.stem for q in exam.questions)
+    assert len(test.questions) == 4
+    assert all("Q-bad" not in q.stem for q in test.questions)
     assert len(rounds) == 2  # a second generation round was needed to replace the rejected question
 
 
-def test_generate_exam_streams_questions_via_callback():
-    session_id, vid = _setup_graph()
+def test_generate_test_streams_questions_via_callback():
+    session_id, _ = _setup_graph()
     streamed = []
 
     async def exam_caller(prompt: str) -> LLMExamDocument:
-        return LLMExamDocument(questions=[_q(f"Q{i}?", f"A{i}", vid) for i in range(4)])
+        return LLMExamDocument(
+            questions=[_q(f"Q{i}?", f"A{i}", cid) for i, cid in enumerate(_target_ids(prompt))]
+        )
 
     asyncio.run(
-        generate_exam(
-            GenerateExamRequest(session_id=session_id, question_count=4, question_types=["short_answer"]),
+        generate_test(
+            GenerateTestRequest(session_id=session_id, question_count=4),
             exam_caller=exam_caller,
             verify=False,
             embeddings=EMB,
@@ -142,10 +150,12 @@ def test_generate_exam_streams_questions_via_callback():
 
 
 def test_verifier_rejects_ungrounded_subjective():
-    session_id, vid = _setup_graph()
+    session_id, _ = _setup_graph()
 
     async def exam_caller(prompt: str) -> LLMExamDocument:
-        return LLMExamDocument(questions=[_q("无法从资料作答的题？", "凭空答案", vid)])
+        return LLMExamDocument(
+            questions=[_q(f"无法从资料作答的题 {index}？", "凭空答案", cid) for index, cid in enumerate(_target_ids(prompt))]
+        )
 
     async def solve_caller(prompt: str) -> SolvedAnswer:
         return SolvedAnswer(answer="不确定", grounded=False)  # can't ground → reject
@@ -153,8 +163,8 @@ def test_verifier_rejects_ungrounded_subjective():
     # the only question is ungroundable → rejected → nothing usable remains
     with pytest.raises(ValueError, match="no usable questions"):
         asyncio.run(
-            generate_exam(
-                GenerateExamRequest(session_id=session_id, question_count=4, question_types=["short_answer"]),
+            generate_test(
+                GenerateTestRequest(session_id=session_id, question_count=4),
                 exam_caller=exam_caller,
                 solve_caller=solve_caller,
                 verify=True,
@@ -162,3 +172,14 @@ def test_verifier_rejects_ungrounded_subjective():
                 max_rounds=1,
             )
         )
+
+
+def test_select_test_targets_prioritizes_importance_and_repeats_core_concepts():
+    session_id, _ = _setup_graph()
+    graph = local.load_graph_artifact(session_id)
+
+    targets = select_test_targets(graph, 5)
+
+    ranked = sorted(graph.concepts, key=lambda concept: concept.importance_score, reverse=True)
+    assert targets[: len(ranked)] == ranked
+    assert all(target in ranked[:2] for target in targets[len(ranked):])

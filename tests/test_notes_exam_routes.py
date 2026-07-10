@@ -11,13 +11,13 @@ from corpus2node.core.types import (
     ChatMessage,
     CourseSession,
     EvidenceChunk,
-    ExamChoice,
-    ExamDocument,
-    ExamQuestion,
     IngestArtifact,
     NoteDocument,
     NoteSection,
     SourceKind,
+    TestChoice as ChoiceModel,
+    TestDocument as DocumentModel,
+    TestQuestion as QuestionModel,
 )
 from corpus2node.graph.build import build_graph_artifact
 from corpus2node.graph.schemas import ExtractedConcept, GraphExtractionResult
@@ -48,16 +48,16 @@ def _seed_graph() -> uuid.UUID:
     return session.session_id
 
 
-def test_get_notes_and_exam_missing_are_404():
+def test_get_notes_and_test_missing_are_404():
     assert client.get(f"/notes/{uuid.uuid4()}").status_code == 404
-    assert client.get(f"/exam/{uuid.uuid4()}").status_code == 404
+    assert client.get(f"/test/{uuid.uuid4()}").status_code == 404
 
 
 def test_generate_without_llm_binding_is_400():
     session_id = _seed_graph()  # graph exists but no Purpose bound → LLMConfigError → 400
     assert client.post("/generate_notes", json={"session_id": str(session_id)}).status_code == 400
     assert client.post(
-        "/generate_exam", json={"session_id": str(session_id), "question_count": 4}
+        "/generate_test", json={"session_id": str(session_id), "question_count": 4}
     ).status_code == 400
 
 
@@ -77,23 +77,24 @@ def test_export_note_roundtrips_through_api():
     assert client.get(f"/export/{session_id}/docx").status_code == 400
 
 
-def test_export_exam_and_chat_through_api():
+def test_export_test_and_chat_through_api():
     session_id = uuid.uuid4()
     local.save_session(CourseSession(session_id=session_id, course_title="c", lecture_title="l"))
-    local.save_exam(
-        ExamDocument(
-            session_id=session_id, title="树测验", summary="s",
-            questions=[ExamQuestion(
+    local.save_test(
+        DocumentModel(
+            session_id=session_id, title="树水平测试", summary="s",
+            questions=[QuestionModel(
                 question_type="single_choice", stem="Q?",
-                choices=[ExamChoice(choice_id="A", text="x")], answer="A", explanation="e",
+                choices=[ChoiceModel(choice_id="A", text="x")], answer="A", explanation="e",
             )],
         )
     )
     local.save_chat(
         ChatDocument(session_id=session_id, messages=[ChatMessage(role="user", content="hi")])
     )
-    exam_res = client.get(f"/export/{session_id}/exam/markdown")
-    assert exam_res.status_code == 200 and "树测验" in exam_res.text
+    test_res = client.get(f"/export/{session_id}/test/markdown")
+    assert test_res.status_code == 200 and "树水平测试" in test_res.text
+    assert client.get(f"/export/{session_id}/exam/markdown").status_code == 200
     chat_res = client.get(f"/export/{session_id}/chat/markdown")
     assert chat_res.status_code == 200 and "对话记录" in chat_res.text
 
@@ -113,19 +114,40 @@ def test_notes_attach_stream_idle_then_replays_saved_note():
     assert done.status_code == 200 and '"done"' in done.text and "流式笔记" in done.text
 
 
-def test_exam_attach_stream_idle_then_replays_saved_exam():
+def test_test_attach_stream_idle_then_replays_saved_test():
     session_id = uuid.uuid4()
-    idle = client.get(f"/exam/{session_id}/stream")
+    idle = client.get(f"/test/{session_id}/stream")
     assert idle.status_code == 200 and '"idle"' in idle.text
 
-    local.save_exam(
-        ExamDocument(
-            session_id=session_id, title="流式试卷", summary="s",
-            questions=[ExamQuestion(
+    local.save_test(
+        DocumentModel(
+            session_id=session_id, title="流式测试", summary="s",
+            questions=[QuestionModel(
                 question_type="single_choice", stem="Q?",
-                choices=[ExamChoice(choice_id="A", text="x")], answer="A", explanation="e",
+                choices=[ChoiceModel(choice_id="A", text="x")], answer="A", explanation="e",
             )],
         )
     )
-    done = client.get(f"/exam/{session_id}/stream")
-    assert done.status_code == 200 and '"done"' in done.text and "流式试卷" in done.text
+    done = client.get(f"/test/{session_id}/stream")
+    assert done.status_code == 200 and '"done"' in done.text and "流式测试" in done.text
+    assert '"test"' in done.text
+    assert client.get(f"/exam/{session_id}").status_code == 200
+
+
+def test_load_test_migrates_legacy_exam_artifact():
+    session_id = uuid.uuid4()
+    local.write_text_atomic(
+        local.exam_path(session_id),
+        """{
+          "exam_id": "legacy-id",
+          "session_id": "%s",
+          "title": "旧测验",
+          "summary": "",
+          "questions": []
+        }""" % session_id,
+    )
+
+    loaded = local.load_test(session_id)
+
+    assert loaded.test_id == "legacy-id"
+    assert loaded.exam_id == "legacy-id"

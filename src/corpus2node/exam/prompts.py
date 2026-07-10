@@ -1,10 +1,9 @@
-"""Prompts for exam generation + independent-solver verification.
+"""Prompts for importance-driven level-test generation + independent verification.
 
-Generation prompt is adapted from the donor (importance/centrality-aware coverage,
-strict per-type rules). `exclude_stems` lets the top-up rounds ask for *different*
-questions. The solver prompt drives the verifier: an independent answer grounded only
-in the given graph concepts + 原文, used to reject questions whose key is wrong or
-unsupported.
+The application chooses target concepts deterministically from graph importance;
+the model chooses the most suitable question form for each target. `exclude_stems`
+lets top-up rounds ask for different questions. The solver independently verifies
+answers against graph concepts and source chunks.
 """
 from __future__ import annotations
 
@@ -24,23 +23,24 @@ QUESTION_TYPE_LABEL = {
 }
 
 EXAM_SYSTEM_PROMPT = """\
-你是知识图谱出卷器。你会读取当前资料的知识图谱，并生成一份可直接用于测验的结构化试卷。
+你是知识图谱水平测试生成器。你会读取当前资料的知识图谱与指定的知识点测试计划，生成一份结构化水平测试。
 
 要求：
-- 只基于当前图谱出题，不接入 Web Search，不使用外部资料。
-- 题目要覆盖核心知识点、桥梁知识点、前置知识点和易混淆关系。
+- 只基于当前图谱生成测试题，不接入 Web Search，不使用外部资料。
+- 严格覆盖测试计划指定的主知识点，不自行替换为低重要度知识点。
 - 每题必须有答案和解析，解析要能帮助学生复习。
 - 输出必须是 JSON object，不要 Markdown、来源、页码、引用、chunk_id。
 """
 
 EXAM_STYLE_RULES = """\
-出卷规则：
-- 优先覆盖高 importance_score 概念，确保核心知识点被考到。
+水平测试规则：
+- 主知识点已由系统按 importance_score 确定；每题必须覆盖对应的主知识点。
 - 高 betweenness_centrality 概念用于综合题，考察跨模块连接。
 - 高重要度的前置概念用于基础题；关系密集概念用于辨析题。
-- 题目覆盖比例默认：70% 高重要度概念，20% 桥梁/前置概念，10% 易混淆或关系密集概念。
-- 每题必须包含题干、题型、答案、解析、难度、关联概念和考察点。
-- question_type 只能从本次"允许题型"中选择：single_choice / multiple_choice / true_false / fill_blank / short_answer / essay。
+- 根据知识点性质自动选择最能判断掌握水平的形式，不要求用户选择题型。
+- 整体兼顾识记、理解、应用与综合，避免全部使用同一种形式。
+- 每题必须包含题干、形式、答案、解析、难度、关联概念和考察点。
+- question_type 可使用：single_choice / multiple_choice / true_false / fill_blank / short_answer / essay。
 - 选择题干扰项应来自相近概念或常见混淆，不随机编造。
 - 单选题和多选题必须提供 4 个选项，choice_id 使用 A/B/C/D。
 - 判断题答案为"正确"或"错误"。
@@ -65,8 +65,7 @@ def build_exam_prompt(
     graph: GraphArtifact,
     *,
     lecture_title: str,
-    question_count: int,
-    allowed_types: list[str],
+    target_concepts: list[ConceptNode],
     exclude_stems: list[str] | None = None,
 ) -> str:
     concept_by_id = {concept.concept_id: concept for concept in graph.concepts}
@@ -76,8 +75,7 @@ def build_exam_prompt(
 
     lines = [
         f"资料：{lecture_title}",
-        f"题目数量：{question_count}",
-        f"允许题型：{', '.join(allowed_types)}",
+        f"题目数量：{len(target_concepts)}",
         "",
         EXAM_STYLE_RULES.strip(),
         "",
@@ -121,14 +119,22 @@ def build_exam_prompt(
         lines.extend(["", "请避免与以下已出题目重复（出不同的题）："])
         lines.extend(f"- {normalize_text(stem)[:80]}" for stem in exclude_stems[:40])
 
+    lines.extend(["", "知识点测试计划（顺序可调整，但每项必须恰好生成一题）："])
+    for index, concept in enumerate(target_concepts, start=1):
+        lines.append(
+            f"- 计划{index}: primary_concept_id={concept.concept_id} | "
+            f"name={concept.name} | importance_score={concept.importance_score:.4f}"
+        )
+
     lines.extend(
         [
             "",
             "生成要求：",
-            f"- 生成恰好 {question_count} 道题。",
-            f"- 只生成允许题型中的题目：{', '.join(allowed_types)}。",
+            f"- 生成恰好 {len(target_concepts)} 道题，与知识点测试计划一一对应。",
+            "- 每题 concept_ids 必须包含对应计划的 primary_concept_id，并把它放在第一位。",
             "- concept_ids 必须使用上面给出的 concept:id。",
-            "- importance_basis 用一句话说明这道题为何重要。",
+            "- importance_basis 用一句话说明主知识点为何值得测试。",
+            "- title 和 summary 使用“水平测试”或“测试”，不要使用“试卷”。",
         ]
     )
     return "\n".join(lines)

@@ -4,6 +4,7 @@ import clsx from "clsx";
 import {
   ApiError,
   deepenProposal,
+  deleteDiscovery,
   deleteSession,
   getDiscovery,
   listDiscoveries,
@@ -394,6 +395,19 @@ export function HomePage() {
     });
   };
 
+  const handleDeleteDiscovery = (report: DiscoveryReport) => {
+    const name = report.title || report.discovery_id.slice(0, 8);
+    setPending({
+      label: `确认删除历史发现「${name}」？此操作不可撤销。`,
+      onConfirm: async () => {
+        await deleteDiscovery(report.discovery_id);
+        setDiscoveryHistory((prev) => prev.filter((item) => item.discovery_id !== report.discovery_id));
+        setDiscoveryReport((current) => current?.discovery_id === report.discovery_id ? null : current);
+        toast("历史发现已删除", "success");
+      },
+    });
+  };
+
   const confirmRename = async (value: string) => {
     if (!renameTarget) return;
     setRenaming(true);
@@ -449,8 +463,12 @@ export function HomePage() {
     try {
       await pending.onConfirm();
       setPending(null);
-    } catch {
-      toast("删除失败，请重试", "error");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 405) {
+        toast("后端仍是旧版本，请运行 corpus restart 后重试", "error");
+      } else {
+        toast("删除失败，请重试", "error");
+      }
     } finally {
       setDeleting(false);
     }
@@ -705,6 +723,7 @@ export function HomePage() {
           history={discoveryHistory}
           activeId={discoveryReport?.discovery_id}
           onPick={loadDiscovery}
+          onDelete={handleDeleteDiscovery}
         />
       )}
 
@@ -854,29 +873,41 @@ function DiscoveryHistoryBar({
   history,
   activeId,
   onPick,
+  onDelete,
 }: {
   history: DiscoveryReport[];
   activeId?: string;
   onPick: (id: string) => void;
+  onDelete: (report: DiscoveryReport) => void;
 }) {
   return (
     <div className="discovery-history">
       <span className="discovery-history-label">历史发现 · {history.length}</span>
       <div className="discovery-history-list">
         {history.slice(0, 12).map((report) => (
-          <button
-            key={report.discovery_id}
-            className={clsx("discovery-history-item", { active: report.discovery_id === activeId })}
-            type="button"
-            onClick={() => onPick(report.discovery_id)}
-            title={`${report.title || report.discovery_id.slice(0, 8)} · ${new Date(report.generated_at).toLocaleString()}`}
-          >
-            <b>{report.title || report.discovery_id.slice(0, 8)}</b>
-            <span>
-              {report.mode === "random" ? "随机" : `${report.session_ids.length} 资料集`} ·{" "}
-              {(report.proposals?.length ?? 0) > 0 ? `${report.proposals.length} 提案` : `${report.findings.length} 发现`}
-            </span>
-          </button>
+          <div className="discovery-history-entry" key={report.discovery_id}>
+            <button
+              className={clsx("discovery-history-item", { active: report.discovery_id === activeId })}
+              type="button"
+              onClick={() => onPick(report.discovery_id)}
+              title={`${report.title || report.discovery_id.slice(0, 8)} · ${new Date(report.generated_at).toLocaleString()}`}
+            >
+              <b>{report.title || report.discovery_id.slice(0, 8)}</b>
+              <span>
+                {report.mode === "random" ? "随机" : `${report.session_ids.length} 资料集`} ·{" "}
+                {(report.proposals?.length ?? 0) > 0 ? `${report.proposals.length} 提案` : `${report.findings.length} 发现`}
+              </span>
+            </button>
+            <button
+              className="discovery-history-delete"
+              type="button"
+              onClick={() => onDelete(report)}
+              aria-label={`删除历史发现 ${report.title || report.discovery_id.slice(0, 8)}`}
+              title="删除历史发现"
+            >
+              <TrashIcon />
+            </button>
+          </div>
         ))}
       </div>
     </div>

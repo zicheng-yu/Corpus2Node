@@ -737,8 +737,12 @@
   padding-bottom: 2px;
 }
 
-.discovery-history-item {
+.discovery-history-entry {
+  position: relative;
   flex-shrink: 0;
+}
+
+.discovery-history-item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -749,6 +753,40 @@
   background: var(--bg);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
+}
+
+.discovery-history-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-4);
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.discovery-history-entry:hover .discovery-history-delete,
+.discovery-history-delete:focus-visible {
+  opacity: 1;
+}
+
+.discovery-history-delete:hover {
+  color: var(--color-danger, #b04a3a);
+  background: rgba(176, 74, 58, 0.10);
+}
+
+.discovery-history-delete .trash-icon {
+  width: 13px;
+  height: 13px;
+  transform: scale(0.82);
 }
 
 .discovery-history-item:hover {
@@ -767,6 +805,7 @@
   font-weight: 600;
   color: var(--ink);
   max-width: 180px;
+  padding-right: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

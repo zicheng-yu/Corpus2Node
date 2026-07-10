@@ -101,10 +101,10 @@ function AppearanceSettings({ graphStyle, setGraphStyle }: { graphStyle: string;
 
 // ── Prompts ─────────────────────────────────────────────────────────────────
 const PROMPT_FIELDS: Array<{ key: keyof PromptSettings; label: string; placeholder: string }> = [
-  { key: "global_instructions", label: "全局", placeholder: "例：统一用简体中文、语气专业、专有名词保留英文原词…（对话 / 笔记 / 试卷 都生效）" },
+  { key: "global_instructions", label: "全局", placeholder: "例：统一用简体中文、语气专业、专有名词保留英文原词…（对话 / 笔记 / 测试 都生效）" },
   { key: "chat", label: "对话助手", placeholder: "例：先给结论再展开；多用类比解释难点…" },
   { key: "notes", label: "笔记生成", placeholder: "例：每节末尾补一条「一句话记忆」…" },
-  { key: "exam", label: "试卷生成", placeholder: "例：偏应用与理解题，少考死记硬背…" },
+  { key: "exam", label: "测试生成", placeholder: "例：偏应用与理解，少考死记硬背…" },
 ];
 
 function PromptsSettings() {
@@ -163,7 +163,7 @@ const PURPOSE_LABEL: Record<LlmPurpose, string> = {
   graph: "建图 / 抽取",
   chat: "问答助手",
   critic: "质检 / 求解",
-  exam: "出卷",
+  exam: "测试",
   vision: "图片 / PDF / 视频",
   embedding: "向量嵌入",
 };
@@ -171,7 +171,7 @@ const PURPOSE_HINT: Record<LlmPurpose, string> = {
   graph: "建图与抽取（也作笔记默认）",
   chat: "问答助手（需 tool calling）",
   critic: "质量校验 / 出题求解（空=回退 graph）",
-  exam: "出卷生成",
+  exam: "水平测试生成",
   vision: "多模态解析：Kimi 或本地视觉模型（图片 / PDF / 视频）",
   embedding: "向量检索（EMBED_PROVIDER=openai_compatible 时生效，可绑 Ollama）",
 };

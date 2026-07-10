@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, computed_field
 
 from corpus2node.core.clock import utcnow
 
@@ -243,31 +243,48 @@ class NoteDocument(BaseModel):
     generated_at: datetime = Field(default_factory=utcnow)
 
 
-class ExamChoice(BaseModel):
+class TestChoice(BaseModel):
     choice_id: str
     text: str
 
 
-class ExamQuestion(BaseModel):
+class TestQuestion(BaseModel):
     question_id: str = Field(default_factory=lambda: str(uuid4()))
     question_type: str
     stem: str
-    choices: list[ExamChoice] = Field(default_factory=list)
+    choices: list[TestChoice] = Field(default_factory=list)
     answer: str
     explanation: str
     difficulty: str = "medium"
     concept_ids: list[str] = Field(default_factory=list)
     tested_points: list[str] = Field(default_factory=list)
     importance_basis: str = ""
+    primary_concept_id: str = ""
+    importance_score: float = 0.0
 
 
-class ExamDocument(BaseModel):
-    exam_id: str = Field(default_factory=lambda: str(uuid4()))
+class TestDocument(BaseModel):
+    test_id: str = Field(
+        default_factory=lambda: str(uuid4()),
+        validation_alias=AliasChoices("test_id", "exam_id"),
+    )
     session_id: UUID
     title: str
     summary: str = ""
-    questions: list[ExamQuestion] = Field(default_factory=list)
+    questions: list[TestQuestion] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=utcnow)
+
+    @computed_field
+    @property
+    def exam_id(self) -> str:
+        """Compatibility field for clients reading artifacts from the former API."""
+        return self.test_id
+
+
+# Compatibility aliases for existing Python integrations and saved artifacts.
+ExamChoice = TestChoice
+ExamQuestion = TestQuestion
+ExamDocument = TestDocument
 
 
 class RetrievalResult(BaseModel):
@@ -373,10 +390,12 @@ class GenerateNotesRequest(BaseModel):
     concept_ids: list[str] = Field(default_factory=list)
 
 
-class GenerateExamRequest(BaseModel):
+class GenerateTestRequest(BaseModel):
     session_id: UUID
     question_count: int = Field(default=10, ge=4, le=30)
-    question_types: list[str] = Field(default_factory=list)
+
+
+GenerateExamRequest = GenerateTestRequest
 
 
 class ChatRequest(BaseModel):

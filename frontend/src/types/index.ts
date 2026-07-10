@@ -184,12 +184,12 @@ export interface NoteDocument {
   generated_at: string;
 }
 
-export interface ExamChoice {
+export interface TestChoice {
   choice_id: string;
   text: string;
 }
 
-export type ExamQuestionType =
+export type TestQuestionType =
   | "single_choice"
   | "multiple_choice"
   | "true_false"
@@ -197,30 +197,32 @@ export type ExamQuestionType =
   | "short_answer"
   | "essay";
 
-export interface ExamQuestion {
+export interface TestQuestion {
   question_id: string;
-  question_type: ExamQuestionType | string;
+  question_type: TestQuestionType | string;
   stem: string;
-  choices: ExamChoice[];
+  choices: TestChoice[];
   answer: string;
   explanation: string;
   difficulty: "easy" | "medium" | "hard" | string;
   concept_ids: string[];
   tested_points: string[];
   importance_basis: string;
+  primary_concept_id: string;
+  importance_score: number;
 }
 
-export interface ExamDocument {
-  exam_id: string;
+export interface TestDocument {
+  test_id: string;
   session_id: string;
   title: string;
   summary: string;
-  questions: ExamQuestion[];
+  questions: TestQuestion[];
   generated_at: string;
 }
 
 export interface ChatContextItem {
-  context_type: "concept" | "note_selection" | "exam_selection" | "selection" | string;
+  context_type: "concept" | "note_selection" | "test_selection" | "exam_selection" | "selection" | string;
   label: string;
   content: string;
   concept_id?: string | null;

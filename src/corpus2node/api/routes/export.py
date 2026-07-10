@@ -29,13 +29,14 @@ def _render(document: dict, fmt: str, *, filename: str):
     return PlainTextResponse(content, media_type=_MEDIA_TYPE[fmt])
 
 
-@router.get("/{session_id}/exam/{fmt}")
-def export_exam(session_id: UUID, fmt: str):
+@router.get("/{session_id}/test/{fmt}")
+@router.get("/{session_id}/exam/{fmt}", include_in_schema=False)
+def export_test(session_id: UUID, fmt: str):
     try:
-        exam = local.load_exam(session_id)
+        test = local.load_test(session_id)
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="No generated exam for this session.") from exc
-    return _render(exam.model_dump(), fmt, filename=f"exam_{session_id}")
+        raise HTTPException(status_code=404, detail="No generated test for this session.") from exc
+    return _render(test.model_dump(), fmt, filename=f"test_{session_id}")
 
 
 @router.get("/{session_id}/chat/markdown")

@@ -191,6 +191,16 @@ def test_discovery_route_saves_and_loads_artifact():
     assert listed.status_code == 200
     assert any(item["discovery_id"] == discovery_id for item in listed.json())
 
+    deleted = client.delete(f"/discovery/{discovery_id}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True}
+    assert client.get(f"/discovery/{discovery_id}").status_code == 404
+    assert all(item["discovery_id"] != discovery_id for item in client.get("/discovery").json())
+
+
+def test_delete_missing_discovery_is_404():
+    assert client.delete("/discovery/does-not-exist").status_code == 404
+
 
 def test_random_discovery_without_session_ids_samples_built_sessions():
     _seed_session(course_title="A", lecture_title="资料一", concepts=[("概念A", [1.0, 0.0], "证据 A")])

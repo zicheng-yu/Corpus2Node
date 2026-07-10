@@ -1,20 +1,11 @@
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
-import type { ChatContextItem, ExamDocument, ExamQuestion, ExamQuestionType } from "../../types";
-import { attachExamStream, streamGenerateExam, type GenStreamEvent } from "../../api/client";
+import type { ChatContextItem, TestDocument, TestQuestion } from "../../types";
+import { attachTestStream, streamGenerateTest, type GenStreamEvent } from "../../api/client";
 import { Button } from "../primitives/Button";
 import { ExportMenu } from "./ExportMenu";
 import { useToast } from "../primitives/Toast";
 import "./panel.css";
 import "./ExamView.css";
-
-const QUESTION_TYPE_OPTIONS: Array<{ type: ExamQuestionType; label: string }> = [
-  { type: "single_choice", label: "单选" },
-  { type: "multiple_choice", label: "多选" },
-  { type: "true_false", label: "判断" },
-  { type: "fill_blank", label: "填空" },
-  { type: "short_answer", label: "简答" },
-  { type: "essay", label: "论述" },
-];
 
 const QUESTION_TYPE_LABEL: Record<string, string> = {
   single_choice: "单选", multiple_choice: "多选", true_false: "判断",
@@ -23,22 +14,19 @@ const QUESTION_TYPE_LABEL: Record<string, string> = {
 
 const DIFFICULTY_LABEL: Record<string, string> = { easy: "基础", medium: "中等", hard: "综合" };
 
-export function ExamView({
+export function TestView({
   sessionId,
   onAskSelection,
 }: {
   sessionId: string;
   onAskSelection?: (context: ChatContextItem) => void;
 }) {
-  const [exam, setExam] = useState<ExamDocument | null>(null);
-  const [streamQuestions, setStreamQuestions] = useState<ExamQuestion[]>([]);
+  const [test, setTest] = useState<TestDocument | null>(null);
+  const [streamQuestions, setStreamQuestions] = useState<TestQuestion[]>([]);
   const [generating, setGenerating] = useState(false);
   const [openAnswers, setOpenAnswers] = useState<Record<string, boolean>>({});
   const [questionCount, setQuestionCount] = useState(10);
   const [selectedText, setSelectedText] = useState("");
-  const [selectedTypes, setSelectedTypes] = useState<ExamQuestionType[]>([
-    "single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer",
-  ]);
   const toast = useToast();
   const toastRef = useRef(toast);
   toastRef.current = toast;
@@ -46,51 +34,43 @@ export function ExamView({
   function handleEvent(event: GenStreamEvent) {
     if (event.type === "question") {
       setGenerating(true);
-      const question = event.data.question as ExamQuestion;
+      const question = event.data.question as TestQuestion;
       setStreamQuestions((current) =>
         current.some((q) => q.question_id === question.question_id) ? current : [...current, question],
       );
     } else if (event.type === "done") {
-      setExam(event.data.exam as ExamDocument);
+      setTest((event.data.test ?? event.data.exam) as TestDocument);
       setStreamQuestions([]);
       setGenerating(false);
     } else if (event.type === "error") {
       setGenerating(false);
-      toastRef.current(`试卷生成失败：${String(event.data?.message ?? "")}`, "error");
+      toastRef.current(`测试生成失败：${String(event.data?.message ?? "")}`, "error");
     }
   }
 
   useEffect(() => {
     const controller = new AbortController();
-    setExam(null);
+    setTest(null);
     setStreamQuestions([]);
     setGenerating(false);
-    attachExamStream(sessionId, handleEvent, controller.signal).catch(() => {});
+    attachTestStream(sessionId, handleEvent, controller.signal).catch(() => {});
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  function toggleType(type: ExamQuestionType) {
-    setSelectedTypes((current) =>
-      current.includes(type)
-        ? current.length === 1 ? current : current.filter((item) => item !== type)
-        : [...current, type],
-    );
-  }
-
   async function handleGenerate() {
-    setExam(null);
+    setTest(null);
     setStreamQuestions([]);
     setOpenAnswers({});
     setGenerating(true);
     try {
-      await streamGenerateExam(
-        { session_id: sessionId, question_types: selectedTypes, question_count: questionCount },
+      await streamGenerateTest(
+        { session_id: sessionId, question_count: questionCount },
         handleEvent,
       );
     } catch (error) {
       setGenerating(false);
-      toast(error instanceof Error ? `试卷生成失败：${error.message}` : "试卷生成失败", "error");
+      toast(error instanceof Error ? `测试生成失败：${error.message}` : "测试生成失败", "error");
     }
   }
 
@@ -102,63 +82,61 @@ export function ExamView({
 
   function askSelection() {
     if (!selectedText) return;
-    onAskSelection?.({ context_type: "exam_selection", label: "试卷选区", content: selectedText });
+    onAskSelection?.({ context_type: "test_selection", label: "测试选区", content: selectedText });
     setSelectedText("");
   }
 
-  function askQuestion(question: ExamQuestion, index: number) {
+  function askQuestion(question: TestQuestion, index: number) {
     onAskSelection?.({
-      context_type: "exam_selection",
-      label: `试卷题目：第 ${index + 1} 题`,
+      context_type: "test_selection",
+      label: `测试题目：第 ${index + 1} 题`,
       content: formatQuestionContext(question, index),
     });
   }
 
-  const questions = generating ? streamQuestions : exam?.questions ?? [];
-  const stats = exam ? getExamStats(exam.questions) : null;
+  const questions = generating ? streamQuestions : test?.questions ?? [];
+  const stats = test ? getTestStats(test.questions) : null;
 
   return (
     <div className="exam-view" onMouseUp={captureSelection} onKeyUp={captureSelection}>
       <GeneratePanel
-        selectedTypes={selectedTypes}
         questionCount={questionCount}
         generating={generating}
-        hasExam={!!exam}
-        onToggleType={toggleType}
+        hasTest={!!test}
         onQuestionCountChange={setQuestionCount}
         onGenerate={handleGenerate}
       />
 
-      {exam && !generating && (
+      {test && !generating && (
         <div className="panel-bar">
-          <span className="panel-bar-title">{exam.title}</span>
+          <span className="panel-bar-title">{test.title}</span>
           <div className="panel-bar-actions">
             {selectedText && onAskSelection && (
               <button className="panel-mini-btn" type="button" onClick={askSelection}>询问选区</button>
             )}
-            <ExportMenu sessionId={sessionId} kind="exam" />
+            <ExportMenu sessionId={sessionId} kind="test" />
           </div>
         </div>
       )}
 
       {generating && (
         <div className="panel-stream-status">
-          <span className="panel-spinner" /> 正在生成试卷…（已生成 {streamQuestions.length} 题，求解器校验中）
+          <span className="panel-spinner" /> 正在生成水平测试…（已生成 {streamQuestions.length} 题，求解器校验中）
         </div>
       )}
 
       {stats && !generating && (
         <div className="exam-stats">
-          <span><b>{exam!.questions.length}</b> 题</span>
+          <span><b>{test!.questions.length}</b> 题</span>
           <span><b>{stats.concepts}</b> 知识点</span>
           <span><b>{stats.objective}</b> 可判分</span>
           <span><b>{stats.subjective}</b> 主观题</span>
         </div>
       )}
 
-      {!exam && !generating && questions.length === 0 && (
+      {!test && !generating && questions.length === 0 && (
         <p className="panel-empty-desc" style={{ padding: "0 2px" }}>
-          选择题型与数量后生成；单选/多选/判断/填空可直接在此作答判分。
+          系统会优先测试重要知识点并自动选择合适的题目形式；客观题可直接在此作答判分。
         </p>
       )}
 
@@ -183,37 +161,22 @@ export function ExamView({
 }
 
 function GeneratePanel({
-  selectedTypes,
   questionCount,
   generating,
-  hasExam,
-  onToggleType,
+  hasTest,
   onQuestionCountChange,
   onGenerate,
 }: {
-  selectedTypes: ExamQuestionType[];
   questionCount: number;
   generating: boolean;
-  hasExam: boolean;
-  onToggleType: (type: ExamQuestionType) => void;
+  hasTest: boolean;
   onQuestionCountChange: (count: number) => void;
   onGenerate: () => void;
 }) {
   return (
     <div className="exam-generate">
       <div className="exam-generate-row">
-        <div className="exam-type-picker" aria-label="选择题型">
-          {QUESTION_TYPE_OPTIONS.map((option) => (
-            <button
-              key={option.type}
-              type="button"
-              className={selectedTypes.includes(option.type) ? "exam-type-chip active" : "exam-type-chip"}
-              onClick={() => onToggleType(option.type)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <span className="exam-plan-note">按知识点重要度自动规划</span>
         <label className="exam-count-field">
           <span>题数</span>
           <input
@@ -226,7 +189,7 @@ function GeneratePanel({
         </label>
       </div>
       <Button size="sm" onClick={onGenerate} loading={generating}>
-        {generating ? "生成中…" : hasExam ? "按当前设置重新生成" : "生成图谱试卷"}
+        {generating ? "生成中…" : hasTest ? "重新生成水平测试" : "生成水平测试"}
       </Button>
     </div>
   );
@@ -239,7 +202,7 @@ function QuestionCard({
   onAskQuestion,
   onToggleAnswer,
 }: {
-  question: ExamQuestion;
+  question: TestQuestion;
   index: number;
   answerOpen: boolean;
   onAskQuestion?: () => void;
@@ -266,6 +229,7 @@ function QuestionCard({
           <span>第 {index + 1} 题</span>
           <span>{QUESTION_TYPE_LABEL[question.question_type] ?? question.question_type}</span>
           <span>{DIFFICULTY_LABEL[question.difficulty] ?? question.difficulty}</span>
+          {question.importance_score > 0 && <span>重要度 {Math.round(question.importance_score * 100)}%</span>}
         </div>
         {onAskQuestion && (
           <button className="exam-ask-question" type="button" onClick={onAskQuestion}>询问</button>
@@ -357,13 +321,14 @@ function QuestionCard({
         <div className="exam-answer-panel">
           <p><b>答案：</b>{question.answer}</p>
           <p><b>解析：</b>{question.explanation}</p>
+          {question.importance_basis && <p><b>测试依据：</b>{question.importance_basis}</p>}
         </div>
       )}
     </article>
   );
 }
 
-function getExamStats(questions: ExamQuestion[]) {
+function getTestStats(questions: TestQuestion[]) {
   const conceptIds = new Set(questions.flatMap((question) => question.concept_ids));
   return {
     concepts: conceptIds.size,
@@ -372,18 +337,20 @@ function getExamStats(questions: ExamQuestion[]) {
   };
 }
 
-function formatQuestionContext(question: ExamQuestion, index: number) {
+function formatQuestionContext(question: TestQuestion, index: number) {
   const lines = [
     `第 ${index + 1} 题`,
-    `题型：${QUESTION_TYPE_LABEL[question.question_type] ?? question.question_type}`,
+    `形式：${QUESTION_TYPE_LABEL[question.question_type] ?? question.question_type}`,
     `难度：${DIFFICULTY_LABEL[question.difficulty] ?? question.difficulty}`,
+    question.importance_score > 0 ? `知识点重要度：${Math.round(question.importance_score * 100)}%` : "",
     `题干：${question.stem}`,
-  ];
+  ].filter(Boolean);
   if (question.choices.length > 0) {
     lines.push("选项：");
     question.choices.forEach((choice) => lines.push(`${choice.choice_id}. ${choice.text}`));
   }
   if (question.tested_points.length > 0) lines.push(`考察点：${question.tested_points.join("；")}`);
+  if (question.importance_basis) lines.push(`测试依据：${question.importance_basis}`);
   if (question.answer) lines.push(`参考答案：${question.answer}`);
   if (question.explanation) lines.push(`解析：${question.explanation}`);
   return lines.join("\n");
@@ -393,7 +360,7 @@ function isGradable(questionType: string) {
   return ["single_choice", "multiple_choice", "true_false", "fill_blank"].includes(questionType);
 }
 
-function isObjectiveCorrect(question: ExamQuestion, singleAnswer: string, multiAnswer: string[], textAnswer: string) {
+function isObjectiveCorrect(question: TestQuestion, singleAnswer: string, multiAnswer: string[], textAnswer: string) {
   if (question.question_type === "single_choice") {
     return normalizeChoiceSet([singleAnswer]) === normalizeChoiceSet(parseChoiceAnswer(question.answer));
   }

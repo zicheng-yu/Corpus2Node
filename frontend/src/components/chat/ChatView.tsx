@@ -320,7 +320,9 @@ function contextFromConcept(concept: ConceptNode): ChatContextItem {
 
 function defaultPromptForContext(context: ChatContextItem): string {
   if (context.context_type === "note_selection") return "请解释这段笔记，并补充我应该如何复习。";
-  if (context.context_type === "exam_selection") return "请讲解这道题的考点和解题思路。";
+  if (context.context_type === "test_selection" || context.context_type === "exam_selection") {
+    return "请讲解这道题的考点和解题思路。";
+  }
   if (context.context_type === "concept") return "请解释这个知识点。";
   return "请解释这段内容。";
 }
@@ -334,7 +336,8 @@ function contextTypeLabel(type: string): string {
     {
       concept: "知识点",
       note_selection: "笔记选区",
-      exam_selection: "试卷选区",
+      test_selection: "测试选区",
+      exam_selection: "测试选区",
       selection: "选区",
     }[type] ?? type
   );

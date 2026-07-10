@@ -1,4 +1,4 @@
-"""Deterministic exam validation (ported from donor exam.py) + answer-matching for the verifier.
+"""Deterministic level-test validation + answer matching for the verifier.
 
 `coerce_question` is the donor's per-question validation lifted out of its loop so the
 generator can *count* valid questions and top up — instead of the donor's silent
@@ -49,7 +49,12 @@ def normalize_difficulty(value: str) -> str:
 
 
 def coerce_question(
-    question: LLMExamQuestion, *, valid_concept_ids: set[str], allowed_types: list[str]
+    question: LLMExamQuestion,
+    *,
+    valid_concept_ids: set[str],
+    allowed_types: list[str],
+    primary_concept_id: str = "",
+    importance_score: float = 0.0,
 ) -> ExamQuestion | None:
     """Validate one LLM question into an ExamQuestion, or None if it can't be used."""
     stem = normalize_text(question.stem)
@@ -65,6 +70,10 @@ def coerce_question(
     concept_ids = [cid for cid in question.concept_ids if cid in valid_concept_ids]
     if not concept_ids:
         return None
+    if primary_concept_id and primary_concept_id not in concept_ids:
+        return None
+    if primary_concept_id:
+        concept_ids = [primary_concept_id, *(cid for cid in concept_ids if cid != primary_concept_id)]
 
     choices = [
         ExamChoice(choice_id=normalize_text(choice.choice_id).upper(), text=normalize_text(choice.text))
@@ -86,6 +95,8 @@ def coerce_question(
         concept_ids=concept_ids,
         tested_points=[normalize_text(point) for point in question.tested_points if normalize_text(point)],
         importance_basis=normalize_text(question.importance_basis),
+        primary_concept_id=primary_concept_id,
+        importance_score=importance_score,
     )
 
 

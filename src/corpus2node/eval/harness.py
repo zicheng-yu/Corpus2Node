@@ -1,8 +1,8 @@
 """Eval orchestration: deterministic metrics from saved artifacts + optional LLM runners.
 
-The deterministic evals (extraction / notes / exam) read the on-disk artifacts and
+The deterministic evals (extraction / notes / test) read the on-disk artifacts and
 need no LLM, so they're cheap and fully testable. The LLM runners (QA grounding,
-exam answer-key agreement) reuse the live chat agent / exam solver and cost tokens.
+test answer-key agreement) reuse the live chat agent / verifier and cost tokens.
 """
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ import asyncio
 import logging
 from uuid import UUID
 
-from corpus2node.core.types import EdgeType, ExamDocument, GraphArtifact, NoteDocument
+from corpus2node.core.types import EdgeType, GraphArtifact, NoteDocument, TestDocument
 from corpus2node.eval import metrics
-from corpus2node.eval.schemas import EvalReport, ExamEval, ExtractionEval, GoldDataset, NotesEval, QAEval
+from corpus2node.eval.schemas import EvalReport, ExtractionEval, GoldDataset, NotesEval, QAEval, TestEval
 from corpus2node.exam.validate import OBJECTIVE_TYPES
 from corpus2node.storage import local
 
@@ -64,12 +64,12 @@ def evaluate_notes(note: NoteDocument, graph: GraphArtifact) -> NotesEval:
     )
 
 
-def evaluate_exam(exam: ExamDocument) -> ExamEval:
-    questions = exam.questions
+def evaluate_test(test: TestDocument) -> TestEval:
+    questions = test.questions
     traceable = sum(1 for question in questions if question.concept_ids)
     objective = [question for question in questions if question.question_type in OBJECTIVE_TYPES]
     objective_valid = sum(1 for question in objective if metrics.objective_answer_valid(question))
-    return ExamEval(
+    return TestEval(
         questions=len(questions),
         traceable=traceable,
         traceability=round(traceable / len(questions), 3) if questions else 0.0,
@@ -107,7 +107,7 @@ def run_offline_report(session_id: UUID, gold: GoldDataset | None = None) -> Eva
     except FileNotFoundError:
         pass
     try:
-        report.exam = evaluate_exam(local.load_exam(session_id))
+        report.test = evaluate_test(local.load_test(session_id))
     except FileNotFoundError:
         pass
     return report
@@ -131,7 +131,7 @@ async def run_qa_eval(session_id: UUID, questions: list[str], *, model=None, emb
     return evaluate_qa(turns)
 
 
-async def run_exam_answer_key_eval(session_id: UUID, *, model=None, embeddings=None) -> float:
+async def run_test_answer_key_eval(session_id: UUID, *, model=None, embeddings=None) -> float:
     """Answer-key agreement: an independent solver re-answers each saved question."""
     from corpus2node.exam.generate import _verify
     from corpus2node.exam.prompts import SOLVER_SYSTEM_PROMPT
@@ -142,7 +142,7 @@ async def run_exam_answer_key_eval(session_id: UUID, *, model=None, embeddings=N
     from corpus2node.llm.structured import make_structured
 
     embeddings = embeddings or get_embeddings()
-    exam = local.load_exam(session_id)
+    test = local.load_test(session_id)
     graph = local.load_graph_artifact(session_id)
     chunks = [chunk for artifact in local.list_ingest_artifacts(session_id) for chunk in artifact.chunks]
     by_chunk_id = {chunk.chunk_id: chunk for chunk in chunks}
@@ -151,6 +151,10 @@ async def run_exam_answer_key_eval(session_id: UUID, *, model=None, embeddings=N
     solve_caller = make_structured(model, SolvedAnswer, system=SOLVER_SYSTEM_PROMPT, method=method)
 
     verdicts = await asyncio.gather(
-        *(_verify(question, solve_caller, graph, chunks, embeddings, by_chunk_id) for question in exam.questions)
+        *(_verify(question, solve_caller, graph, chunks, embeddings, by_chunk_id) for question in test.questions)
     )
     return round(sum(1 for ok in verdicts if ok) / len(verdicts), 3) if verdicts else 0.0
+
+
+evaluate_exam = evaluate_test
+run_exam_answer_key_eval = run_test_answer_key_eval

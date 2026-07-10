@@ -35,6 +35,16 @@ def get_discovery(discovery_id: str) -> DiscoveryReport:
         raise HTTPException(status_code=404, detail="Discovery report not found.") from exc
 
 
+@router.delete("/{discovery_id}")
+def delete_discovery(discovery_id: str) -> dict[str, bool]:
+    try:
+        local.load_discovery_report(discovery_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Discovery report not found.") from exc
+    local.delete_discovery_report(discovery_id)
+    return {"ok": True}
+
+
 class ProposalStatusUpdate(BaseModel):
     status: Literal["new", "kept", "discarded"]
 

@@ -1,4 +1,4 @@
-"""Deterministically render a NoteDocument / ExamDocument to Markdown / TeX / TXT / PDF.
+"""Deterministically render a NoteDocument / TestDocument to Markdown / TeX / TXT / PDF.
 
 Ported (leaner) from the donor's export_renderer. Markdown / txt / tex are pure
 Python (no extra deps). PDF lazy-imports ``markdown`` + a PDF engine (wkhtmltopdf via
@@ -11,7 +11,7 @@ import re
 import shutil
 from typing import Any
 
-from corpus2node.core.types import ChatDocument, ExamDocument, NoteDocument
+from corpus2node.core.types import ChatDocument, NoteDocument, TestDocument
 
 SUPPORTED_FORMATS = {"markdown", "txt", "tex", "pdf"}
 
@@ -33,7 +33,7 @@ class ExportRenderer:
 class MarkdownRenderer(ExportRenderer):
     def render(self, document: dict[str, Any], fmt: str = "markdown") -> str:
         if "questions" in document:
-            return self._render_exam(ExamDocument.model_validate(document))
+            return self._render_test(TestDocument.model_validate(document))
         return self._render_note(NoteDocument.model_validate(document))
 
     def _render_note(self, doc: NoteDocument) -> str:
@@ -42,16 +42,16 @@ class MarkdownRenderer(ExportRenderer):
             lines.extend([f"## {section.title}", "", section.content_md, ""])
         return "\n".join(lines).strip() + "\n"
 
-    def _render_exam(self, exam: ExamDocument) -> str:
-        lines = [f"# {exam.title}", "", exam.summary, "", "## 题目", ""]
-        for index, question in enumerate(exam.questions, start=1):
+    def _render_test(self, test: TestDocument) -> str:
+        lines = [f"# {test.title}", "", test.summary, "", "## 题目", ""]
+        for index, question in enumerate(test.questions, start=1):
             lines.extend([f"### {index}. {_QUESTION_TYPE_LABEL.get(question.question_type, question.question_type)}", "", question.stem, ""])
             for choice in question.choices:
                 lines.append(f"- {choice.choice_id}. {choice.text}")
             if question.choices:
                 lines.append("")
         lines.extend(["## 答案与解析", ""])
-        for index, question in enumerate(exam.questions, start=1):
+        for index, question in enumerate(test.questions, start=1):
             lines.extend([f"### {index}. 答案", "", f"答案：{question.answer}", "", f"解析：{question.explanation}", ""])
         return "\n".join(lines).strip() + "\n"
 
@@ -69,17 +69,17 @@ class TxtRenderer(ExportRenderer):
 class TexRenderer(ExportRenderer):
     def render(self, document: dict[str, Any], fmt: str = "tex") -> str:
         if "questions" in document:
-            return self._render_exam(ExamDocument.model_validate(document))
+            return self._render_test(TestDocument.model_validate(document))
         return self._render_note(NoteDocument.model_validate(document))
 
     def _render_note(self, note: NoteDocument) -> str:
         sections = [f"\\section{{{self._escape(section.title)}}}\n{self._md_to_tex(section.content_md)}" for section in note.sections]
         return self._wrap(note.title, [self._md_to_tex(note.summary), *sections])
 
-    def _render_exam(self, exam: ExamDocument) -> str:
+    def _render_test(self, test: TestDocument) -> str:
         question_blocks = []
         answer_blocks = []
-        for index, question in enumerate(exam.questions, start=1):
+        for index, question in enumerate(test.questions, start=1):
             choices = "\n".join(f"\\item {self._escape(choice.choice_id)}. {self._escape(choice.text)}" for choice in question.choices)
             choice_block = f"\n\\begin{{itemize}}\n{choices}\n\\end{{itemize}}" if choices else ""
             label = _QUESTION_TYPE_LABEL.get(question.question_type, question.question_type)
@@ -87,8 +87,8 @@ class TexRenderer(ExportRenderer):
             answer_blocks.append(
                 f"\\subsection*{{{index}. 答案}}\n答案：{self._escape(question.answer)}\n\n解析：{self._md_to_tex(question.explanation)}"
             )
-        body = [self._md_to_tex(exam.summary), "\\section*{题目}", *question_blocks, "\\section*{答案与解析}", *answer_blocks]
-        return self._wrap(exam.title, body)
+        body = [self._md_to_tex(test.summary), "\\section*{题目}", *question_blocks, "\\section*{答案与解析}", *answer_blocks]
+        return self._wrap(test.title, body)
 
     def _wrap(self, title: str, body: list[str]) -> str:
         return "\n\n".join(

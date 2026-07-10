@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { exportExam, exportNote } from "../../api/client";
+import { exportNote, exportTest } from "../../api/client";
 import { Button } from "../primitives/Button";
 import { useToast } from "../primitives/Toast";
 import "./ExportMenu.css";
@@ -9,7 +9,7 @@ export function ExportMenu({
   kind = "note",
 }: {
   sessionId: string;
-  kind?: "note" | "exam";
+  kind?: "note" | "test";
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -27,12 +27,12 @@ export function ExportMenu({
   async function handleExport(fmt: "markdown" | "tex" | "txt" | "pdf") {
     setOpen(false);
     try {
-      const blob = kind === "exam" ? await exportExam(sessionId, fmt) : await exportNote(sessionId, fmt);
+      const blob = kind === "test" ? await exportTest(sessionId, fmt) : await exportNote(sessionId, fmt);
       const ext = fmt === "markdown" ? "md" : fmt;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${kind === "exam" ? "exam" : "notes"}.${ext}`;
+      a.download = `${kind === "test" ? "test" : "notes"}.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -43,7 +43,7 @@ export function ExportMenu({
   async function handleCopy() {
     setOpen(false);
     try {
-      const blob = kind === "exam" ? await exportExam(sessionId, "markdown") : await exportNote(sessionId, "markdown");
+      const blob = kind === "test" ? await exportTest(sessionId, "markdown") : await exportNote(sessionId, "markdown");
       const content = await blob.text();
       await navigator.clipboard.writeText(content);
       toast("已复制到剪贴板", "success");

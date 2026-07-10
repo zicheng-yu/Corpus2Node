@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 
 from corpus2node.core.text import canonicalize_term
-from corpus2node.core.types import ConceptNode, EdgeType, ExamQuestion, GraphEdge
+from corpus2node.core.types import ConceptNode, EdgeType, GraphEdge, TestQuestion
 from corpus2node.graph.clean import VALID_RELATION_TYPES
 
 
@@ -36,7 +36,7 @@ def relation_validity_rate(edges: list[GraphEdge]) -> float:
     return ok / len(semantic)
 
 
-def objective_answer_valid(question: ExamQuestion) -> bool:
+def objective_answer_valid(question: TestQuestion) -> bool:
     """Is the answer key structurally valid for an objective question type?"""
     choice_ids = {choice.choice_id.upper() for choice in question.choices}
     if question.question_type == "single_choice":

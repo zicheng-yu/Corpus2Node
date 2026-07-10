@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from corpus2node.core.clock import utcnow
 
@@ -64,7 +64,7 @@ class NotesEval(BaseModel):
     sections: int = 0
 
 
-class ExamEval(BaseModel):
+class TestEval(BaseModel):
     questions: int = 0
     traceable: int = 0
     traceability: float = 0.0
@@ -88,5 +88,13 @@ class EvalReport(BaseModel):
     generated_at: datetime = Field(default_factory=utcnow)
     extraction: ExtractionEval | None = None
     notes: NotesEval | None = None
-    exam: ExamEval | None = None
+    test: TestEval | None = Field(default=None, validation_alias=AliasChoices("test", "exam"))
     qa: QAEval | None = None
+
+    @property
+    def exam(self) -> TestEval | None:
+        """Compatibility accessor for older Python callers."""
+        return self.test
+
+
+ExamEval = TestEval

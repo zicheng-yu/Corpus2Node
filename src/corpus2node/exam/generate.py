@@ -1,4 +1,4 @@
-"""Exam generation with a verifier loop (§4: workflow + verifier, not role-play agents).
+"""Importance-driven level-test generation with an independent verifier loop.
 
 generator → an independent solver re-answers each question from the graph/原文 → questions
 whose key the solver disagrees with (objective) or can't ground (subjective) are rejected,
@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 from collections.abc import Awaitable, Callable
 
 from corpus2node import prompt_store
@@ -24,10 +23,10 @@ from corpus2node.core.text import normalize_text
 from corpus2node.core.types import (
     ConceptNode,
     EvidenceChunk,
-    ExamDocument,
-    ExamQuestion,
-    GenerateExamRequest,
     GraphArtifact,
+    GenerateTestRequest,
+    TestDocument,
+    TestQuestion,
 )
 from corpus2node.exam.prompts import (
     EXAM_SYSTEM_PROMPT,
@@ -36,7 +35,7 @@ from corpus2node.exam.prompts import (
     build_solver_prompt,
 )
 from corpus2node.exam.schemas import LLMExamDocument, SolvedAnswer
-from corpus2node.exam.validate import answers_match, coerce_question, normalize_question_types
+from corpus2node.exam.validate import ALL_TYPES, answers_match, coerce_question
 from corpus2node.index import search
 from corpus2node.index.embeddings import get_embeddings
 from corpus2node.llm import factory
@@ -49,15 +48,14 @@ logger = logging.getLogger(__name__)
 
 ExamCaller = Callable[[str], Awaitable[LLMExamDocument]]
 SolveCaller = Callable[[str], Awaitable[SolvedAnswer]]
-OnQuestion = Callable[[ExamQuestion], None]  # progressive streaming hook (verified questions)
+OnQuestion = Callable[[TestQuestion], None]  # progressive streaming hook (verified questions)
 
-OVERASK = 1.4
 GROUNDING_CHUNK_LIMIT = 3
 VERIFY_CONCURRENCY = 8
 
 
-async def generate_exam(
-    request: GenerateExamRequest,
+async def generate_test(
+    request: GenerateTestRequest,
     *,
     exam_caller: ExamCaller | None = None,
     solve_caller: SolveCaller | None = None,
@@ -65,89 +63,127 @@ async def generate_exam(
     verify: bool = True,
     max_rounds: int = 2,
     on_question: OnQuestion | None = None,
-) -> ExamDocument:
+) -> TestDocument:
     graph = local.load_graph_artifact(request.session_id)
     session = local.load_session(request.session_id)
     if not graph.concepts:
-        raise ValueError("No concepts available to generate exam.")
+        raise ValueError("No concepts available to generate test.")
 
     embeddings = embeddings or get_embeddings()
     chunks = [chunk for artifact in local.list_ingest_artifacts(request.session_id) for chunk in artifact.chunks]
     by_chunk_id = {chunk.chunk_id: chunk for chunk in chunks}
     valid_ids = {concept.concept_id for concept in graph.concepts}
-    allowed = normalize_question_types(request.question_types)
     exam_caller, solve_caller = _ensure_callers(exam_caller, solve_caller, verify)
+    targets = select_test_targets(graph, request.question_count)
 
-    accepted: list[ExamQuestion] = []
+    accepted_by_slot: dict[int, TestQuestion] = {}
     seen_keys: set[str] = set()
     title = ""
     summary = ""
     rejected = 0
     rounds = 0
 
-    while len(accepted) < request.question_count and rounds < max_rounds:
+    while len(accepted_by_slot) < request.question_count and rounds < max_rounds:
         rounds += 1
-        need = request.question_count - len(accepted)
-        batch_n = need if rounds > 1 else min(need + 8, max(need, math.ceil(need * OVERASK)))
+        remaining_slots = [(index, target) for index, target in enumerate(targets) if index not in accepted_by_slot]
         doc = await exam_caller(
             build_exam_prompt(
                 graph,
                 lecture_title=session.lecture_title,
-                question_count=batch_n,
-                allowed_types=allowed,
-                exclude_stems=[question.stem for question in accepted],
+                target_concepts=[target for _, target in remaining_slots],
+                exclude_stems=[question.stem for question in accepted_by_slot.values()],
             )
         )
-        title = title or normalize_text(doc.title)
-        summary = summary or normalize_text(doc.summary)
+        title = title or normalize_text(doc.title).replace("试卷", "测试")
+        summary = summary or normalize_text(doc.summary).replace("试卷", "测试")
 
-        candidates: list[ExamQuestion] = []
+        candidates: list[tuple[int, TestQuestion]] = []
+        claimed_slots: set[int] = set()
         for question in doc.questions:
-            coerced = coerce_question(question, valid_concept_ids=valid_ids, allowed_types=allowed)
+            slot = next(
+                (
+                    (index, target)
+                    for index, target in remaining_slots
+                    if index not in claimed_slots and target.concept_id in question.concept_ids
+                ),
+                None,
+            )
+            if slot is None:
+                continue
+            slot_index, target = slot
+            coerced = coerce_question(
+                question,
+                valid_concept_ids=valid_ids,
+                allowed_types=ALL_TYPES,
+                primary_concept_id=target.concept_id,
+                importance_score=target.importance_score,
+            )
             if coerced is None:
                 continue
             key = heading_key(coerced.stem)
             if not key or key in seen_keys:
                 continue
             seen_keys.add(key)
-            candidates.append(coerced)
+            claimed_slots.add(slot_index)
+            candidates.append((slot_index, coerced))
 
         if verify and solve_caller is not None and candidates:
             semaphore = asyncio.Semaphore(VERIFY_CONCURRENCY)
 
-            async def _bounded(question: ExamQuestion) -> bool:
+            async def _bounded(question: TestQuestion) -> bool:
                 async with semaphore:
                     return await _verify(question, solve_caller, graph, chunks, embeddings, by_chunk_id)
 
-            verdicts = await asyncio.gather(*(_bounded(question) for question in candidates))
-            kept = [question for question, ok in zip(candidates, verdicts) if ok]
+            verdicts = await asyncio.gather(*(_bounded(question) for _, question in candidates))
+            kept = [item for item, ok in zip(candidates, verdicts) if ok]
             rejected += len(candidates) - len(kept)
             candidates = kept
 
-        for question in candidates:
-            accepted.append(question)
+        for slot_index, question in candidates:
+            accepted_by_slot[slot_index] = question
             if on_question is not None:
                 on_question(question)
-            if len(accepted) >= request.question_count:
-                break
         logger.info(
-            "exam round %d: accepted=%d/%d, rejected_total=%d",
-            rounds, len(accepted), request.question_count, rejected,
+            "test round %d: accepted=%d/%d, rejected_total=%d",
+            rounds, len(accepted_by_slot), request.question_count, rejected,
         )
 
-    questions = accepted[: request.question_count]
+    questions = [accepted_by_slot[index] for index in sorted(accepted_by_slot)]
     if not questions:
-        raise ValueError("Exam LLM returned no usable questions.")
+        raise ValueError("Test LLM returned no usable questions.")
 
-    exam = ExamDocument(
+    test = TestDocument(
         session_id=request.session_id,
-        title=title or f"{session.lecture_title} - 图谱试卷",
-        summary=summary or f"基于当前图数据库生成 {len(questions)} 道题。",
+        title=title or f"{session.lecture_title} - 知识水平测试",
+        summary=summary or f"按知识点重要度生成 {len(questions)} 道水平测试题。",
         questions=questions,
     )
-    local.save_exam(exam)
-    logger.info("exam done: %d questions (%d rejected by verifier)", len(questions), rejected)
-    return exam
+    local.save_test(test)
+    logger.info("test done: %d questions (%d rejected by verifier)", len(questions), rejected)
+    return test
+
+
+def select_test_targets(graph: GraphArtifact, question_count: int) -> list[ConceptNode]:
+    """Choose the tested knowledge points deterministically from graph importance.
+
+    The highest-ranked concepts are covered once first. If a very small graph needs
+    more questions than it has concepts, extra slots cycle through the top half so
+    higher-importance concepts receive deeper assessment.
+    """
+    ranked = sorted(graph.concepts, key=lambda concept: concept.importance_score, reverse=True)
+    if not ranked or question_count <= 0:
+        return []
+    targets = ranked[:question_count]
+    if len(targets) >= question_count:
+        return targets
+    repeat_pool = ranked[: max(1, (len(ranked) + 1) // 2)]
+    while len(targets) < question_count:
+        targets.append(repeat_pool[(len(targets) - len(ranked)) % len(repeat_pool)])
+    return targets
+
+
+# Compatibility alias for Python callers using the former product term.
+generate_exam = generate_test
 
 
 def _ensure_callers(
@@ -165,7 +201,7 @@ def _ensure_callers(
 
 
 async def _verify(
-    question: ExamQuestion,
+    question: TestQuestion,
     solve_caller: SolveCaller,
     graph: GraphArtifact,
     chunks: list[EvidenceChunk],
@@ -179,7 +215,7 @@ async def _verify(
     try:
         solved = await solve_caller(build_solver_prompt(question, concepts=concepts, grounding_chunks=grounding))
     except Exception:  # a flaky verify call must not sink the question — keep it
-        logger.exception("exam verifier solve failed; keeping question")
+        logger.exception("test verifier solve failed; keeping question")
         return True
     match = answers_match(question.question_type, solved.answer, question.answer)
     if match is None:  # subjective: trust grounding
@@ -187,7 +223,7 @@ async def _verify(
     return bool(match)
 
 
-def _question_concepts(graph: GraphArtifact, question: ExamQuestion) -> list[ConceptNode]:
+def _question_concepts(graph: GraphArtifact, question: TestQuestion) -> list[ConceptNode]:
     by_id = {concept.concept_id: concept for concept in graph.concepts}
     return [by_id[cid] for cid in question.concept_ids if cid in by_id]
 
