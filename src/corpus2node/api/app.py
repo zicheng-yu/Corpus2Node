@@ -16,6 +16,7 @@ from corpus2node.api.routes import graph as graph_routes
 from corpus2node.api.routes import notes as notes_routes
 from corpus2node.api.routes import prompts as prompts_routes
 from corpus2node.api.routes import sessions as sessions_routes
+from corpus2node.api.routes import scientific as scientific_routes
 from corpus2node.api.routes import settings as settings_routes
 from corpus2node.api.routes import workflow as workflow_routes
 from corpus2node.config import ROOT_DIR, settings
@@ -80,6 +81,7 @@ _ROUTERS = (
     graph_routes.router,
     chat_routes.router,
     discovery_routes.router,
+    scientific_routes.router,
     notes_routes.router,
     exam_routes.router,
     export_routes.router,

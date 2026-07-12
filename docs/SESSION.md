@@ -2,27 +2,23 @@
 
 > 下一轮先读本文件，再读 `docs/PROGRESS.md`。PROGRESS 是完整进度真相。
 
-**最近更新**：2026-07-10 (2) · 分支 `feat`
+**最近更新**：2026-07-12 · 分支 `feat`
 
 ## 本轮完成
 
-1. **删除失败已解决**：不是 DELETE 实现错误，而是前端已 HMR、后端仍是 7 月 6 日旧进程，运行中 DELETE 返回 405。旧进程无 pidfile，已 `force-stop` 后用 `corpus dev` 重新启动 reload/HMR。
-2. **真实验证**：临时 discovery/session 经运行中 API 删除均 200；浏览器点击临时历史发现删除、确认后条目消失并显示成功 toast。临时 artifact 已清理，用户原 4 条历史报告未改动。
-3. **防再犯提示**：前端删除遇到 405 时明确提示“后端仍是旧版本，请运行 corpus restart 后重试”。
-4. **科研与 R&D 方向**：新增 `docs/SCIENTIFIC_RD.md`，将科研版定位为 Scientific Evidence Graph：
-   - 原始 PDF/JATS/TEI → 科研结构、表格、公式和引用定位；
-   - typed scientific entities + document-level experiment relations；
-   - claim → evidence → experiment → PDF/table locator；
-   - 跨论文证据矩阵、矛盾、空白、技术路线和 R&D 决策卡。
-   `docs/CUSTOMIZATION.md` 已把 scientific profile 列为首个推荐垂直包。
-5. **验证**：162 passed；ruff clean；前端 production build 通过；diff check 通过。
+1. **科研证据图谱 MVP 已落地**：独立 `scientific/` 垂直包覆盖 Paper/Entity/Relation/Claim/Experiment/Evidence、证据矩阵、跨论文 Insight 与 R&D Decision Card；不改坏通用 GraphArtifact 主线。
+2. **证据门**：模型只返回短 evidence alias，后端映射并校验真实 session/source/chunk/locator；无效引用直接过滤。供应商 JSON 方言统一归一化，有限重试；单篇抽取有内容指纹缓存；跨论文模型未过证据门时采用确定性证据综合兜底。
+3. **客户页面/API**：新增 `/scientific` 前端页和顶部入口；`POST /scientific/run`、列表/读取/删除 API；报告 artifact 落 `artifacts/scientific/`。
+4. **中文策略**：科研说明、结论和建议统一中文；论文、模型、算法、数据集正式英文名称独立保留。通用 graph prompt 同步约束解释字段中文化。
+5. **真实验证**：VDN + QMIX + 已配置 DeepSeek 跑通，最终报告 `f1c88905-7d9f-4434-9780-978e94bcd238`：2 papers / 19 entities / 19 relations / 10 claims / 3 experiments / 27 evidence / 2 insights / 1 decision，claim 引用 11/11 有效。
+6. **工程验证**：167 passed；ruff clean；前端 production build 通过；本地 `/health` 与 `/api/scientific` 均 200。
 
 ## 当前运行状态
 
-- `corpus dev` 正在运行，后端启用 reload、前端启用 HMR。
+- 后端当前以 `uvicorn corpus2node.api.app:app --host 127.0.0.1 --port 8000` 运行；前端 Vite 仍在 5173。
 - 如果改用后台 `corpus start`，代码变化后必须重启；普通 restart 无法清理丢失 pidfile 的进程时使用 `corpus force-stop`，但只针对本项目 8000/5173 端口。
-- 工作树包含两轮未提交改动，未 commit、未 push。
+- 本轮完成后应有一个 Conventional Commit；未 push。
 
 ## 下一步最佳动作
 
-选择一个真实科研垂直领域和约 30 篇论文，建立带实体、关系、claim、实验数值和 locator 的 gold corpus，再按 `docs/SCIENTIFIC_RD.md` Phase 1 实现 Scientific ingestion MVP。
+选择约 30 篇同一科研垂直的 gold 论文，接 JATS/TEI/GROBID 与 PDF bbox/table-cell locator；在本轮已跑通的科研契约、证据门、跨论文矩阵和决策卡主线上做正式评估。

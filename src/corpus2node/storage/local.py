@@ -19,6 +19,7 @@ from corpus2node.core.types import (
     NoteDocument,
     TestDocument,
 )
+from corpus2node.scientific.schemas import ScientificReport
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -274,6 +275,33 @@ def delete_discovery_report(discovery_id: str) -> None:
 
 def list_discovery_reports() -> list[DiscoveryReport]:
     reports = [_read_model(candidate, DiscoveryReport) for candidate in discovery_dir().glob("*.json")]
+    return sorted(reports, key=lambda report: report.generated_at, reverse=True)
+
+
+def scientific_dir() -> Path:
+    path = _root() / "scientific"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def scientific_path(report_id: str) -> Path:
+    return scientific_dir() / f"{report_id}.json"
+
+
+def save_scientific_report(report: ScientificReport) -> Path:
+    return _write_model(scientific_path(report.report_id), report)
+
+
+def load_scientific_report(report_id: str) -> ScientificReport:
+    return _read_model(scientific_path(report_id), ScientificReport)
+
+
+def delete_scientific_report(report_id: str) -> None:
+    scientific_path(report_id).unlink(missing_ok=True)
+
+
+def list_scientific_reports() -> list[ScientificReport]:
+    reports = [_read_model(candidate, ScientificReport) for candidate in scientific_dir().glob("*.json")]
     return sorted(reports, key=lambda report: report.generated_at, reverse=True)
 
 

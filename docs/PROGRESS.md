@@ -9,11 +9,11 @@
 
 ## 当前已验证状态
 
-- **后端测试 162 passed**（`.venv/bin/python -m pytest -q`，2026-07-10 实测，2.29s）。
+- **后端测试 167 passed**（`.venv/bin/python -m pytest -q`，2026-07-12 实测，1.84s）。
 - **全离线 LLM 方案已落地并本机实测**：注册表 kind += `ollama`/`lmstudio`（免密钥、默认本地端点、`num_ctx`/`max_concurrency`）；本机 M3 用 `gemma4:e2b-it-qat` + `bge-m3`（嵌入）真 HTTP 跑通 workflow/chat/测试/models 全流程（`llama3.1:8b` 参照组同过）；PDF 无 Kimi 时 pypdf 本地解析、视频回退 whisper 音轨转写。
 - **LLM 配置已统一到注册表/UI（本轮）**：Kimi（vision）与远程 embedding 都成为注册表凭据 + 用途；`config.py` 不再有任何 LLM 凭据；`.env` 只剩基础设施 + 首次种子，`.env`/`.env.example` 格式对齐。设置面板改为「凭据=端点+密钥+模型 一体，下面单选下拉直接绑」。
-- **前端 `npm run build` 通过**（2026-07-10 实测）。
-- **ruff clean**（`.venv/bin/ruff check src tests`，2026-07-10 实测）。分支 `feat`。
+- **前端 `npm run build` 通过**（2026-07-12 实测）。
+- **ruff clean**（`.venv/bin/ruff check src tests`，2026-07-12 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/水平测试）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
 - **在线闭环可跑**：chat agent（强制引用 + trace + SSE）、notes（map-reduce + coverage critic）、水平测试（importance plan + generator + verifier 回路）、export（md/tex/txt/pdf）路由齐全且有测试覆盖。
 - **多模态摄入**：文档 7 类 + PDF（Kimi file-extract ↔ 无 Kimi 时 pypdf 本地）+ 图片/视频（Kimi vision/K2.6；vision 绑本地 VLM 时图片走同路径、视频回退 whisper 音轨转写）+ 音频（faster-whisper），注册表式接入。
@@ -27,6 +27,7 @@
 - **“试卷”已迁移为“水平测试”**：前端不再选择题型；后端先按 `importance_score` 确定知识点测试计划，再让模型自动选题目形式并经独立求解器校验。主接口/产物为 `/generate_test`、`/test/*`、`test.json`、`test_id`；旧 `/exam`、`exam.json`、Python alias 保留读取兼容且从 OpenAPI 隐藏。
 - **多客户定制策略已定**：见 `docs/CUSTOMIZATION.md`，采用“单产品核心 + 客户配置包 + 客户适配器 + 独立部署”，不复制仓库、不维护长期客户分支；当前未提前实现缺少真实客户字段的配置框架。
 - **科研与 R&D 垂直方向已形成方案**：见 `docs/SCIENTIFIC_RD.md`；定位从通用概念图谱升级为“原始科技文献 → 科研实体/实验关系 → claim-evidence graph → 证据矩阵/矛盾/空白 → R&D 决策卡”，建议作为客户配置体系的首个 scientific profile。
+- **科研证据图谱 MVP 技术主线已落地并真实验证**：新增独立 `scientific/` 垂直包、`/scientific` API 与“科研证据”页面；单篇抽取 Paper/Entity/Relation/Claim/Experiment，所有模型证据编号经后端映射并校验到真实 `session/source/chunk/locator`；跨论文生成证据矩阵、洞察和 R&D 决策卡，供应商 JSON 方言有边界归一化、限次重试、单篇内容指纹缓存及确定性证据综合兜底。用现有 VDN/QMIX + DeepSeek 真实跑通，报告 `f1c88905-7d9f-4434-9780-978e94bcd238`：2 papers / 19 entities / 19 relations / 10 claims / 3 experiments / 27 evidence / 2 insights / 1 decision；claim 引用有效率 **11/11**。内容策略为中文叙述，英文正式名称独立保留。
 - **mixed 多模态抽取问题已修复（本轮）**：`06 mixed` 摄入正常（image 1 chunk + PDF 40 chunks），抽取阶段曾有 84 concepts / 60 relations，问题是 critic grounding 检索给大量真实概念提示“未检索到相关片段”，且近清空保护只拦截“全删”不拦截“84 删 83”。已改为字面证据优先 + embedding 补充，并加近清空保护；用旧 artifact 无外部调用复核可为 55/84 个旧 verdict 概念找到原文片段。
 
 ## 仓库根目录
@@ -61,7 +62,7 @@ ruff check src tests                                  # lint
 
 ## 当前最高优先级未完成功能
 
-1. **确定一个科研垂直领域和约 30 篇 gold 论文**，按 `docs/SCIENTIFIC_RD.md` Phase 1 实现 Scientific ingestion MVP：JATS/TEI/GROBID、Paper/Claim/Experiment/EvidenceSpan、PDF locator。
+1. **把科研 MVP 从现有 PDF chunk 提升为正式 scientific ingestion**：确定约 30 篇 gold 论文，接 JATS/TEI/GROBID 与 PDF bbox/table locator；现有 Paper/Claim/Experiment/Evidence/跨论文决策主线继续作为验收骨架。
 2. **收集前两个真实客户的差异矩阵**（品牌 / 能力 / 限制 / 集成 / 数据边界），据此落地第一版 profile schema 与 loader；scientific profile 作为首个垂直包。
 3. **记录真实 eval baseline 数字**（抽取 F1 / 问答 grounding / 水平测试可溯源率）。
 4. **Step 7 工程化收尾**：`Course→Corpus` 契约重命名、持久化向量库、Docker、README 补全。
@@ -98,12 +99,13 @@ ruff check src tests                                  # lint
 | `exam/generate.py` `validate.py` `prompts.py` `schemas.py` | **水平测试**：确定性按 `importance_score` 规划知识点 → generator 自动选题目形式 → **verifier 独立求解回路**；目录名与 `Purpose.exam` 暂留作内部兼容键 | 调测试覆盖/校验/难度 |
 | `assistant/agent.py` `tools.py` | **招牌：在线 chat agent**（单 tool-calling agent + 最近历史 + 预检索引用兜底 + 结构化 trace + SSE）；tools = retrieve_chunks / search_concepts / get_subgraph | 调问答行为 / 加 agent 工具 |
 | `discovery/engine.py` | **知识发现 v2（创新提案）**：多资料集/随机模式；宽候选生成（相似度+词面+结构信号+图谱重要性）+ AI judge seam（Purpose.critic，大池分批并发，`relation_type` 8 类枚举+中文别名回填）+ 算法 fallback；证据每侧 top-2；LLM 标题 seam（确定性 `derive_title` 回退）。**提案层（老板场景）**：findings → `make_proposer_or_none`（Purpose.chat→critic，temp 0.7，json_mode 需 prompt 带 `_PROPOSAL_FORMAT_HINT`）产出 `InnovationProposal`（title/pitch/组合/第一步/风险/status/deep_dive）；`_proposals_from_draft` 概念 grounding（名称多键映射：raw+去括号，同名跨集解析**优先未覆盖资料集**）+ 跨集 ≥2 校验；`_fallback_proposals` 按 relation_type 模板确定性成案；`_avoid_titles` 把历史已采纳/搁置标题喂给 proposer 避重；`deepen_proposal` + `make_deepener_or_none` 五字段深挖（目标/做法/数据/首实验/指标）确定性渲染 markdown；`intent` 全程贯穿 prompt。**桥接图 v2**：有提案时输出 资料集→概念→提案 三层（node_type=proposal 带 status/pitch），无提案回退旧 finding 布局（老报告兼容） | 调发现/提案逻辑 / 评分权重 / 提案数(`_PROPOSAL_TARGET`) / 深挖字段 / 图布局 |
+| `scientific/schemas.py` `prompts.py` `engine.py` | **科研证据图谱 MVP**：中文优先论文级实体/关系/claim/实验抽取；证据 alias→真实 chunk/locator 确定性校验；跨论文证据矩阵、技术演进/研究空白/迁移机会和 R&D 决策卡；OpenAI-compatible JSON 方言归一化、限次重试、内容指纹缓存、证据综合兜底 | 调科研本体 / 抽取字段 / 证据门 / 跨论文发现与决策 |
 | `export/renderer.py` | 导出 md/tex/txt（纯 Python）+ pdf（惰性 wkhtmltopdf→xhtml2pdf，`[export]` extra）+ render_chat_markdown | 加导出格式 |
 | `eval/metrics.py` `harness.py` `schemas.py` `__main__.py` `data/` | **离线评估**：纯指标（抽取 F1 / 关系合法+召回 / 笔记覆盖 / 水平测试可溯源+客观题合法 / 问答 grounding）+ harness + CLI + gold fixture | 加评估指标 / 调 gold |
 | `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放 + 同参数复用/异参数冲突保护——notes/test 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
 | `prompt_store.py` | 用户自定义提示词（global + chat/notes/exam）作为「补充偏好」**追加**到内置 system prompt（不覆盖结构化/引用约束；抽取与质检不受影响） | 调自定义 prompt 接入面 |
-| `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源，原子写；含 `discoveries/{discovery_id}.json`）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
-| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions（安全上传 + 资料集/知识库重命名）· discovery(`/discovery/run`、列表/读取/**删除**、提案反馈/深挖) · settings · prompts · workflow · chat · notes · test(`/generate_test[+/stream]`,`/test/{id}[/stream]`) · export · graph；旧 exam 路径隐藏兼容 | 加/改 HTTP 接口 |
+| `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源，原子写；含 `discoveries/` 与 `scientific/` 报告）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
+| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions · discovery · scientific(`/scientific/run`、列表/读取/删除) · settings · prompts · workflow · chat · notes · test · export · graph；旧 exam 路径隐藏兼容 | 加/改 HTTP 接口 |
 
 ### 前端 `frontend/src/`
 
@@ -112,6 +114,7 @@ ruff check src tests                                  # lint
 | `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），含 sessions 管理、knowledge discovery 运行/删除、notes/test 生成与导出 | 加/改一个后端调用 |
 | `types/index.ts` | 前端契约（对应 `core/types.py`，含 DiscoveryReport） | 改契约（和后端一起改） |
 | `pages/HomePage.tsx` | 知识库列表 + 折叠/拖拽排序 + 资料集/知识库改名 + **知识发现 v2**（运行、提案、历史读取/**确认删除**、桥接图）+ 全局知识点搜索；通用 `ConfirmModal` | 改首页/库管理/发现交互 |
+| `pages/ScientificPage.tsx` | **科研证据客户垂直页**：多选论文、填写研发目标、运行分析、历史报告、论文证据矩阵、跨文献洞察、决策卡与原文 locator 展开/资料集跳转 | 改科研分析交互 / 证据呈现 |
 | `components/discovery/BridgeGraphView.tsx` | **发现呈现图（双布局自适应）**：有 proposal 节点 → **部门(资料集)→桥接概念→创新提案** 三列（提案宽卡、采纳高亮 ring/搁置降透明、点击提案定位卡片）；旧报告（finding 节点）保留 发现→知识点→资料集 布局；概念节点点击溯源；懒加载独立 chunk | 改呈现图样式/布局/交互 |
 | `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
 | `pages/PipelinePage.tsx` | 流水线可视化（4 阶段一行：解析/切分/抽取/构建，**质检 critic 折叠进「构建图谱」**）+ per-node **run-metrics 面板**（耗时/token/repair，仍单列 `critic` 节点） | 改流水线展示 |
@@ -139,6 +142,13 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-07-12 — 科研证据图谱 MVP + VDN/QMIX 真实流程
+- **本轮目标**：实现“原始科技文献 → 可核查科研证据图谱 → 跨论文发现 → R&D 决策卡”的客户垂直主线，并使用现有两篇多智能体强化学习论文和已配置 API Key 做真实测试。
+- **已完成**：新增 scientific 独立契约、中文优先 prompts、论文级抽取与 evidence alias 校验、证据矩阵、跨论文综合、R&D 决策卡、JSON 方言归一化/重试/缓存/确定性兜底、artifact 存储与 CRUD API；前端新增 `/scientific` 客户页与顶部入口；通用 graph prompt 也改为中文解释字段 + 英文正式名/alias 分离。
+- **真实验证**：VDN session `f206a0d4...` + QMIX session `945a6176...`，DeepSeek 真实调用；最终报告 `f1c88905-7d9f-4434-9780-978e94bcd238` 为 2/19/19/10/3/27/2/1（papers/entities/relations/claims/experiments/evidence/insights/decisions），claim 引用 11/11 全部能映射到真实 chunk，示例 locator 为 VDN PDF 原文段落 2。
+- **工程验证**：`pytest -q` → **167 passed**；`ruff check src tests` → clean；`frontend npm run build` → 通过；重启本地后端后 `/health` 与 `/api/scientific` 均 200，最新报告含 2 insights / 1 decision。
+- **已知边界**：当前 PDF 摄入的部分 Kimi 产物没有页码/bbox，locator 回退到“文件名 + 原文段落”；跨论文模型返回的不可验证证据会被过滤并采用明确的确定性综合兜底。下一阶段按 `docs/SCIENTIFIC_RD.md` 接 JATS/TEI/GROBID、表格单元格和 PDF bbox locator，并建立约 30 篇 gold corpus。
 
 ### 2026-07-10 (2) — 删除失败运行态修复 + 科研证据图谱方向
 - **删除失败根因**：前端 Vite HMR 已加载本轮 DELETE 代码，后台 uvicorn 是 7 月 6 日启动的旧版本；运行 OpenAPI 无 DELETE 和 `/test` 路由，日志确认历史发现 DELETE 全部为 405。普通 `corpus restart` 因 pidfile 丢失无法接管旧进程。

@@ -17,6 +17,8 @@ import type {
   ProposalStatus,
   ProviderKind,
   SearchResponse,
+  ScientificLanguageMode,
+  ScientificReport,
   SubgraphResponse,
   TestDocument,
   UploadResponse,
@@ -240,6 +242,30 @@ export async function getDiscovery(discoveryId: string): Promise<DiscoveryReport
 export async function deleteDiscovery(discoveryId: string): Promise<void> {
   await readJson<{ ok: boolean }>(
     await fetch(`${BASE}/discovery/${discoveryId}`, { method: "DELETE" }),
+  );
+}
+
+// ── Scientific R&D evidence ─────────────────────────────────────────────────
+
+export function runScientificAnalysis(payload: {
+  session_ids: string[];
+  objective_zh?: string;
+  language_mode?: ScientificLanguageMode;
+}): Promise<ScientificReport> {
+  return postJson<ScientificReport>("/scientific/run", payload);
+}
+
+export async function listScientificReports(): Promise<ScientificReport[]> {
+  return readJson<ScientificReport[]>(await fetch(`${BASE}/scientific`));
+}
+
+export async function getScientificReport(reportId: string): Promise<ScientificReport> {
+  return readJson<ScientificReport>(await fetch(`${BASE}/scientific/${reportId}`));
+}
+
+export async function deleteScientificReport(reportId: string): Promise<void> {
+  await readJson<{ ok: boolean }>(
+    await fetch(`${BASE}/scientific/${reportId}`, { method: "DELETE" }),
   );
 }
 

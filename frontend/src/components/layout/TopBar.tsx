@@ -27,6 +27,9 @@ export function TopBar({ onOpenCmd, onOpenSettings }: TopBarProps) {
         <Link to="/new" className={clsx({ active: location.pathname === "/new" })}>
           新建
         </Link>
+        <Link to="/scientific" className={clsx({ active: location.pathname === "/scientific" })}>
+          科研证据
+        </Link>
       </nav>
 
       <div className="topbar-spacer" />

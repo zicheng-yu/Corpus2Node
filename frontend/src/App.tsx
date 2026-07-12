@@ -12,6 +12,9 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 const WorkspacePage = lazy(() =>
   import("./pages/WorkspacePage").then((m) => ({ default: m.WorkspacePage })),
 );
+const ScientificPage = lazy(() =>
+  import("./pages/ScientificPage").then((m) => ({ default: m.ScientificPage })),
+);
 
 function AppInner() {
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -48,6 +51,14 @@ function AppInner() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/new" element={<NewSessionPage />} />
+          <Route
+            path="/scientific"
+            element={
+              <Suspense fallback={null}>
+                <ScientificPage />
+              </Suspense>
+            }
+          />
           <Route path="/session/:id/pipeline" element={<PipelinePage />} />
           <Route
             path="/session/:id"

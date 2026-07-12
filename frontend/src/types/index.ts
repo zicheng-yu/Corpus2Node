@@ -390,6 +390,150 @@ export interface DiscoveryReport {
   generated_at: string;
 }
 
+// ── Scientific R&D evidence vertical ────────────────────────────────────────
+
+export type ScientificLanguageMode = "zh" | "zh_bilingual";
+export type ScientificEntityType =
+  | "research_problem" | "method" | "model" | "dataset" | "metric"
+  | "material" | "parameter" | "result" | "limitation";
+export type ScientificInsightType =
+  | "agreement" | "contradiction" | "research_gap" | "transfer_opportunity" | "technical_lineage";
+
+export interface ScientificEvidence {
+  evidence_id: string;
+  session_id: string;
+  source_id: string;
+  source_type: SourceKind;
+  chunk_id: string;
+  locator: string;
+  snippet: string;
+}
+
+export interface ScientificEntity {
+  entity_id: string;
+  session_id: string;
+  entity_type: ScientificEntityType;
+  name_zh: string;
+  name_en: string;
+  canonical_name: string;
+  description_zh: string;
+  evidence_ids: string[];
+}
+
+export interface ScientificRelation {
+  relation_id: string;
+  session_id: string;
+  source_name: string;
+  relation_type: string;
+  target_name: string;
+  statement_zh: string;
+  confidence: number;
+  evidence_ids: string[];
+}
+
+export interface ScientificClaim {
+  claim_id: string;
+  session_id: string;
+  claim_type: string;
+  statement_zh: string;
+  statement_original: string;
+  subject: string;
+  predicate_zh: string;
+  object: string;
+  polarity: string;
+  modality: string;
+  confidence: number;
+  evidence_ids: string[];
+}
+
+export interface ScientificMetricResult {
+  metric_name: string;
+  value: string;
+  comparison_zh: string;
+  evidence_ids: string[];
+}
+
+export interface ScientificExperiment {
+  experiment_id: string;
+  session_id: string;
+  name_zh: string;
+  methods: string[];
+  datasets_or_environments: string[];
+  baselines: string[];
+  conditions_zh: string;
+  metrics: ScientificMetricResult[];
+  conclusion_zh: string;
+  evidence_ids: string[];
+}
+
+export interface ScientificPaperProfile {
+  session_id: string;
+  source_title: string;
+  title_zh: string;
+  title_original: string;
+  research_problem_zh: string;
+  method_summary_zh: string;
+  result_summary_zh: string;
+  limitations_zh: string[];
+  entity_ids: string[];
+  claim_ids: string[];
+  experiment_ids: string[];
+  evidence_ids: string[];
+}
+
+export interface ScientificEvidenceMatrixRow {
+  paper_title: string;
+  session_id: string;
+  research_problem_zh: string;
+  core_methods: string[];
+  datasets_or_environments: string[];
+  metrics: string[];
+  main_result_zh: string;
+  limitations_zh: string[];
+  evidence_ids: string[];
+}
+
+export interface ScientificInsight {
+  insight_id: string;
+  insight_type: ScientificInsightType;
+  title_zh: string;
+  summary_zh: string;
+  reasoning_zh: string;
+  confidence: number;
+  related_session_ids: string[];
+  supporting_claim_ids: string[];
+  evidence_ids: string[];
+}
+
+export interface RDDecisionCard {
+  decision_id: string;
+  title_zh: string;
+  recommendation_zh: string;
+  rationale_zh: string;
+  next_experiment_zh: string;
+  risks_zh: string[];
+  confidence: number;
+  evidence_ids: string[];
+}
+
+export interface ScientificReport {
+  report_id: string;
+  title_zh: string;
+  objective_zh: string;
+  language_mode: ScientificLanguageMode;
+  session_ids: string[];
+  papers: ScientificPaperProfile[];
+  entities: ScientificEntity[];
+  relations: ScientificRelation[];
+  claims: ScientificClaim[];
+  experiments: ScientificExperiment[];
+  evidence: ScientificEvidence[];
+  evidence_matrix: ScientificEvidenceMatrixRow[];
+  insights: ScientificInsight[];
+  decision_cards: RDDecisionCard[];
+  generated_at: string;
+}
+
 // ── LLM credential registry (replaces the old flat runtime settings) ────────────
 
 export type ProviderKind = "openai" | "anthropic" | "ollama" | "lmstudio";
