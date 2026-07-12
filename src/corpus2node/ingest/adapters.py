@@ -52,6 +52,25 @@ def _read_text(filename: str, path: str) -> list[str]:
     return [Path(path).read_text(encoding="utf-8", errors="replace")]
 
 
+def _read_scientific_xml(filename: str, path: str) -> list[str]:
+    from corpus2node.scientific.parsers import parse_scientific_xml
+
+    document = parse_scientific_xml(path, source_id=Path(filename).stem)
+    blocks = []
+    for section in document.sections:
+        text = " ".join(value.text for value in section.sentences)
+        if text:
+            blocks.append(f"{section.title}\n{text}" if section.title else text)
+    for table in document.tables:
+        rows: dict[int, list[str]] = {}
+        for cell in table.cells:
+            rows.setdefault(cell.row, []).append(cell.text)
+        table_text = "\n".join(" | ".join(cells) for _, cells in sorted(rows.items()))
+        if table_text:
+            blocks.append(f"{table.caption}\n{table_text}" if table.caption else table_text)
+    return blocks
+
+
 def _read_docx(filename: str, path: str) -> list[str]:
     try:
         import docx
@@ -153,6 +172,8 @@ _ADAPTERS = {
     ".json": _read_json,
     ".yaml": _read_yaml,
     ".yml": _read_yaml,
+    ".xml": _read_scientific_xml,
+    ".nxml": _read_scientific_xml,
     **{ext: _read_image for ext in _IMAGE_EXTS},
     **{ext: _read_video for ext in _VIDEO_EXTS},
     **{ext: _read_audio for ext in _AUDIO_EXTS},

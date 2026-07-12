@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # registry (Settings → Models). This is just the request timeout (infra).
     vision_timeout_seconds: float = 120.0
 
+    # --- Scientific PDF structure parsing (GROBID REST service) ---
+    grobid_base_url: str = "http://localhost:8070"
+
     # --- Embeddings ---
     # embed_provider picks the engine. For `openai_compatible`, the endpoint/key/model
     # come from the registry's `embedding` purpose (Settings → Models), not from here.

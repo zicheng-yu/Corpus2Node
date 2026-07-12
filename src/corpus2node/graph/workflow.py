@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from corpus2node.core.clock import utcnow
 from typing import TypedDict
 from uuid import UUID
@@ -52,6 +53,35 @@ def default_extract_blocks(source: SourceFile) -> list[str]:
     return extract_blocks_for(source)
 
 
+def _try_parse_scientific_source(session_id: UUID, source: SourceFile) -> None:
+    """Best-effort structure lane; ordinary ingestion remains available when GROBID is offline."""
+    suffix = Path(source.filename).suffix.lower()
+    if suffix not in {".xml", ".nxml", ".pdf"}:
+        return
+    from corpus2node.scientific.parsers import ScientificParseError, parse_grobid_pdf, parse_scientific_xml
+
+    try:
+        if suffix == ".pdf":
+            import httpx
+
+            try:
+                response = httpx.get(f"{settings.grobid_base_url.rstrip('/')}/api/isalive", timeout=0.8)
+                if response.status_code != 200:
+                    return
+            except httpx.HTTPError:
+                return
+            document = parse_grobid_pdf(
+                source.storage_path,
+                source_id=str(source.source_id),
+                base_url=settings.grobid_base_url,
+            )
+        else:
+            document = parse_scientific_xml(source.storage_path, source_id=str(source.source_id))
+        local.save_scientific_document(session_id, document)
+    except ScientificParseError as exc:
+        logger.info("structured scientific parsing unavailable for %s: %s", source.filename, exc)
+
+
 def build_workflow(
     *,
     astructured: AStructured,
@@ -72,6 +102,7 @@ def build_workflow(
                 local.save_ingest_artifact(
                     IngestArtifact(session_id=session_id, source_id=source.source_id, source_kind=source.kind, chunks=chunks)
                 )
+                await asyncio.to_thread(_try_parse_scientific_source, session_id, source)
                 source.ingested = True
             session.updated_at = utcnow()
             local.save_session(session)

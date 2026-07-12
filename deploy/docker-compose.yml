@@ -18,6 +18,7 @@ services:
       EMBED_PROVIDER: hashing           # zero-dep embeddings (no torch); matches local setup
       EMBEDDING_DIMENSIONS: "1024"
       VECTOR_STORE_PROVIDER: local_cosine
+      GROBID_BASE_URL: http://grobid:8070
       VISION_TIMEOUT_SECONDS: "120"
       WHISPER_MODEL_SIZE: base
       WHISPER_LANGUAGE: auto
@@ -28,6 +29,17 @@ services:
       - whisper-cache:/root/.cache/huggingface      # whisper model cache (downloaded on 1st audio)
     expose:
       - "8000"                                       # internal only — reachable from nginx, not the host
+    restart: unless-stopped
+    depends_on:
+      - grobid
+
+  grobid:
+    image: grobid/grobid:0.9.0-crf
+    init: true
+    ulimits:
+      core: 0
+    ports:
+      - "8070:8070"
     restart: unless-stopped
 
   nginx:

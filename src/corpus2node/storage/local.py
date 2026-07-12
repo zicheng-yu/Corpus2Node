@@ -19,7 +19,7 @@ from corpus2node.core.types import (
     NoteDocument,
     TestDocument,
 )
-from corpus2node.scientific.schemas import ScientificReport
+from corpus2node.scientific.schemas import ScientificDocument, ScientificReport
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -163,6 +163,31 @@ def list_ingest_artifacts(session_id: uuid.UUID) -> list[IngestArtifact]:
     return [
         _read_model(candidate, IngestArtifact)
         for candidate in sorted(path.glob("*.json"))
+    ]
+
+
+def scientific_document_dir(session_id: uuid.UUID) -> Path:
+    path = session_dir(session_id) / "scientific" / "documents"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def scientific_document_path(session_id: uuid.UUID, source_id: str) -> Path:
+    return scientific_document_dir(session_id) / f"{source_id}.json"
+
+
+def save_scientific_document(session_id: uuid.UUID, document: ScientificDocument) -> Path:
+    return _write_model(scientific_document_path(session_id, document.source_id), document)
+
+
+def load_scientific_document(session_id: uuid.UUID, source_id: str) -> ScientificDocument:
+    return _read_model(scientific_document_path(session_id, source_id), ScientificDocument)
+
+
+def list_scientific_documents(session_id: uuid.UUID) -> list[ScientificDocument]:
+    return [
+        _read_model(candidate, ScientificDocument)
+        for candidate in sorted(scientific_document_dir(session_id).glob("*.json"))
     ]
 
 

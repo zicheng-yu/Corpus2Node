@@ -28,6 +28,93 @@ class ScientificEntityType(str, Enum):
     limitation = "limitation"
 
 
+class ScientificRelationType(str, Enum):
+    proposes = "PROPOSES"
+    extends = "EXTENDS"
+    uses = "USES"
+    evaluated_on = "EVALUATED_ON"
+    measured_by = "MEASURED_BY"
+    reports_result = "REPORTS_RESULT"
+    outperforms = "OUTPERFORMS"
+    supports = "SUPPORTS"
+    contradicts = "CONTRADICTS"
+    replicates = "REPLICATES"
+    limited_by = "LIMITED_BY"
+    requires = "REQUIRES"
+    derived_from = "DERIVED_FROM"
+    related_to = "RELATED_TO"
+
+
+class ScientificBBox(BaseModel):
+    page: int = Field(ge=1)
+    x: float
+    y: float
+    width: float = Field(ge=0)
+    height: float = Field(ge=0)
+
+
+class ScientificLocator(BaseModel):
+    section_path: list[str] = Field(default_factory=list)
+    sentence_id: str = ""
+    page: int | None = Field(default=None, ge=1)
+    bboxes: list[ScientificBBox] = Field(default_factory=list)
+    table_id: str = ""
+    table_row: int | None = Field(default=None, ge=0)
+    table_column: int | None = Field(default=None, ge=0)
+    formula_id: str = ""
+    citation_ids: list[str] = Field(default_factory=list)
+
+
+class ScientificSentence(BaseModel):
+    sentence_id: str
+    text: str
+    locator: ScientificLocator
+
+
+class ScientificTableCell(BaseModel):
+    cell_id: str
+    text: str
+    row: int = Field(ge=0)
+    column: int = Field(ge=0)
+    row_span: int = Field(default=1, ge=1)
+    column_span: int = Field(default=1, ge=1)
+    locator: ScientificLocator
+
+
+class ScientificTable(BaseModel):
+    table_id: str
+    label: str = ""
+    caption: str = ""
+    cells: list[ScientificTableCell] = Field(default_factory=list)
+    locator: ScientificLocator = Field(default_factory=ScientificLocator)
+
+
+class ScientificFormula(BaseModel):
+    formula_id: str
+    text: str
+    locator: ScientificLocator
+
+
+class ScientificSection(BaseModel):
+    section_id: str
+    title: str = ""
+    path: list[str] = Field(default_factory=list)
+    sentences: list[ScientificSentence] = Field(default_factory=list)
+    child_section_ids: list[str] = Field(default_factory=list)
+
+
+class ScientificDocument(BaseModel):
+    document_id: str = Field(default_factory=lambda: str(uuid4()))
+    source_id: str
+    source_format: Literal["jats", "tei", "grobid_tei"]
+    title: str = ""
+    sections: list[ScientificSection] = Field(default_factory=list)
+    tables: list[ScientificTable] = Field(default_factory=list)
+    formulas: list[ScientificFormula] = Field(default_factory=list)
+    reference_ids: list[str] = Field(default_factory=list)
+    page_dimensions: dict[int, tuple[float, float]] = Field(default_factory=dict)
+
+
 class ScientificInsightType(str, Enum):
     agreement = "agreement"
     contradiction = "contradiction"
@@ -42,6 +129,11 @@ class ScientificAnalysisRequest(BaseModel):
     language_mode: ScientificLanguageMode = ScientificLanguageMode.zh_bilingual
 
 
+class ScientificParseRequest(BaseModel):
+    session_id: UUID
+    source_ids: list[UUID] = Field(default_factory=list)
+
+
 class ScientificEvidence(BaseModel):
     evidence_id: str
     session_id: UUID
@@ -49,6 +141,7 @@ class ScientificEvidence(BaseModel):
     source_type: SourceKind
     chunk_id: str
     locator: str
+    structured_locator: ScientificLocator = Field(default_factory=ScientificLocator)
     snippet: str
 
 
@@ -67,11 +160,24 @@ class ScientificRelation(BaseModel):
     relation_id: str = Field(default_factory=lambda: str(uuid4()))
     session_id: UUID
     source_name: str
-    relation_type: str
+    relation_type: ScientificRelationType
     target_name: str
     statement_zh: str = ""
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
     evidence_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("relation_type", mode="before")
+    @classmethod
+    def normalize_relation_type(cls, value):
+        key = str(value or "").strip()
+        return {
+            "提出": "PROPOSES", "扩展": "EXTENDS", "改进": "EXTENDS", "使用": "USES", "采用": "USES",
+            "评估于": "EVALUATED_ON", "在…上评估": "EVALUATED_ON", "度量": "MEASURED_BY",
+            "报告结果": "REPORTS_RESULT", "优于": "OUTPERFORMS", "支持": "SUPPORTS",
+            "矛盾": "CONTRADICTS", "复现": "REPLICATES", "受限于": "LIMITED_BY", "限制于": "LIMITED_BY",
+            "需要": "REQUIRES", "依赖": "REQUIRES", "源自": "DERIVED_FROM", "相关": "RELATED_TO",
+            "比较于": "RELATED_TO", "包含": "RELATED_TO", "导致": "RELATED_TO",
+        }.get(key, key.upper() if key.upper() in {item.value for item in ScientificRelationType} else "RELATED_TO")
 
 
 class ScientificClaim(BaseModel):
@@ -87,12 +193,26 @@ class ScientificClaim(BaseModel):
     modality: Literal["observed", "claimed", "hypothesized", "limited"] = "claimed"
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
     evidence_ids: list[str] = Field(default_factory=list)
+    experiment_ids: list[str] = Field(default_factory=list)
+    metric_result_ids: list[str] = Field(default_factory=list)
+    condition_ids: list[str] = Field(default_factory=list)
 
 
 class ScientificMetricResult(BaseModel):
+    metric_result_id: str = Field(default_factory=lambda: str(uuid4()))
     metric_name: str
     value: str = ""
+    unit: str = ""
     comparison_zh: str = ""
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class ScientificCondition(BaseModel):
+    condition_id: str = Field(default_factory=lambda: str(uuid4()))
+    session_id: UUID
+    name: str
+    value: str = ""
+    unit: str = ""
     evidence_ids: list[str] = Field(default_factory=list)
 
 
@@ -107,6 +227,37 @@ class ScientificExperiment(BaseModel):
     metrics: list[ScientificMetricResult] = Field(default_factory=list)
     conclusion_zh: str = ""
     evidence_ids: list[str] = Field(default_factory=list)
+    condition_ids: list[str] = Field(default_factory=list)
+
+
+class ScientificNaryRelation(BaseModel):
+    nary_relation_id: str = Field(default_factory=lambda: str(uuid4()))
+    session_id: UUID
+    relation_type: ScientificRelationType
+    claim_ids: list[str] = Field(default_factory=list)
+    experiment_ids: list[str] = Field(default_factory=list)
+    method_entity_ids: list[str] = Field(default_factory=list)
+    dataset_entity_ids: list[str] = Field(default_factory=list)
+    metric_result_ids: list[str] = Field(default_factory=list)
+    condition_ids: list[str] = Field(default_factory=list)
+    result_entity_ids: list[str] = Field(default_factory=list)
+    baseline_entity_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_role_constraints(self):
+        required = {
+            ScientificRelationType.outperforms: (
+                self.experiment_ids and self.baseline_entity_ids and self.metric_result_ids and self.evidence_ids
+            ),
+            ScientificRelationType.evaluated_on: (
+                self.experiment_ids and self.method_entity_ids and self.dataset_entity_ids and self.evidence_ids
+            ),
+            ScientificRelationType.supports: self.claim_ids and self.evidence_ids,
+        }
+        if self.relation_type in required and not required[self.relation_type]:
+            raise ValueError(f"{self.relation_type.value} 缺少必需角色")
+        return self
 
 
 class ScientificPaperProfile(BaseModel):
@@ -170,6 +321,8 @@ class ScientificReport(BaseModel):
     relations: list[ScientificRelation] = Field(default_factory=list)
     claims: list[ScientificClaim] = Field(default_factory=list)
     experiments: list[ScientificExperiment] = Field(default_factory=list)
+    conditions: list[ScientificCondition] = Field(default_factory=list)
+    nary_relations: list[ScientificNaryRelation] = Field(default_factory=list)
     evidence: list[ScientificEvidence] = Field(default_factory=list)
     evidence_matrix: list[ScientificEvidenceMatrixRow] = Field(default_factory=list)
     insights: list[ScientificInsight] = Field(default_factory=list)
@@ -258,8 +411,14 @@ class LLMPaperClaim(LLMVendorModel):
 class LLMPaperMetricResult(LLMVendorModel):
     metric_name: str
     value: str = ""
+    unit: str = ""
     comparison_zh: str = ""
     evidence_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("value", "unit", "comparison_zh", mode="before")
+    @classmethod
+    def normalize_scalar_text(cls, value):
+        return "" if value is None else str(value)
 
 
 class LLMPaperExperiment(LLMVendorModel):
@@ -299,7 +458,7 @@ class LLMPaperExperiment(LLMVendorModel):
             elif isinstance(metric, dict):
                 item = dict(metric)
                 item.setdefault("evidence_ids", evidence_ids)
-                for key in ("value", "comparison_zh"):
+                for key in ("value", "unit", "comparison_zh"):
                     if item.get(key) is None:
                         item[key] = ""
                 metrics.append(item)

@@ -6,19 +6,21 @@
 
 ## 本轮完成
 
-1. **科研证据图谱 MVP 已落地**：独立 `scientific/` 垂直包覆盖 Paper/Entity/Relation/Claim/Experiment/Evidence、证据矩阵、跨论文 Insight 与 R&D Decision Card；不改坏通用 GraphArtifact 主线。
-2. **证据门**：模型只返回短 evidence alias，后端映射并校验真实 session/source/chunk/locator；无效引用直接过滤。供应商 JSON 方言统一归一化，有限重试；单篇抽取有内容指纹缓存；跨论文模型未过证据门时采用确定性证据综合兜底。
-3. **客户页面/API**：新增 `/scientific` 前端页和顶部入口；`POST /scientific/run`、列表/读取/删除 API；报告 artifact 落 `artifacts/scientific/`。
-4. **中文策略**：科研说明、结论和建议统一中文；论文、模型、算法、数据集正式英文名称独立保留。通用 graph prompt 同步约束解释字段中文化。
-5. **真实验证**：VDN + QMIX + 已配置 DeepSeek 跑通，最终报告 `f1c88905-7d9f-4434-9780-978e94bcd238`：2 papers / 19 entities / 19 relations / 10 claims / 3 experiments / 27 evidence / 2 insights / 1 decision，claim 引用 11/11 有效。
-6. **工程验证**：167 passed；ruff clean；前端 production build 通过；本地 `/health` 与 `/api/scientific` 均 200。
+1. **Scientific ingestion**：JATS/TEI/GROBID 统一解析，保留 section/sentence/page/bbox/table-cell/formula/citation；新增解析 API、artifact 存储，并接入普通 workflow 的 best-effort 结构通道。
+2. **GROBID 本机服务**：Colima 6 CPU / 12GB；`corpus2node-grobid` 使用官方 `grobid/grobid:0.9.0-crf`，8070 健康；`scripts/grobid.sh` 可 start/stop/status/logs，production compose 也含 grobid。官方 full 镜像无 ARM64 manifest，因此未用 amd64 模拟。
+3. **N 元实验关系**：关系类型受控；Claim、Experiment、MetricResult、Condition、Evidence、Method、Dataset、Baseline 显式连接并有角色约束。真实 VDN/QMIX 报告 `ebcce80e-8444-4a99-86fb-1fbcb2ebd026` 含 16 条全 grounded N 元关系。
+4. **MARL corpus**：桌面 `/Users/zicheng/Desktop/marl-top3-2024-2025`；六届官方索引 21,224 条，高召回候选 131 篇（101 core / 30 adjacent review），PDF 131/131；最终 30 篇每个会议年度 5 篇。
+5. **真实 30 篇流程**：DeepSeek silver 30/30，GROBID TEI/ScientificDocument 30/30；431 entities / 376 relations / 166 中文 Claims / 74 numeric results / 143 locators（141 bbox、5 table-cell）。所有 evidence locator 完整，错误清单为空。
+6. **正式评测**：新增 entity/relation/Claim/numeric PRF、locator strict accuracy、bbox IoU，且 verified-only。30 篇目前是 silver；`metadata/formal-eval-status.json` 明确 verified=0，领域人工双审前拒绝输出伪正式分数。
+7. **工程验证**：173 passed；ruff clean；真实 DeepSeek、真实 GROBID、真实 PDF 均跑通。
 
 ## 当前运行状态
 
-- 后端当前以 `uvicorn corpus2node.api.app:app --host 127.0.0.1 --port 8000` 运行；前端 Vite 仍在 5173。
-- 如果改用后台 `corpus start`，代码变化后必须重启；普通 restart 无法清理丢失 pidfile 的进程时使用 `corpus force-stop`，但只针对本项目 8000/5173 端口。
-- 本轮完成后应有一个 Conventional Commit；未 push。
+- GROBID：`scripts/grobid.sh status`，容器 `corpus2node-grobid`，`http://127.0.0.1:8070`。
+- Colima 当前为 6 CPU / 12GB；停止 GROBID 用 `scripts/grobid.sh stop`，停止虚拟机用 `colima stop`（本轮保持运行供项目使用）。
+- 桌面 corpus 权威目录：`pdfs/all-candidates`、`pdfs/selected-corpus-30`、`gold/selected-corpus-30-annotations`、`grobid/{tei,documents}`。
+- 本轮代码应独立 Conventional Commit；不要 stage/commit `docs/demo` 中用户的 PPTX 修改；未 push。
 
 ## 下一步最佳动作
 
-选择约 30 篇同一科研垂直的 gold 论文，接 JATS/TEI/GROBID 与 PDF bbox/table-cell locator；在本轮已跑通的科研契约、证据门、跨论文矩阵和决策卡主线上做正式评估。
+由领域标注者按 `docs/SCIENTIFIC_GOLD_GUIDE.md` 双审 30 篇 silver，裁决后改为 `verified`，再运行 `scripts/evaluate_scientific_gold.py` 记录正式 baseline。其余工程主线已经完成。

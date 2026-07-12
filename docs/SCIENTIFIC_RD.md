@@ -25,7 +25,9 @@ Corpus2Node 面向 R&D 和企业知识库时，不应只强调“把论文做成
 - 前端 `/scientific` 支持多选文献、研发目标、历史报告、证据矩阵、洞察、决策卡和原文定位。
 - VDN/QMIX + DeepSeek 已真实跑通：报告 `f1c88905-7d9f-4434-9780-978e94bcd238` 含 2 篇论文、19 个实体、19 条关系、10 条主张、3 个实验、27 条证据、2 条洞察和 1 张决策卡；主张引用有效率 11/11。
 
-当前仍属于基于现有 PDF chunk 的 Phase 0.5。下一步 Phase 1 的核心不是重写这条主线，而是把 locator 从“文件名 + 段落”升级为 JATS/TEI/GROBID 的 section/page/bbox/table cell，并以约 30 篇 gold corpus 做实体、关系、claim、数值和 locator 评估。
+Phase 1 工程主线现已接入：JATS/TEI 统一解析与 GROBID REST 客户端会落盘 `ScientificDocument`，保留 section/sentence/page/bbox/table-cell/formula/citation；PDF 在 GROBID 不在线时不会伪造 bbox，并继续使用原有文本摄入。实验结构已升级为带角色约束的 N 元关系，显式连接 Claim、Experiment、Method、Dataset、MetricResult、Condition、Baseline 与 Evidence。正式评测只统计 `review_status=verified` 的实体、关系、Claim、数值和 locator；模型预标注保持 `silver`，不能冒充 gold。
+
+真实 MARL 垂直验证已完成自动化部分：ICLR/ICML/NeurIPS 2024–2025 高召回候选 131 篇全部下载；分层 30 篇全部经 DeepSeek 预标注和 GROBID 0.9.0-crf 解析。产物包含 30 份 PDF、TEI、规范化文档和 silver annotation，共 431 个实体、376 条关系、166 个中文 Claim、74 个数值结果和 143 个 locator。领域人工双审尚未发生，因此当前 verified=0，正式准确率不会生成。
 
 ## 1. 为什么需要单独的科研垂直能力
 
@@ -265,7 +267,8 @@ SciERC 展示了科学实体、关系和共指的联合抽取；SciREX 进一步
 src/corpus2node/scientific/
   schemas.py       # Paper / Claim / Experiment / EvidenceSpan / typed relations
   metadata.py      # DOI / OpenAlex / Crossref / S2 metadata adapters
-  parse.py         # JATS / TEI / GROBID normalization
+  parsers.py       # JATS / TEI / GROBID normalization
+  evaluation.py    # verified gold corpus 契约与正式指标
   ontology.py      # base scientific ontology + customer ontology pack
   extract.py       # section + document-level extraction
   normalize.py     # entity linking / unit / abbreviation / version merge

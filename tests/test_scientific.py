@@ -169,6 +169,10 @@ def test_scientific_analysis_builds_grounded_cross_paper_report():
     assert len(report.papers) == 2
     assert len(report.claims) == 2
     assert len(report.experiments) == 2
+    assert len(report.conditions) == 2
+    assert {value.relation_type.value for value in report.nary_relations} >= {"EVALUATED_ON", "SUPPORTS"}
+    assert all(value.experiment_ids for value in report.nary_relations)
+    assert all(value.evidence_ids for value in report.nary_relations)
     assert len(report.evidence_matrix) == 2
     assert report.insights[0].evidence_ids == [left_evidence, right_evidence]
     assert report.decision_cards[0].next_experiment_zh
@@ -206,7 +210,7 @@ def test_paper_schema_normalizes_common_json_mode_variants():
             "entities": [{"id": "E1", "type": "method", "name_zh": "方法", "description": "中文说明"}],
             "relations": [{"source_id": "E1", "target_id": "E2", "relation_type": "使用", "confidence": "高"}],
             "claims": [{"claim_type": "结果", "statement": "中文结论", "statement_original": None, "polarity": "正面", "modality": "已证实", "confidence": "85%"}],
-            "experiments": [{"description": "对比实验", "datasets_or_environments": "环境A", "metrics": [{"metric_name": "胜率", "value": None}], "results": "更好", "evidence_ids": ["C01"]}],
+            "experiments": [{"description": "对比实验", "datasets_or_environments": "环境A", "metrics": [{"metric_name": "胜率", "value": None}, {"metric_name": "回报", "value": -22.2}], "results": "更好", "evidence_ids": ["C01"]}],
         }
     )
     assert value.title_zh == "论文标题"
@@ -220,6 +224,7 @@ def test_paper_schema_normalizes_common_json_mode_variants():
     assert value.experiments[0].metrics[0].metric_name == "胜率"
     assert value.experiments[0].datasets_or_environments == ["环境A"]
     assert value.experiments[0].metrics[0].value == ""
+    assert value.experiments[0].metrics[1].value == "-22.2"
 
 
 def test_cross_schema_normalizes_common_json_mode_variants():

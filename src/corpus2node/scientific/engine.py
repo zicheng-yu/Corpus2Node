@@ -25,15 +25,19 @@ from corpus2node.scientific.schemas import (
     RDDecisionCard,
     ScientificAnalysisRequest,
     ScientificClaim,
+    ScientificCondition,
     ScientificEntity,
     ScientificEntityType,
     ScientificEvidence,
     ScientificEvidenceMatrixRow,
     ScientificExperiment,
     ScientificInsight,
+    ScientificLocator,
     ScientificMetricResult,
+    ScientificNaryRelation,
     ScientificPaperProfile,
     ScientificRelation,
+    ScientificRelationType,
     ScientificReport,
 )
 from corpus2node.storage import local
@@ -97,6 +101,10 @@ async def run_scientific_analysis(
         for evidence in converted[5]:
             evidence_by_id[evidence.evidence_id] = evidence
 
+    conditions, nary_relations = _build_experiment_relations(entities, claims, experiments)
+    for paper in papers:
+        paper.entity_ids = [value.entity_id for value in entities if value.session_id == paper.session_id]
+
     if not claims:
         raise ScientificInputError("模型未抽取到带有效原文证据的科研主张，请检查文献内容或模型配置。")
 
@@ -139,6 +147,8 @@ async def run_scientific_analysis(
         relations=relations,
         claims=claims,
         experiments=experiments,
+        conditions=conditions,
+        nary_relations=nary_relations,
         evidence=list(evidence_by_id.values()),
         evidence_matrix=evidence_matrix,
         insights=insights,
@@ -150,6 +160,107 @@ async def run_scientific_analysis(
         len(papers), len(claims), len(experiments), len(insights),
     )
     return report
+
+
+def _build_experiment_relations(entities, claims, experiments):
+    """Materialize constrained N-ary records; the LLM never decides role validity."""
+    conditions: list[ScientificCondition] = []
+    relations: list[ScientificNaryRelation] = []
+
+    def entity_ids(session_id, names, entity_type, evidence_refs):
+        result = []
+        for name in names:
+            normalized = normalize_text(name).casefold()
+            match = next(
+                (
+                    value for value in entities
+                    if value.session_id == session_id
+                    and normalized in {
+                        normalize_text(value.name_zh).casefold(),
+                        normalize_text(value.name_en).casefold(),
+                        normalize_text(value.canonical_name).casefold(),
+                    }
+                ),
+                None,
+            )
+            if match is None:
+                match = ScientificEntity(
+                    session_id=session_id,
+                    entity_type=entity_type,
+                    name_zh=name,
+                    canonical_name=normalized,
+                    evidence_ids=evidence_refs,
+                )
+                entities.append(match)
+            else:
+                match.evidence_ids = _unique(match.evidence_ids + evidence_refs)
+            result.append(match.entity_id)
+        return _unique(result)
+
+    for experiment in experiments:
+        method_ids = entity_ids(
+            experiment.session_id, experiment.methods, ScientificEntityType.method, experiment.evidence_ids
+        )
+        dataset_ids = entity_ids(
+            experiment.session_id,
+            experiment.datasets_or_environments,
+            ScientificEntityType.dataset,
+            experiment.evidence_ids,
+        )
+        baseline_ids = entity_ids(
+            experiment.session_id, experiment.baselines, ScientificEntityType.model, experiment.evidence_ids
+        )
+        if experiment.conditions_zh:
+            condition = ScientificCondition(
+                session_id=experiment.session_id,
+                name="实验条件",
+                value=experiment.conditions_zh,
+                evidence_ids=experiment.evidence_ids,
+            )
+            conditions.append(condition)
+            experiment.condition_ids.append(condition.condition_id)
+        related_claims = [
+            value for value in claims
+            if value.session_id == experiment.session_id
+            and set(value.evidence_ids) & set(experiment.evidence_ids)
+        ]
+        metric_ids = [value.metric_result_id for value in experiment.metrics]
+        for claim in related_claims:
+            claim.experiment_ids = _unique(claim.experiment_ids + [experiment.experiment_id])
+            claim.metric_result_ids = _unique(claim.metric_result_ids + metric_ids)
+            claim.condition_ids = _unique(claim.condition_ids + experiment.condition_ids)
+        common = dict(
+            session_id=experiment.session_id,
+            claim_ids=[value.claim_id for value in related_claims],
+            experiment_ids=[experiment.experiment_id],
+            method_entity_ids=method_ids,
+            dataset_entity_ids=dataset_ids,
+            metric_result_ids=metric_ids,
+            condition_ids=experiment.condition_ids,
+            baseline_entity_ids=baseline_ids,
+            evidence_ids=experiment.evidence_ids,
+        )
+        if method_ids and dataset_ids:
+            relations.append(ScientificNaryRelation(relation_type=ScientificRelationType.evaluated_on, **common))
+        for claim in related_claims:
+            relations.append(
+                ScientificNaryRelation(
+                    relation_type=ScientificRelationType.supports,
+                    **{**common, "claim_ids": [claim.claim_id]},
+                )
+            )
+        comparison_text = " ".join(
+            [experiment.conclusion_zh] + [value.comparison_zh for value in experiment.metrics]
+        ).lower()
+        if baseline_ids and metric_ids and re_search_outperformance(comparison_text):
+            relations.append(ScientificNaryRelation(relation_type=ScientificRelationType.outperforms, **common))
+        elif metric_ids:
+            relations.append(ScientificNaryRelation(relation_type=ScientificRelationType.reports_result, **common))
+    return conditions, relations
+
+
+def re_search_outperformance(text: str) -> bool:
+    return any(token in text for token in ("优于", "超过", "提升", "outperform", "better than", "improve"))
 
 
 async def _extract_paper(item: _PaperInput, caller: PaperCaller, language_mode) -> LLMPaperExtraction:
@@ -227,12 +338,18 @@ def _load_paper_input(session_id) -> _PaperInput:
     alias_to_chunk: dict[str, EvidenceChunk] = {}
     chunk_to_evidence: dict[str, ScientificEvidence] = {}
     ordinal = {chunk.chunk_id: index for index, chunk in enumerate(chunks, start=1)}
+    documents = {value.source_id: value for value in local.list_scientific_documents(session_id)}
     for index, chunk in enumerate(selected_chunks, start=1):
         alias = f"C{index:02d}"
         locator = _locator(chunk, ordinal[chunk.chunk_id], source_names.get(chunk.source_id, "原始文献"))
         selected.append((alias, chunk, locator))
         alias_to_chunk[alias] = chunk
         evidence_id = _evidence_id(session.session_id, chunk.chunk_id)
+        structured_locator = _match_structured_locator(documents.get(chunk.source_id), chunk.text)
+        if structured_locator.sentence_id or structured_locator.table_id:
+            locator = _structured_locator_label(
+                source_names.get(chunk.source_id, "原始文献"), structured_locator
+            )
         chunk_to_evidence[chunk.chunk_id] = ScientificEvidence(
             evidence_id=evidence_id,
             session_id=session.session_id,
@@ -240,6 +357,7 @@ def _load_paper_input(session_id) -> _PaperInput:
             source_type=chunk.source_type,
             chunk_id=chunk.chunk_id,
             locator=locator,
+            structured_locator=structured_locator,
             snippet=normalize_text(chunk.text)[:360],
         )
     return _PaperInput(
@@ -249,6 +367,36 @@ def _load_paper_input(session_id) -> _PaperInput:
         chunk_to_evidence=chunk_to_evidence,
         fingerprint=_paper_fingerprint(selected_chunks),
     )
+
+
+def _match_structured_locator(document, chunk_text: str) -> ScientificLocator:
+    if document is None:
+        return ScientificLocator()
+    normalized_chunk = normalize_text(chunk_text).lower()
+    for section in document.sections:
+        for sentence in section.sentences:
+            text = normalize_text(sentence.text).lower()
+            if len(text) >= 24 and (text in normalized_chunk or normalized_chunk[:160] in text):
+                return sentence.locator
+    for table in document.tables:
+        for cell in table.cells:
+            text = normalize_text(cell.text).lower()
+            if text and text in normalized_chunk:
+                return cell.locator
+    return ScientificLocator()
+
+
+def _structured_locator_label(source_name: str, locator: ScientificLocator) -> str:
+    parts = [source_name]
+    if locator.section_path:
+        parts.append(" / ".join(locator.section_path))
+    if locator.page:
+        parts.append(f"第 {locator.page} 页")
+    if locator.sentence_id:
+        parts.append(f"句子 {locator.sentence_id}")
+    if locator.table_id:
+        parts.append(f"表格 {locator.table_id} [{locator.table_row},{locator.table_column}]")
+    return " · ".join(parts)
 
 
 def _select_chunks(chunks: list[EvidenceChunk]) -> list[EvidenceChunk]:
@@ -365,6 +513,7 @@ def _convert_extraction(item: _PaperInput, raw: LLMPaperExtraction):
             ScientificMetricResult(
                 metric_name=normalize_text(metric.metric_name),
                 value=normalize_text(metric.value),
+                unit=normalize_text(metric.unit),
                 comparison_zh=normalize_text(metric.comparison_zh),
                 evidence_ids=metric_ids,
             )
