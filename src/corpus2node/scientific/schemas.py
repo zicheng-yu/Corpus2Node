@@ -186,6 +186,7 @@ class ScientificClaim(BaseModel):
     claim_type: str
     statement_zh: str
     statement_original: str = ""
+    evidence_quote: str = ""
     subject: str = ""
     predicate_zh: str = ""
     object: str = ""
@@ -204,6 +205,7 @@ class ScientificMetricResult(BaseModel):
     value: str = ""
     unit: str = ""
     comparison_zh: str = ""
+    evidence_quote: str = ""
     evidence_ids: list[str] = Field(default_factory=list)
 
 
@@ -375,6 +377,7 @@ class LLMPaperClaim(LLMVendorModel):
     claim_type: str
     statement_zh: str = Field(validation_alias=AliasChoices("statement_zh", "statement"))
     statement_original: str = ""
+    evidence_quote: str = ""
     subject: str = ""
     predicate_zh: str = ""
     object: str = ""
@@ -413,9 +416,10 @@ class LLMPaperMetricResult(LLMVendorModel):
     value: str = ""
     unit: str = ""
     comparison_zh: str = ""
+    evidence_quote: str = ""
     evidence_ids: list[str] = Field(default_factory=list)
 
-    @field_validator("value", "unit", "comparison_zh", mode="before")
+    @field_validator("value", "unit", "comparison_zh", "evidence_quote", mode="before")
     @classmethod
     def normalize_scalar_text(cls, value):
         return "" if value is None else str(value)
@@ -455,8 +459,8 @@ class LLMPaperExperiment(LLMVendorModel):
         for metric in data.get("metrics", []):
             if isinstance(metric, str):
                 metrics.append({"metric_name": metric, "evidence_ids": evidence_ids})
-            elif isinstance(metric, dict):
-                item = dict(metric)
+            elif isinstance(metric, dict) or hasattr(metric, "model_dump"):
+                item = dict(metric) if isinstance(metric, dict) else metric.model_dump()
                 item.setdefault("evidence_ids", evidence_ids)
                 for key in ("value", "unit", "comparison_zh"):
                     if item.get(key) is None:
@@ -574,6 +578,8 @@ class LLMCrossPaperSynthesis(LLMVendorModel):
         )
         insights = []
         for raw in raw_insights:
+            if hasattr(raw, "model_dump"):
+                raw = raw.model_dump()
             if not isinstance(raw, dict):
                 continue
             summary = _first_text(raw, "summary_zh", "description_zh", "summary", "description")
@@ -596,6 +602,8 @@ class LLMCrossPaperSynthesis(LLMVendorModel):
         raw_decisions = _first_list(data, "decision_cards", "decisions", "rd_decision_cards", "recommendations")
         decisions = []
         for raw in raw_decisions:
+            if hasattr(raw, "model_dump"):
+                raw = raw.model_dump()
             if not isinstance(raw, dict):
                 continue
             title = _first_text(raw, "title_zh", "title")

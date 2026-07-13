@@ -101,3 +101,24 @@ def test_start_rejects_different_fingerprint_for_running_job():
     jobs.reset()
     asyncio.run(main())
     jobs.reset()
+
+
+def test_completed_job_replays_after_registry_reset():
+    async def main():
+        async def runner(emit):
+            emit({"type": "done", "data": {"value": 1}})
+
+        job = jobs.start("durable", runner, fingerprint="v1")
+        await job.task
+
+    jobs.reset()
+    asyncio.run(main())
+    jobs.reset()  # simulate a fresh process registry while keeping artifact files
+
+    async def replay():
+        restored = jobs.get("durable")
+        assert restored is not None and restored.status == "done"
+        return [event async for event in restored.subscribe()]
+
+    assert asyncio.run(replay()) == [{"type": "done", "data": {"value": 1}}]
+    jobs.reset()

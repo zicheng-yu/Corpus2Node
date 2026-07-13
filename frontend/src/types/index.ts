@@ -1,7 +1,12 @@
+import type { components as ApiComponents } from "./api.generated";
+
+type ApiSchemas = ApiComponents["schemas"];
+
 export type SessionStatus =
   | "draft"
   | "uploaded"
   | "ingesting"
+  | "ingested"
   | "building_graph"
   | "merging_graph"
   | "graph_ready"
@@ -17,6 +22,7 @@ export interface SourceFile {
   content_type: string;
   storage_path: string;
   size_bytes: number;
+  content_sha256: string;
   uploaded_at: string;
   ingested: boolean;
   ingest_artifact_path?: string | null;
@@ -63,7 +69,6 @@ export interface ConceptNode {
   tags: string[];
   prerequisites: string[];
   applications: string[];
-  embedding: number[];
   importance_score: number;
   graph_metrics: Record<string, number>;
   source_count?: number;
@@ -92,6 +97,7 @@ export interface CourseGraphMeta {
 }
 
 export interface GraphArtifact {
+  schema_version: string;
   session_id: string;
   concepts: ConceptNode[];
   topic_clusters: TopicClusterNode[];
@@ -407,6 +413,7 @@ export interface ScientificEvidence {
   chunk_id: string;
   locator: string;
   snippet: string;
+  structured_locator?: ApiSchemas["ScientificLocator"];
 }
 
 export interface ScientificEntity {
@@ -437,6 +444,7 @@ export interface ScientificClaim {
   claim_type: string;
   statement_zh: string;
   statement_original: string;
+  evidence_quote: string;
   subject: string;
   predicate_zh: string;
   object: string;
@@ -444,12 +452,18 @@ export interface ScientificClaim {
   modality: string;
   confidence: number;
   evidence_ids: string[];
+  experiment_ids: string[];
+  metric_result_ids: string[];
+  condition_ids: string[];
 }
 
 export interface ScientificMetricResult {
+  metric_result_id: string;
   metric_name: string;
   value: string;
+  unit: string;
   comparison_zh: string;
+  evidence_quote: string;
   evidence_ids: string[];
 }
 
@@ -460,6 +474,7 @@ export interface ScientificExperiment {
   methods: string[];
   datasets_or_environments: string[];
   baselines: string[];
+  condition_ids: string[];
   conditions_zh: string;
   metrics: ScientificMetricResult[];
   conclusion_zh: string;
@@ -527,6 +542,8 @@ export interface ScientificReport {
   relations: ScientificRelation[];
   claims: ScientificClaim[];
   experiments: ScientificExperiment[];
+  conditions: ApiSchemas["ScientificCondition"][];
+  nary_relations: ApiSchemas["ScientificNaryRelation"][];
   evidence: ScientificEvidence[];
   evidence_matrix: ScientificEvidenceMatrixRow[];
   insights: ScientificInsight[];

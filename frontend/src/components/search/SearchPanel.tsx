@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getGraph, searchGraph } from "../../api/client";
+import { searchGraph } from "../../api/client";
 import { Input } from "../primitives/Input";
 import { Pill } from "../primitives/Pill";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
-import type { ConceptNode, SearchResponse } from "../../types";
+import type { GraphArtifact, SearchResponse } from "../../types";
 import "./SearchPanel.css";
 
 type FilterKind = "all" | "concepts" | "chunks";
@@ -17,18 +17,21 @@ interface ContentListItem {
   text: string;
 }
 
-export function SearchPanel({ sessionId }: { sessionId: string }) {
+export function SearchPanel({ sessionId, graph }: { sessionId: string; graph: GraphArtifact | null }) {
   const [, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [filterKind, setFilterKind] = useState<FilterKind>("all");
   const [results, setResults] = useState<SearchResponse | null>(null);
-  const [conceptsList, setConceptsList] = useState<ConceptNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [recentQueries, setRecentQueries] = useLocalStorage<string[]>(
     `c2n:recent:${sessionId}`,
     [],
   );
   const latestQuery = useRef("");
+  const conceptsList = useMemo(
+    () => [...(graph?.concepts ?? [])].sort((a, b) => b.importance_score - a.importance_score),
+    [graph],
+  );
 
   const contentList = useMemo<ContentListItem[]>(
     () => conceptsList
@@ -41,16 +44,6 @@ export function SearchPanel({ sessionId }: { sessionId: string }) {
       .filter((item) => Boolean(item.text)),
     [conceptsList],
   );
-
-  useEffect(() => {
-    getGraph(sessionId)
-      .then((graph) => {
-        setConceptsList(
-          [...graph.concepts].sort((a, b) => b.importance_score - a.importance_score),
-        );
-      })
-      .catch(() => setConceptsList([]));
-  }, [sessionId]);
 
   const doSearch = useCallback(
     async (q: string) => {

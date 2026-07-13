@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { getGraph, getSession } from "../api/client";
 import { ChatView } from "../components/chat/ChatView";
@@ -7,6 +7,7 @@ import { NoteView } from "../components/notes/NoteView";
 import { TestView } from "../components/notes/ExamView";
 import { SearchPanel } from "../components/search/SearchPanel";
 import { ConceptDrawer } from "../components/graph/ConceptDrawer";
+import { EmptyState } from "../components/primitives/EmptyState";
 import { Skeleton } from "../components/primitives/Skeleton";
 import type { ChatContextItem, CourseSession, GraphArtifact, CourseGraphMeta } from "../types";
 import "./WorkspacePage.css";
@@ -34,6 +35,7 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
 
   const [graph, setGraph] = useState<GraphArtifact | null>(null);
   const [session, setSession] = useState<CourseSession | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [searchCollapsed, setSearchCollapsed] = useState(false);
   const [notesCollapsed, setNotesCollapsed] = useState(false);
   const [graphCollapsed, setGraphCollapsed] = useState(false);
@@ -46,8 +48,22 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
 
   useEffect(() => {
     if (!id) return;
-    getGraph(id).then(setGraph).catch(() => {});
-    getSession(id).then((s) => setSession(s as CourseSession)).catch(() => {});
+    let active = true;
+    setGraph(null);
+    setSession(null);
+    setLoadError(false);
+    Promise.all([getGraph(id), getSession(id)])
+      .then(([nextGraph, nextSession]) => {
+        if (!active) return;
+        setGraph(nextGraph);
+        setSession(nextSession);
+      })
+      .catch(() => {
+        if (active) setLoadError(true);
+      });
+    return () => {
+      active = false;
+    };
   }, [id]);
 
   function startResize(side: "left" | "right", event: React.MouseEvent) {
@@ -85,7 +101,16 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
     }
   }, [conceptId]);
 
-  if (!id) { navigate("/"); return null; }
+  if (!id) return <Navigate to="/" replace />;
+  if (loadError) {
+    return (
+      <EmptyState
+        title="工作区加载失败"
+        description="资料集或图谱不可用，请返回首页确认流程状态后重试。"
+        action={<button className="btn btn-primary" type="button" onClick={() => navigate("/")}>返回首页</button>}
+      />
+    );
+  }
 
   function askFromSelection(context: ChatContextItem) {
     setPendingContext(context);
@@ -167,7 +192,7 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
               </button>
             </div>
             <div className="ws-search-body">
-              <SearchPanel sessionId={id} />
+              <SearchPanel sessionId={id} graph={graph} />
             </div>
           </>
         )}
@@ -246,7 +271,7 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
 
               <Suspense fallback={<Skeleton style={{ width: "100%", height: "100%", borderRadius: 0 }} />}>
                 <ConceptGraph
-                  sessionId={id}
+                  artifact={graph}
                   graphStyle={graphStyle}
                   filterNodeIds={conceptId ? null : filterNodeIds}
                   onConceptSelect={() => {}}
@@ -269,7 +294,7 @@ export function WorkspacePage({ graphStyle = "force" }: WorkspacePageProps) {
                 />
               </Suspense>
               {!drawerCollapsed && (
-                <ConceptDrawer sessionId={id} onClose={() => setDrawerCollapsed(true)} />
+                <ConceptDrawer artifact={graph} onClose={() => setDrawerCollapsed(true)} />
               )}
               {drawerCollapsed && conceptId && (
                 <button

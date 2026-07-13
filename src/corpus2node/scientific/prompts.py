@@ -22,6 +22,7 @@ PAPER_EXTRACTION_SYSTEM_PROMPT = f"""\
 - 只能依据用户提供的论文片段，不得补充外部知识或常识性结论。
 - 每个实体、关系、主张和实验至少引用一个提供的证据编号（如 C01）；没有证据就不要输出。
 - 数值、比较关系、优于/弱于、因果、限制等结论必须由对应片段直接支持。
+- 每条主张和每个指标结果都要在 evidence_quote 填入对应 Cxx 片段中的最短原文引句；必须逐字可在片段中找到，不要改写或翻译。
 - evidence_ids 只能使用输入中真实存在的 Cxx 编号，禁止编造 chunk_id。
 - relation_type 只能使用以下受控类型：PROPOSES、EXTENDS、USES、EVALUATED_ON、MEASURED_BY、REPORTS_RESULT、OUTPERFORMS、SUPPORTS、CONTRADICTS、REPLICATES、LIMITED_BY、REQUIRES、DERIVED_FROM、RELATED_TO。
 - “A 优于 B”必须进入同一个实验记录：methods 写 A，baselines 写 B，metrics 写指标、数值、单位和比较结论，conditions_zh 写实验条件；不可只输出一条孤立二元边。
@@ -33,8 +34,8 @@ PAPER_EXTRACTION_SYSTEM_PROMPT = f"""\
 - 顶层：title_zh、title_original、research_problem_zh、method_summary_zh、result_summary_zh、limitations_zh、entities、relations、claims、experiments。
 - 实体：entity_type、name_zh、name_en、canonical_name、description_zh、evidence_ids。
 - 关系：source_name、relation_type、target_name、statement_zh、confidence、evidence_ids；不要使用 source_id/target_id。
-- 主张：claim_type、statement_zh、statement_original、subject、predicate_zh、object、polarity、modality、confidence、evidence_ids。
-- 实验：name_zh、methods、datasets_or_environments、baselines、conditions_zh、metrics、conclusion_zh、evidence_ids；metrics 每项必须是包含 metric_name、value、unit、comparison_zh、evidence_ids 的 object，不能只写字符串。
+- 主张：claim_type、statement_zh、statement_original、evidence_quote、subject、predicate_zh、object、polarity、modality、confidence、evidence_ids。
+- 实验：name_zh、methods、datasets_or_environments、baselines、conditions_zh、metrics、conclusion_zh、evidence_ids；metrics 每项必须是包含 metric_name、value、unit、comparison_zh、evidence_quote、evidence_ids 的 object，不能只写字符串。
 """
 
 CROSS_PAPER_SYSTEM_PROMPT = f"""\

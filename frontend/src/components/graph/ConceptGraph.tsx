@@ -5,6 +5,7 @@ import ReactFlow, {
   Controls,
   Handle,
   MiniMap,
+  Panel,
   Position,
   type Node,
   type Edge,
@@ -16,7 +17,6 @@ import ReactFlow, {
 import { layoutWithForce, layoutWithRadial, layoutWithCluster } from "./layoutUtils";
 import "reactflow/dist/style.css";
 
-import { getGraph } from "../../api/client";
 import type { GraphArtifact } from "../../types";
 import "./ConceptGraph.css";
 
@@ -24,7 +24,7 @@ const NODE_CX = 60;
 const NODE_CY = 18;
 
 interface GraphProps {
-  sessionId: string;
+  artifact: GraphArtifact | null;
   graphStyle?: string;
   filterNodeIds?: Set<string> | null;
   onDrillDown?: (conceptId: string) => void;
@@ -78,7 +78,8 @@ function applyLayout(nodes: Node[], edges: Edge[], graphStyle: string) {
 function artifactToFlow(
   artifact: GraphArtifact,
   graphStyle: string,
-  filterNodeIds?: Set<string> | null
+  filterNodeIds?: Set<string> | null,
+  showCooccurrence = false,
 ): { nodes: Node[]; edges: Edge[] } {
   const clusterByConcept = new Map<string, number>();
   artifact.topic_clusters.forEach((cluster, index) => {
@@ -103,7 +104,12 @@ function artifactToFlow(
   });
 
   const edges: Edge[] = artifact.edges
-    .filter((e) => shownIds.has(e.source) && shownIds.has(e.target))
+    .filter(
+      (e) =>
+        shownIds.has(e.source)
+        && shownIds.has(e.target)
+        && (showCooccurrence || e.edge_type !== "CO_OCCURS_WITH"),
+    )
     .map((e) => ({
       id: e.edge_id,
       source: e.source,
@@ -119,35 +125,37 @@ function artifactToFlow(
   return applyLayout(nodes, edges, graphStyle);
 }
 
-export function ConceptGraph({ sessionId, graphStyle = "force", filterNodeIds, onDrillDown, onConceptSelect }: GraphProps) {
+export function ConceptGraph({ artifact, graphStyle = "force", filterNodeIds, onDrillDown, onConceptSelect }: GraphProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const conceptId = searchParams.get("concept");
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
   const [loading, setLoading] = useState(true);
   const [empty, setEmpty] = useState(false);
+  const [showCooccurrence, setShowCooccurrence] = useState(false);
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
-  // Load the FULL graph once per session/style/filter. Selecting a concept no
-  // longer refetches a subgraph — we keep the full graph and zoom/highlight (bug fix).
   useEffect(() => {
-    async function load() {
+    if (!artifact) {
       setLoading(true);
-      try {
-        const artifact = await getGraph(sessionId);
-        if (artifact.concepts.length === 0) { setEmpty(true); setLoading(false); return; }
-        const { nodes, edges } = artifactToFlow(artifact, graphStyle, filterNodeIds);
-        setRfNodes(nodes);
-        setRfEdges(edges);
-        setEmpty(false);
-      } catch {
-        setEmpty(true);
-      } finally {
-        setLoading(false);
-      }
+      return;
     }
-    void load();
-  }, [sessionId, graphStyle, filterNodeIds, setRfNodes, setRfEdges]);
+    if (artifact.concepts.length === 0) {
+      setEmpty(true);
+      setLoading(false);
+      return;
+    }
+    const { nodes, edges } = artifactToFlow(
+      artifact,
+      graphStyle,
+      filterNodeIds,
+      showCooccurrence,
+    );
+    setRfNodes(nodes);
+    setRfEdges(edges);
+    setEmpty(false);
+    setLoading(false);
+  }, [artifact, graphStyle, filterNodeIds, showCooccurrence, setRfNodes, setRfEdges]);
 
   // Neighbors of the selected concept (for highlight / dim).
   const neighbors = useMemo(() => {
@@ -246,6 +254,16 @@ export function ConceptGraph({ sessionId, graphStyle = "force", filterNodeIds, o
           nodeColor={() => "var(--accent-soft)"}
           maskColor="rgba(250,249,245,0.6)"
         />
+        <Panel position="top-right">
+          <button
+            className="btn btn-secondary"
+            type="button"
+            aria-pressed={showCooccurrence}
+            onClick={() => setShowCooccurrence((value) => !value)}
+          >
+            {showCooccurrence ? "隐藏共现边" : "显示共现边"}
+          </button>
+        </Panel>
       </ReactFlow>
     </div>
   );

@@ -10,7 +10,7 @@ from corpus2node.graph.schemas import (
     GraphCriticReport,
     GraphExtractionResult,
 )
-from corpus2node.graph.workflow import run_workflow, stream_workflow
+from corpus2node.graph.workflow import ingest_sources_only, run_workflow, stream_workflow
 from corpus2node.index.embeddings import HashingEmbeddings
 from corpus2node.storage import local
 from corpus2node.storage.run_artifact import load_run_artifact
@@ -134,6 +134,50 @@ def test_stream_workflow_emits_step_events():
     assert len(cached) == 1
 
 
+def test_stream_cache_invalidates_when_a_source_is_added():
+    session = _make_session()
+    fixture_text = FIXTURE.read_text(encoding="utf-8")
+
+    async def fake_astructured(prompt: str) -> GraphExtractionResult:
+        return _fake_candidates()
+
+    async def collect():
+        return [
+            event
+            async for event in stream_workflow(
+                session.session_id,
+                astructured=fake_astructured,
+                acritic=_fake_acritic,
+                embeddings=HashingEmbeddings(dims=128),
+                extract_blocks=lambda source: [fixture_text],
+            )
+        ]
+
+    assert asyncio.run(collect())[-1]["type"] == "done"
+    updated = local.load_session(session.session_id)
+    updated.source_files.append(
+        SourceFile(
+            kind=SourceKind.document,
+            filename="additional.md",
+            content_type="text/markdown",
+            storage_path=str(FIXTURE),
+            size_bytes=FIXTURE.stat().st_size,
+        )
+    )
+    updated.status = SessionStatus.uploaded
+    local.save_session(updated)
+
+    events = asyncio.run(collect())
+    assert events[0]["type"] == "start"
+    assert events[-1]["data"].get("cached") is not True
+    reloaded = local.load_session(session.session_id)
+    assert all(source.ingested for source in reloaded.source_files)
+    graph = local.load_graph_artifact(session.session_id)
+    assert set(graph.provenance.source_hashes) == {
+        str(source.source_id) for source in reloaded.source_files
+    }
+
+
 def test_run_artifact_route_404_then_200():
     from fastapi.testclient import TestClient
 
@@ -166,3 +210,27 @@ def test_workflow_requires_sources():
         raise AssertionError("expected ValueError for a session with no sources")
     except ValueError:
         pass
+
+
+def test_ingest_only_profile_does_not_require_or_build_a_graph(tmp_path):
+    source_path = tmp_path / "paper.md"
+    source_path.write_text("# 方法\n\n该方法在实验中提升了准确率。", encoding="utf-8")
+    source = SourceFile(
+        kind=SourceKind.document,
+        filename="paper.md",
+        content_type="text/markdown",
+        storage_path=str(source_path),
+        size_bytes=source_path.stat().st_size,
+    )
+    session = CourseSession(
+        course_title="papers",
+        lecture_title="paper",
+        status=SessionStatus.uploaded,
+        source_files=[source],
+    )
+    local.save_session(session)
+
+    count = asyncio.run(ingest_sources_only(session.session_id))
+    assert count > 0
+    assert local.load_session(session.session_id).status == SessionStatus.ingested
+    assert not local.graph_path(session.session_id).exists()

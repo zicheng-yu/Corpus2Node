@@ -12,14 +12,18 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from corpus2node.core.types import (
-    GraphArtifact,
+    GraphArtifactView,
     SearchChunkHit,
     SearchConceptHit,
     SearchResponse,
     SubgraphResponse,
 )
 from corpus2node.index import search
-from corpus2node.index.embeddings import get_embeddings
+from corpus2node.index.embeddings import (
+    EmbeddingProvenanceError,
+    ensure_embedding_compatible,
+    get_embeddings,
+)
 from corpus2node.storage import local
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -71,9 +75,9 @@ def search_concepts_global(q: str, limit: int = 20) -> list[GlobalConceptHit]:
 
 
 @router.get("/{session_id}")
-def get_graph(session_id: UUID) -> GraphArtifact:
+def get_graph(session_id: UUID) -> GraphArtifactView:
     try:
-        return local.load_graph_artifact(session_id)
+        return GraphArtifactView.from_artifact(local.load_graph_artifact(session_id))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Graph not found. Run the workflow first.") from exc
 
@@ -101,6 +105,10 @@ def search_graph(request: SearchRequest) -> SearchResponse:
         raise HTTPException(status_code=404, detail="Graph not found. Run the workflow first.") from exc
     chunks = [chunk for artifact in local.list_ingest_artifacts(request.session_id) for chunk in artifact.chunks]
     embeddings = get_embeddings()
+    try:
+        ensure_embedding_compatible(graph, embeddings)
+    except EmbeddingProvenanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     concept_by_id = {concept.concept_id: concept for concept in graph.concepts}
     concept_hits: list[SearchConceptHit] = []

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
+from corpus2node import jobs
 from corpus2node.config import settings
 from corpus2node.scientific.engine import ScientificInputError, run_scientific_analysis
 from corpus2node.scientific.parsers import ScientificParseError, parse_grobid_pdf, parse_scientific_xml
@@ -26,6 +30,27 @@ async def run_scientific_route(request: ScientificAnalysisRequest) -> Scientific
         return await run_scientific_analysis(request)
     except ScientificInputError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/run/stream")
+async def run_scientific_stream(request: ScientificAnalysisRequest) -> StreamingResponse:
+    fingerprint = _request_fingerprint(request)
+
+    async def runner(emit: jobs.Emit) -> None:
+        emit({"type": "start", "data": {"job_id": fingerprint}})
+        report = await run_scientific_analysis(request)
+        emit({"type": "done", "data": {"report": report.model_dump(mode="json")}})
+
+    try:
+        job = jobs.start(f"scientific:{fingerprint}", runner, fingerprint=fingerprint)
+    except jobs.JobConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    async def events():
+        async for event in job.subscribe():
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @router.post("/parse")
@@ -94,3 +119,8 @@ def delete_scientific_report(report_id: str) -> dict[str, bool]:
         raise HTTPException(status_code=404, detail="科研证据报告不存在。") from exc
     local.delete_scientific_report(report_id)
     return {"ok": True}
+
+
+def _request_fingerprint(request: ScientificAnalysisRequest) -> str:
+    payload = request.model_dump(mode="json")
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import io
 import uuid
+import zipfile
 
 from fastapi.testclient import TestClient
 
@@ -92,6 +95,9 @@ def test_upload_pdf_adds_source():
     session = client.get(f"/sessions/{session_id}").json()
     assert len(session["source_files"]) == 1
     assert session["source_files"][0]["filename"] == "lecture.pdf"
+    assert session["source_files"][0]["content_sha256"] == hashlib.sha256(
+        b"%PDF-1.4 fake pdf bytes"
+    ).hexdigest()
 
 
 def test_upload_markdown_adds_document_source():
@@ -126,7 +132,7 @@ def test_upload_rejects_file_over_configured_limit(monkeypatch):
 
 def test_upload_image_accepted():
     session_id = client.post("/sessions", json={"course_title": "X", "lecture_title": "Y"}).json()["session_id"]
-    files = {"file": ("diagram.png", b"\x89PNG\r\n", "image/png")}
+    files = {"file": ("diagram.png", b"\x89PNG\r\n\x1a\n", "image/png")}
     response = client.post(f"/sessions/{session_id}/sources", files=files)
     assert response.status_code == 200
     assert response.json()["kind"] == "image"
@@ -137,6 +143,39 @@ def test_upload_rejects_unsupported_type():
     files = {"file": ("malware.exe", b"\x00\x01", "application/octet-stream")}
     response = client.post(f"/sessions/{session_id}/sources", files=files)
     assert response.status_code == 400
+
+
+def test_upload_rejects_extension_content_mismatch():
+    session_id = client.post("/sessions", json={"course_title": "X", "lecture_title": "Y"}).json()["session_id"]
+    response = client.post(
+        f"/sessions/{session_id}/sources",
+        files={"file": ("not-really.pdf", b"plain text", "application/pdf")},
+    )
+    assert response.status_code == 400
+    assert "does not match" in response.json()["detail"]
+    assert client.get(f"/sessions/{session_id}").json()["source_files"] == []
+
+
+def test_upload_rejects_zip_disguised_as_office_document():
+    session_id = client.post("/sessions", json={"course_title": "X", "lecture_title": "Y"}).json()["session_id"]
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("unrelated.txt", "not a Word document")
+
+    response = client.post(
+        f"/sessions/{session_id}/sources",
+        files={
+            "file": (
+                "not-really.docx",
+                payload.getvalue(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+
+    assert response.status_code == 400
+    assert "valid .docx" in response.json()["detail"]
+    assert client.get(f"/sessions/{session_id}").json()["source_files"] == []
 
 
 def test_get_missing_session_returns_404():

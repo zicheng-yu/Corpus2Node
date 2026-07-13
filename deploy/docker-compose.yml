@@ -12,8 +12,9 @@ services:
     environment:
       APP_ENV: production
       DEBUG_TRACEBACKS: "false"
-      CORS_ALLOW_ORIGINS: "*"            # same-origin via nginx, so CORS isn't exercised
-      API_AUTH_TOKEN: ""                # fully open (no auth gate)
+      CORS_ALLOW_ORIGINS: ""             # same-origin via nginx; cross-origin calls disabled
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:?Set API_AUTH_TOKEN before starting production}
+      REQUIRE_AUTH_IN_PRODUCTION: "true"
       MAX_UPLOAD_BYTES: "524288000"     # 500 MB
       EMBED_PROVIDER: hashing           # zero-dep embeddings (no torch); matches local setup
       EMBEDDING_DIMENSIONS: "1024"
@@ -30,6 +31,8 @@ services:
     expose:
       - "8000"                                       # internal only — reachable from nginx, not the host
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - grobid
 
@@ -38,8 +41,8 @@ services:
     init: true
     ulimits:
       core: 0
-    ports:
-      - "8070:8070"
+    expose:
+      - "8070"
     restart: unless-stopped
 
   nginx:
@@ -47,10 +50,12 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.frontend
     ports:
-      - "80:80"
+      - "127.0.0.1:${PORT:-8080}:80"    # put a TLS reverse proxy in front for remote access
     depends_on:
       - backend
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   whisper-cache:

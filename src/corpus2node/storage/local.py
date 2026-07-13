@@ -39,7 +39,7 @@ def session_dir(session_id: uuid.UUID) -> Path:
 def list_session_ids() -> list[uuid.UUID]:
     ids: list[uuid.UUID] = []
     for candidate in _root().iterdir():
-        if not candidate.is_dir():
+        if not candidate.is_dir() or not (candidate / "session.json").is_file():
             continue
         try:
             ids.append(uuid.UUID(candidate.name))

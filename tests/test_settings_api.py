@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from corpus2node.api.app import app
+from corpus2node.api.routes import settings as settings_routes
+from corpus2node.config import settings
+from corpus2node.llm.credentials import ProviderKind
 
 client = TestClient(app)
 
@@ -141,3 +146,50 @@ def test_update_credential_keeps_secret_when_blank():
     assert cred["label"] == "Renamed"
     assert cred["has_key"] is True
     assert cred["api_key_preview"].endswith("9999")
+
+
+def test_credential_rejects_unsafe_base_urls():
+    javascript = client.post(
+        "/settings/llm/credentials",
+        json={
+            "label": "bad",
+            "kind": "openai",
+            "base_url": "file:///etc/passwd",
+            "api_key": "secret",
+            "default_model": "m",
+        },
+    )
+    assert javascript.status_code == 400
+
+    metadata = client.post(
+        "/settings/llm/credentials",
+        json={
+            "label": "metadata",
+            "kind": "openai",
+            "base_url": "http://169.254.169.254/latest",
+            "api_key": "secret",
+            "default_model": "m",
+        },
+    )
+    assert metadata.status_code == 400
+
+    query = client.post(
+        "/settings/llm/credentials",
+        json={
+            "label": "query",
+            "kind": "openai",
+            "base_url": "https://example.com/v1?redirect=http://127.0.0.1",
+            "api_key": "secret",
+            "default_model": "m",
+        },
+    )
+    assert query.status_code == 400
+
+
+def test_production_remote_provider_rejects_localhost_name(monkeypatch):
+    monkeypatch.setattr(settings, "app_env", "production")
+
+    with pytest.raises(HTTPException) as exc_info:
+        settings_routes._validate_base_url("http://localhost:8001/v1", ProviderKind.openai)
+
+    assert exc_info.value.status_code == 400

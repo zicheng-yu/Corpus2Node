@@ -13,11 +13,13 @@ import {
 import type { LLMSettingsView, LlmPurpose, PromptSettings, ProviderKind } from "../../types";
 import { Button } from "../primitives/Button";
 import { useToast } from "../primitives/Toast";
+import { AccessSettings } from "./AccessSettings";
 import "./SettingsPanel.css";
 
-type Section = "models" | "appearance" | "prompts";
+type Section = "access" | "models" | "appearance" | "prompts";
 
 const SECTIONS: Array<{ id: Section; label: string }> = [
+  { id: "access", label: "访问安全" },
   { id: "models", label: "模型设置" },
   { id: "appearance", label: "外观设置" },
   { id: "prompts", label: "提示词设置" },
@@ -37,7 +39,7 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ open, onClose, graphStyle, setGraphStyle }: SettingsPanelProps) {
-  const [section, setSection] = useState<Section>("models");
+  const [section, setSection] = useState<Section>("access");
   if (!open) return null;
 
   return (
@@ -65,6 +67,7 @@ export function SettingsPanel({ open, onClose, graphStyle, setGraphStyle }: Sett
             ))}
           </nav>
           <div className="set-content">
+            {section === "access" && <AccessSettings />}
             {section === "models" && <ModelSettings />}
             {section === "appearance" && (
               <AppearanceSettings graphStyle={graphStyle} setGraphStyle={setGraphStyle} />

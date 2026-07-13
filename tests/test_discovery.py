@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from corpus2node.api.app import app
 from corpus2node.core.types import (
+    ArtifactProvenance,
     ConceptNode,
     CourseSession,
     DiscoveryMode,
@@ -19,6 +20,7 @@ from corpus2node.core.types import (
     SourceKind,
 )
 from corpus2node.discovery.engine import (
+    DiscoveryInputError,
     RELATION_TYPES,
     JudgedFinding,
     JudgeReport,
@@ -74,7 +76,14 @@ def _seed_session(
                 embedding=embedding,
             )
         )
-    local.save_graph_artifact(GraphArtifact(session_id=session.session_id, concepts=nodes, edges=[]))
+    local.save_graph_artifact(
+        GraphArtifact(
+            session_id=session.session_id,
+            concepts=nodes,
+            edges=[],
+            provenance=ArtifactProvenance(embedding_signature="test-discovery-v1"),
+        )
+    )
     local.save_ingest_artifact(
         IngestArtifact(session_id=session.session_id, source_id=source_id, source_kind=SourceKind.document, chunks=chunks)
     )
@@ -104,6 +113,24 @@ def test_run_discovery_returns_algorithmic_report_with_bridge_graph():
     assert finding.evidence and all(e.snippet for e in finding.evidence)
     assert report.bridge_graph.nodes
     assert report.bridge_graph.edges
+
+
+def test_run_discovery_rejects_cross_graph_embedding_mismatch():
+    left = _seed_session(
+        course_title="A", lecture_title="one", concepts=[("left", [1.0, 0.0], "left evidence")]
+    )
+    right = _seed_session(
+        course_title="B", lecture_title="two", concepts=[("right", [0.9, 0.1], "right evidence")]
+    )
+    graph = local.load_graph_artifact(right)
+    graph.provenance.embedding_signature = "different-embedding"
+    local.save_graph_artifact(graph)
+
+    try:
+        asyncio.run(run_discovery(DiscoveryRequest(session_ids=[left, right]), judge=None))
+        raise AssertionError("expected cross-graph embedding mismatch")
+    except DiscoveryInputError as exc:
+        assert "embedding" in str(exc)
 
 
 def test_run_discovery_uses_injected_ai_judge_for_non_name_based_crossing():
@@ -295,6 +322,7 @@ def test_discovery_evidence_can_include_two_chunks_per_side():
                 )
             ],
             edges=[],
+            provenance=ArtifactProvenance(embedding_signature="test-discovery-v1"),
         )
     )
     # Two distinct chunks both mention the concept name → two evidence rows for that side.

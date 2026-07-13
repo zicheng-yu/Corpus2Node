@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import math
+import uuid
+
+import pytest
 
 from corpus2node.config import settings
 from corpus2node.core.text import cosine_similarity
-from corpus2node.index.embeddings import HashingEmbeddings, get_embeddings
+from corpus2node.core.types import GraphArtifact
+from corpus2node.index.embeddings import (
+    EmbeddingProvenanceError,
+    HashingEmbeddings,
+    embedding_signature,
+    ensure_embedding_compatible,
+    get_embeddings,
+)
 from corpus2node.llm import store
 from corpus2node.llm.credentials import (
     LLMSettings,
@@ -31,6 +41,23 @@ def test_hashing_reflects_token_overlap():
     c = embedder.embed_query("傅里叶变换 | 频域分析 | 信号处理")
     assert cosine_similarity(a, b) > 0.8  # near-duplicate
     assert cosine_similarity(a, c) < 0.5  # unrelated
+
+
+def test_embedding_signature_includes_compat_endpoint_and_is_enforced():
+    left = HashingEmbeddings(dims=64)
+    right = HashingEmbeddings(dims=64)
+    left.openai_api_base = "https://embedding-a.example/v1"
+    right.openai_api_base = "https://embedding-b.example/v1"
+    graph = GraphArtifact(session_id=uuid.uuid4())
+    graph.provenance.embedding_signature = embedding_signature(left)
+
+    ensure_embedding_compatible(graph, left)
+    with pytest.raises(EmbeddingProvenanceError):
+        ensure_embedding_compatible(graph, right)
+
+    graph.provenance.embedding_signature = ""
+    with pytest.raises(EmbeddingProvenanceError):
+        ensure_embedding_compatible(graph, left)
 
 
 def _bind_embedding(kind: ProviderKind, *, base_url: str = "", model: str = "bge-m3") -> None:

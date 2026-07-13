@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hmac
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,15 +27,28 @@ from corpus2node.core.logging_config import configure_logging
 configure_logging()
 logger = logging.getLogger("corpus2node.api")
 
-app = FastAPI(title="Corpus2Node API", version=__version__)
+_IS_PRODUCTION = settings.app_env.lower() == "production"
+app = FastAPI(
+    title="Corpus2Node API",
+    version=__version__,
+    docs_url=None if _IS_PRODUCTION else "/docs",
+    redoc_url=None if _IS_PRODUCTION else "/redoc",
+    openapi_url=None if _IS_PRODUCTION else "/openapi.json",
+)
 
 
 def _cors_origins() -> list[str]:
     configured = [origin.strip() for origin in settings.cors_allow_origins.split(",") if origin.strip()]
+    if settings.app_env.lower() == "production":
+        return [origin for origin in configured if origin != "*"]
     return configured or ["*"]
 
 
-_PUBLIC_PATH_PREFIXES = ("/health", "/api/health", "/ui", "/docs", "/redoc", "/openapi.json")
+_PUBLIC_PATHS = frozenset({"/health", "/api/health", "/ui", "/ui/"})
+
+
+def _is_public_path(path: str) -> bool:
+    return path in _PUBLIC_PATHS or path.startswith("/ui/")
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,13 +61,36 @@ app.add_middleware(
 
 @app.middleware("http")
 async def optional_bearer_auth(request: Request, call_next):
-    """Protect the API when API_AUTH_TOKEN is configured; keep local dev zero-config."""
+    """Require authentication in production; local development stays zero-config."""
     token = settings.api_auth_token
+    protected = (
+        request.method != "OPTIONS"
+        and not _is_public_path(request.url.path)
+    )
+    if (
+        protected
+        and settings.app_env.lower() == "production"
+        and settings.require_auth_in_production
+        and not token
+    ):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "API_AUTH_TOKEN must be configured in production."},
+        )
+    if (
+        protected
+        and settings.app_env.lower() == "production"
+        and not settings.allow_ephemeral_storage
+        and Path(settings.local_storage_path).is_relative_to("/tmp")
+    ):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Ephemeral /tmp storage is disabled for production."},
+        )
     if (
         token
-        and request.method != "OPTIONS"
-        and not request.url.path.startswith(_PUBLIC_PATH_PREFIXES)
-        and request.headers.get("authorization") != f"Bearer {token}"
+        and protected
+        and not hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {token}")
     ):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return await call_next(request)
@@ -62,8 +100,9 @@ async def optional_bearer_auth(request: Request, call_next):
 async def on_unhandled_error(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
     include_traceback = settings.debug_tracebacks and settings.app_env.lower() != "production"
-    content = {"detail": str(exc) if include_traceback else "Internal server error.", "type": type(exc).__name__}
+    content = {"detail": str(exc) if include_traceback else "Internal server error."}
     if include_traceback:
+        content["type"] = type(exc).__name__
         import traceback
 
         content["traceback"] = traceback.format_exc()
@@ -95,13 +134,16 @@ for router in _ROUTERS:
 @app.get("/health")
 @app.get("/api/health")
 async def health() -> dict[str, object]:
-    return {
+    result: dict[str, object] = {
         "status": "ok",
         "service": "corpus2node",
         "version": __version__,
-        "storage_path": settings.local_storage_path,
         "vector_store_provider": settings.vector_store_provider,
+        "auth_configured": bool(settings.api_auth_token),
     }
+    if settings.app_env.lower() != "production":
+        result["storage_path"] = settings.local_storage_path
+    return result
 
 
 # Minimal no-build verification UI (served at /ui/); the main frontend lives in frontend/.

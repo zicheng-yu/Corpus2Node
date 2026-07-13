@@ -9,7 +9,7 @@ from corpus2node.config import settings
 from corpus2node.core.types import EvidenceChunk, IngestArtifact, SourceKind
 from corpus2node.graph.build import build_graph_artifact
 from corpus2node.graph.schemas import ExtractedConcept, ExtractedRelation, GraphExtractionResult
-from corpus2node.index.embeddings import get_embeddings
+from corpus2node.index.embeddings import embedding_signature, get_embeddings
 from corpus2node.storage import local
 
 client = TestClient(app)
@@ -48,6 +48,7 @@ def _seed_graph() -> uuid.UUID:
         ],
     )
     graph = build_graph_artifact(session_id, chunks, candidates, embeddings=emb)
+    graph.provenance.embedding_signature = embedding_signature(emb)
     local.save_graph_artifact(graph)
     return session_id
 
@@ -63,7 +64,14 @@ def test_get_graph_returns_artifact():
     assert res.status_code == 200
     body = res.json()
     assert body["concepts"] and "concept_id" in body["concepts"][0]
+    assert "embedding" not in body["concepts"][0]
+    assert body["concepts"][0]["source_count"] > 0
+    assert body["concepts"][0]["evidence_refs"]
     assert body["edges"]
+
+    persisted = local.load_graph_artifact(session_id)
+    assert persisted.concepts[0].embedding
+    assert persisted.concepts[0].evidence_refs
 
 
 def test_get_graph_missing_is_404():

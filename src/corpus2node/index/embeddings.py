@@ -13,8 +13,48 @@ import re
 from langchain_core.embeddings import Embeddings
 
 from corpus2node.config import settings
+from corpus2node.core.types import GraphArtifact
 
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+\-]*|[一-鿿]+")
+
+
+class EmbeddingProvenanceError(RuntimeError):
+    """Raised when query embeddings cannot safely consume persisted vectors."""
+
+
+def embedding_signature(embeddings: Embeddings) -> str:
+    """Fingerprint an embedding implementation without serializing credentials."""
+    parts = [f"{type(embeddings).__module__}.{type(embeddings).__qualname__}"]
+    for name in (
+        "model",
+        "model_name",
+        "deployment",
+        "dims",
+        "dimensions",
+        "use_fp16",
+        "num_ctx",
+        "base_url",
+        "openai_api_base",
+    ):
+        value = getattr(embeddings, name, None)
+        if value not in (None, "") and isinstance(value, (str, int, float, bool)):
+            parts.append(f"{name}={value}")
+    return "|".join(parts)
+
+
+def ensure_embedding_compatible(
+    graph: GraphArtifact,
+    embeddings: Embeddings,
+    *,
+    require_known: bool = True,
+) -> None:
+    expected = graph.provenance.embedding_signature
+    actual = embedding_signature(embeddings)
+    if (require_known and not expected) or (expected and expected != actual):
+        raise EmbeddingProvenanceError(
+            "当前 embedding 配置与图谱构建时不一致或图谱缺少向量指纹，"
+            "请重新运行知识图谱流程后再检索。"
+        )
 
 
 class HashingEmbeddings(Embeddings):
@@ -84,7 +124,9 @@ def get_embeddings() -> Embeddings:
         from corpus2node.llm.factory import LLMConfigError
 
         try:
-            params = factory.credential_params(Purpose.embedding)
+            params = factory.credential_params(
+                Purpose.embedding, default_timeout=settings.embedding_timeout_seconds
+            )
         except LLMConfigError as exc:
             raise RuntimeError(
                 "embed_provider=openai_compatible 需要在「设置 → 模型」里把一个凭据绑定到 embedding 用途"
@@ -94,7 +136,11 @@ def get_embeddings() -> Embeddings:
             # Native Ollama client: batches via /api/embed, no key, no tokenizer round-trip.
             from langchain_ollama import OllamaEmbeddings
 
-            return OllamaEmbeddings(model=params.model, base_url=params.base_url.removesuffix("/v1"))
+            return OllamaEmbeddings(
+                model=params.model,
+                base_url=params.base_url.removesuffix("/v1"),
+                client_kwargs={"timeout": params.timeout},
+            )
         from langchain_openai import OpenAIEmbeddings
 
         # check_embedding_ctx_length=False sends plain strings; the default pre-tokenizes
@@ -104,6 +150,8 @@ def get_embeddings() -> Embeddings:
             model=params.model,
             base_url=params.base_url or None,
             api_key=params.api_key or None,
+            request_timeout=params.timeout,
+            chunk_size=max(1, settings.embedding_batch_size),
             check_embedding_ctx_length=not params.base_url,
         )
     if provider == "hashing":

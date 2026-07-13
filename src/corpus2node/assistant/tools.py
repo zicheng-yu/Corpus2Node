@@ -52,19 +52,20 @@ class ChatContext:
     def index_of(self, result: RetrievalResult) -> int:
         return self.retrievals.index(result) + 1
 
-    def citations(self) -> list[ChatCitation]:
+    def citations(self, indices: set[int] | None = None) -> list[ChatCitation]:
         return [
             ChatCitation(
                 index=position + 1,
-                kind=result.kind,
-                ref_id=result.ref_id,
+                kind="chunk" if result.metadata.get("evidence_chunk_id") else result.kind,
+                ref_id=str(result.metadata.get("evidence_chunk_id") or result.ref_id),
                 title=result.title,
-                snippet=result.snippet,
+                snippet=str(result.metadata.get("evidence_snippet") or result.snippet),
                 locator=result.locator,
                 source_id=result.source_id,
                 source_type=result.source_type,
             )
             for position, result in enumerate(self.retrievals)
+            if indices is None or position + 1 in indices
         ]
 
 

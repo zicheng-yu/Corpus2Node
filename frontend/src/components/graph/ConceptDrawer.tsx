@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getGraph } from "../../api/client";
 import type { ConceptNode, GraphArtifact } from "../../types";
 import "./ConceptDrawer.css";
 
@@ -13,7 +11,7 @@ const CLUSTER_COLORS = [
 ];
 
 interface ConceptDrawerProps {
-  sessionId: string;
+  artifact: GraphArtifact | null;
   onClose?: () => void;
 }
 
@@ -28,29 +26,13 @@ function SkeletonCard() {
   );
 }
 
-export function ConceptDrawer({ sessionId, onClose }: ConceptDrawerProps) {
+export function ConceptDrawer({ artifact, onClose }: ConceptDrawerProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const conceptId = searchParams.get("concept");
-  const [concept, setConcept] = useState<ConceptNode | null>(null);
-  const [artifact, setArtifact] = useState<GraphArtifact | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!conceptId) {
-      setConcept(null);
-      setArtifact(null);
-      return;
-    }
-    setLoading(true);
-    getGraph(sessionId)
-      .then((art) => {
-        setArtifact(art);
-        const c = art.concepts.find((c) => c.concept_id === conceptId);
-        setConcept(c ?? null);
-      })
-      .catch(() => { setConcept(null); setArtifact(null); })
-      .finally(() => setLoading(false));
-  }, [sessionId, conceptId]);
+  const concept: ConceptNode | null = conceptId
+    ? artifact?.concepts.find((value) => value.concept_id === conceptId) ?? null
+    : null;
+  const loading = artifact === null;
 
   function close() {
     if (onClose) {

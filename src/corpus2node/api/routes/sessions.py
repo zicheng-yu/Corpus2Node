@@ -1,9 +1,11 @@
 """Session + upload routes for the demo flow: create session -> upload sources -> workflow -> chat."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
+import zipfile
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -12,7 +14,7 @@ from pydantic import BaseModel
 
 from corpus2node.config import settings
 from corpus2node.core.clock import utcnow
-from corpus2node.core.types import CourseSession, SessionStatus, SourceFile, UploadResponse
+from corpus2node.core.types import CourseSession, SessionStatus, SourceFile, SourceKind, UploadResponse
 from corpus2node.ingest import adapters
 from corpus2node.storage import local
 
@@ -148,16 +150,24 @@ async def upload_source(session_id: UUID, file: UploadFile = File(...)) -> Uploa
             detail=f"Unsupported file type {ext!r}. Supported: {', '.join(sorted(adapters.SUPPORTED_EXTENSIONS))}.",
         )
 
+    kind = adapters.kind_for(filename)
+    upload_limit = _upload_limit(kind)
     source_id = uuid4()
     try:
-        path, size_bytes = await _store_upload(session_id, source_id, filename, file)
+        path, size_bytes, content_sha256 = await _store_upload(
+            session_id, source_id, filename, file, max_bytes=upload_limit
+        )
     finally:
         await file.close()
     if size_bytes == 0:
         path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    try:
+        _validate_upload_content(path, ext)
+    except ValueError as exc:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    kind = adapters.kind_for(filename)
     source = SourceFile(
         source_id=source_id,
         kind=kind,
@@ -165,6 +175,7 @@ async def upload_source(session_id: UUID, file: UploadFile = File(...)) -> Uploa
         content_type=file.content_type or "application/octet-stream",
         storage_path=str(path),
         size_bytes=size_bytes,
+        content_sha256=content_sha256,
     )
     session.source_files.append(source)
     session.status = SessionStatus.uploaded
@@ -175,7 +186,14 @@ async def upload_source(session_id: UUID, file: UploadFile = File(...)) -> Uploa
     return UploadResponse(session_id=session_id, source_id=source.source_id, kind=kind, status=session.status)
 
 
-async def _store_upload(session_id: UUID, source_id: UUID, filename: str, file: UploadFile) -> tuple[Path, int]:
+async def _store_upload(
+    session_id: UUID,
+    source_id: UUID,
+    filename: str,
+    file: UploadFile,
+    *,
+    max_bytes: int,
+) -> tuple[Path, int, str]:
     path = local.upload_dir(session_id) / local.stored_upload_filename(source_id, filename)
     root = local.upload_dir(session_id).resolve()
     resolved = path.resolve()
@@ -184,19 +202,65 @@ async def _store_upload(session_id: UUID, source_id: UUID, filename: str, file: 
 
     tmp = path.with_name(f".{path.name}.tmp")
     size = 0
+    digest = hashlib.sha256()
     try:
         with tmp.open("wb") as handle:
             while chunk := await file.read(settings.upload_chunk_size):
                 size += len(chunk)
-                if size > settings.max_upload_bytes:
+                if size > max_bytes:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"Uploaded file exceeds {settings.max_upload_bytes} bytes.",
+                        detail=f"Uploaded file exceeds the {max_bytes}-byte limit for this format.",
                     )
                 handle.write(chunk)
+                digest.update(chunk)
         os.replace(tmp, path)
     except Exception:
         tmp.unlink(missing_ok=True)
         path.unlink(missing_ok=True)
         raise
-    return path, size
+    return path, size, digest.hexdigest()
+
+
+def _upload_limit(kind: SourceKind) -> int:
+    by_kind = {
+        SourceKind.document: settings.max_document_upload_bytes,
+        SourceKind.pdf: settings.max_pdf_upload_bytes,
+        SourceKind.image: settings.max_image_upload_bytes,
+    }
+    return min(settings.max_upload_bytes, by_kind.get(kind, settings.max_upload_bytes))
+
+
+def _validate_upload_content(path: Path, extension: str) -> None:
+    with path.open("rb") as handle:
+        prefix = handle.read(16)
+    signatures = {
+        ".pdf": (b"%PDF-",),
+        ".png": (b"\x89PNG\r\n\x1a\n",),
+        ".jpg": (b"\xff\xd8\xff",),
+        ".jpeg": (b"\xff\xd8\xff",),
+        ".gif": (b"GIF87a", b"GIF89a"),
+        ".webp": (b"RIFF",),
+        ".docx": (b"PK\x03\x04",),
+        ".pptx": (b"PK\x03\x04",),
+    }
+    expected = signatures.get(extension)
+    if expected and not any(prefix.startswith(value) for value in expected):
+        raise ValueError(f"File content does not match the {extension} extension.")
+    if extension == ".webp" and prefix[8:12] != b"WEBP":
+        raise ValueError("File content does not match the .webp extension.")
+    if extension in {".docx", ".pptx"}:
+        try:
+            with zipfile.ZipFile(path) as archive:
+                members = archive.infolist()
+                names = {item.filename for item in members}
+                office_root = "word/" if extension == ".docx" else "ppt/"
+                if "[Content_Types].xml" not in names or not any(
+                    name.startswith(office_root) for name in names
+                ):
+                    raise ValueError(f"File content is not a valid {extension} document.")
+                total = sum(item.file_size for item in members)
+                if total > settings.max_archive_uncompressed_bytes:
+                    raise ValueError("Office document expands beyond the configured safety limit.")
+        except zipfile.BadZipFile as exc:
+            raise ValueError("Office document is not a valid ZIP-based file.") from exc

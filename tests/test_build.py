@@ -135,3 +135,28 @@ def test_build_graph_artifact_end_to_end():
     assert graph.topic_clusters  # at least one community
     assert all(concept.graph_metrics for concept in graph.concepts)
     assert any(concept.importance_score > 0 for concept in graph.concepts)
+
+
+def test_cooccurrence_edges_have_a_hard_degree_cap():
+    concepts = [
+        _concept(f"term{i}", f"term{i}", [1.0, float(i + 1)])
+        for i in range(12)
+    ]
+    text = " ".join(concept.name for concept in concepts)
+    chunks = [
+        EvidenceChunk(
+            chunk_id=f"c{i}",
+            source_id="s",
+            source_type=SourceKind.document,
+            text=text,
+            summary="",
+        )
+        for i in range(3)
+    ]
+    edges = B.build_cooccurrence_edges(chunks, concepts, existing_keys=set(), max_degree=4)
+    degree: dict[str, int] = {}
+    for edge in edges:
+        degree[edge.source] = degree.get(edge.source, 0) + 1
+        degree[edge.target] = degree.get(edge.target, 0) + 1
+    assert edges
+    assert max(degree.values()) <= 4

@@ -21,7 +21,7 @@ from corpus2node.core.types import (
 )
 from corpus2node.graph.build import build_graph_artifact
 from corpus2node.graph.schemas import ExtractedConcept, GraphExtractionResult
-from corpus2node.index.embeddings import get_embeddings
+from corpus2node.index.embeddings import embedding_signature, get_embeddings
 from corpus2node.storage import local
 
 client = TestClient(app)
@@ -44,7 +44,9 @@ def _seed_graph() -> uuid.UUID:
     candidates = GraphExtractionResult(
         concepts=[ExtractedConcept(name="二叉搜索树", canonical_name="二叉搜索树", definition="用于查找的树结构")]
     )
-    local.save_graph_artifact(build_graph_artifact(session.session_id, chunks, candidates, embeddings=emb))
+    graph = build_graph_artifact(session.session_id, chunks, candidates, embeddings=emb)
+    graph.provenance.embedding_signature = embedding_signature(emb)
+    local.save_graph_artifact(graph)
     return session.session_id
 
 

@@ -9,16 +9,16 @@
 
 ## 当前已验证状态
 
-- **后端测试 176 passed**（`uv run pytest -q`，2026-07-13 实测，1.73s）。
+- **后端测试 194 passed**（`uv run pytest -q`，2026-07-13 实测；仅 1 条 Starlette/httpx 第三方弃用警告）。
 - **全离线 LLM 方案已落地并本机实测**：注册表 kind += `ollama`/`lmstudio`（免密钥、默认本地端点、`num_ctx`/`max_concurrency`）；本机 M3 用 `gemma4:e2b-it-qat` + `bge-m3`（嵌入）真 HTTP 跑通 workflow/chat/测试/models 全流程（`llama3.1:8b` 参照组同过）；PDF 无 Kimi 时 pypdf 本地解析、视频回退 whisper 音轨转写。
 - **LLM 配置已统一到注册表/UI（本轮）**：Kimi（vision）与远程 embedding 都成为注册表凭据 + 用途；`config.py` 不再有任何 LLM 凭据；`.env` 只剩基础设施 + 首次种子，`.env`/`.env.example` 格式对齐。设置面板改为「凭据=端点+密钥+模型 一体，下面单选下拉直接绑」。
-- **前端 `npm run build` 通过**（2026-07-12 实测）。
+- **前端验证通过**（2026-07-13）：Vitest 2 文件 / 4 测试、TypeScript + Vite production build、`npm audit --audit-level=high` 为 0 vulnerabilities。
 - **ruff clean**（`uv run ruff check src tests scripts`，2026-07-13 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/水平测试）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
 - **在线闭环可跑**：chat agent（强制引用 + trace + SSE）、notes（map-reduce + coverage critic）、水平测试（importance plan + generator + verifier 回路）、export（md/tex/txt/pdf）路由齐全且有测试覆盖。
 - **多模态摄入**：文档 7 类 + PDF（Kimi file-extract ↔ 无 Kimi 时 pypdf 本地）+ 图片/视频（Kimi vision/K2.6；vision 绑本地 VLM 时图片走同路径、视频回退 whisper 音轨转写）+ 音频（faster-whisper），注册表式接入。
 - **真实音频/视频摄入已复核（本轮）**：纯音频 `.mp3` 样本 `BV1m2P9zsEgW.mp3` 走 faster-whisper，session `72cc6407...` 为 `graph_ready`（6 chunks / 8 concepts / 1 relation）；标题为 “05 audio” 的 `.mp4` 实际按 `video` 路由，Kimi Files API + `ms://file_id` 真实调用成功，session `6c1a004f...` 为 `graph_ready`（5 chunks / 7 concepts / 9 relations）。
-- **本轮审阅修复已落地并验证**：API 可选 Bearer token、生产环境隐藏 traceback、上传路径清洗/大小限制/分块落盘、JSON artifact 原子写、chat 多轮历史 + 预检索引用兜底、notes/exam 参数冲突保护、流式 workflow `chunk_count` 一致、前端命令面板跳转/上传全失败处理、启动脚本默认不误杀端口、最小 CI、README 按要求清空。
+- **2026-07-13 全面审阅修复已落地并验证**：artifact 全 provenance 缓存与公开 DTO、source hash/embedding 失配检测、chat 引用编号与证据重合校验、scientific exact quote 与严格 bbox 匹配、科研仅摄入路径、artifact-backed 长任务事件、session 级并发锁、上传格式签名/解压上限、生产强制鉴权与 SSRF 防护、共现边限度、前端 graph 单次加载、SSE 长任务、访问 token 设置、OpenAPI/TS 契约快照、前端测试/依赖审计、Docker CI 与完整 README。
 - **资料集 / 知识库重命名已落地**：后端支持单个资料集 `lecture_title` 改名与知识库 `course_title` 批量改名（含虚拟总图谱 session），首页支持内联入口；已通过全量 pytest、ruff、前端 build。
 - **知识发现已落地并保存 artifact**：首页可多选资料集运行知识发现，也可随机发现；后端生成 `DiscoveryReport` 并保存到 `artifacts/discoveries/{discovery_id}.json`；支持 AI judge seam（critic 绑定可用时自动判断，失败/无凭据退回算法版）；已通过 `tests/test_discovery.py`、全量 pytest、ruff、前端 build。
 - **知识发现增强已落地（本轮）**：(1) **桥接图可视化**——bridge graph 用 ReactFlow 三列（发现→知识点→资料集）画出来（懒加载独立 chunk，首页主包 376KB→229KB）；(2) **可溯源跳转**——发现卡片的概念 chip / 证据块、桥接图概念节点点击直达 `/session/{id}?concept=`；(3) **质量增强**——judge `relation_type` 约束到 8 类枚举（含中文别名回填）、证据每侧 top-2、加结构化信号（共享邻居/标签）、大候选池分批并发 judge、novelty 重算；(4) **历史面板**——首页列出历史 `DiscoveryReport`（`list_discovery_reports` 改按 `generated_at` 倒序），可点开重载。已通过 126 passed、ruff、前端 build。
@@ -66,7 +66,7 @@ ruff check src tests                                  # lint
 1. **完成 30 篇科研 gold 的人工双审**：AI blind proxy 内部基线已完成，但不能替代专家标注；需领域标注者把 silver 校正并裁决为 `verified`，才能记录 human-gold accuracy。
 2. **收集前两个真实客户的差异矩阵**（品牌 / 能力 / 限制 / 集成 / 数据边界），据此落地第一版 profile schema 与 loader；scientific profile 作为首个垂直包。
 3. **记录真实 eval baseline 数字**（抽取 F1 / 问答 grounding / 水平测试可溯源率）。
-4. **Step 7 工程化收尾**：`Course→Corpus` 契约重命名、持久化向量库、Docker、README 补全。
+4. **Step 7 剩余专项**：`Course→Corpus` 契约重命名、持久化向量库。Docker 生产栈、README、契约快照和 CI 已完成。
 5. （低优先）Plan-Execute-Report / FusionAgent 作为 chat 的可选 deep-research 子模式。
 
 ## 当前 blocker
@@ -93,26 +93,26 @@ ruff check src tests                                  # lint
 | `ingest/adapters.py` | **摄入适配器注册表** + kind 路由（md/txt/docx/pptx/csv/json/yaml/JATS/TEI + 各类型扩展名表）；科研 XML 优先结构解析；**PDF 双路**：vision 绑 Kimi→file-extract（含 OCR），否则→`pdf_local.py`（pypdf 全离线，扫描件报错指向 Kimi） | **加新文件类型** / 改 PDF 路由 |
 | `ingest/chunk.py` `pdf_kimi.py` **`pdf_local.py`** `image_kimi.py` `video_kimi.py` `audio_whisper.py` | 切块 · Kimi Files API file-extract（PDF 解析，**非 chat，几乎不计 token**）· **pypdf 本地 PDF 文本层**（离线路径，逐页块保留页码 locator）· vision 图片（Kimi 或本地 VLM；K2.6 专属参数按 moonshot 门控）· 视频：Kimi 时 Files API `purpose=video` 上传 + `ms://file_id`；**非 moonshot 时回退 faster-whisper 转写视频音轨（PyAV 解容器，纯视觉无声视频除外）** · **音频 = faster-whisper 本地转写**（Kimi 平台 API 不接受音频输入；faster-whisper 为 **core 依赖**） | 调某模态的摄入方式 / 换音频模型 |
 | `graph/extract.py` `prompts.py` `schemas.py` `clean.py` | 全量并发抽取（structured，no-sample）+ 抽取 prompt + 输出 schema + `is_junk_concept` 噪声过滤；merge 末尾 **`_reconcile_relation_endpoints`**：关系端点经概念 name/canonical/别名映射归一（小模型常给端点写表面名导致悬空关系被 critic 全丢，云端模型同样受益） | 调抽取质量 / prompt / 端点归一 |
-| `graph/build.py` | **建图皇冠**：语义合并(C) + Louvain 社区(A) + networkx 中心性 + 共现边(D) | 调建图算法 / 聚类 / 中心性 |
+| `graph/build.py` | **建图皇冠**：语义合并(C) + Louvain 社区(A) + networkx 中心性 + 每节点有上限的强共现边(D) | 调建图算法 / 聚类 / 中心性 |
 | `graph/critic.py` | **LLM-judge 质量门**：concept grounding / 关系方向 / 同实体重复 → 确定性 repair（drop/merge/flip/retype，≤1 轮，空图保护） | 调质量门规则 |
-| `graph/workflow.py` | **LangGraph 离线 DAG**：ingest→extract→critic→build，每节点经 RunRecorder 记耗时/token/repair | 改离线流水线拓扑 |
+| `graph/workflow.py` | **LangGraph 离线 DAG**：ingest→extract→critic→build；source/schema/prompt/model/embedding/config 完整 provenance 缓存；支持科研路径 ingest-only；每节点经 RunRecorder 记耗时/token/repair | 改离线流水线拓扑 / 缓存依赖 |
 | `notes/generate.py` `markdown.py` `prompts.py` `schemas.py` | **笔记**：map-reduce 分章（carry-forward 去重）+ 检索 chunk 落地引用 + **确定性 coverage critic** 补未覆盖核心概念；markdown.py 是 donor 来的确定性后处理 | 调笔记结构/覆盖 |
 | `exam/generate.py` `validate.py` `prompts.py` `schemas.py` | **水平测试**：确定性按 `importance_score` 规划知识点 → generator 自动选题目形式 → **verifier 独立求解回路**；目录名与 `Purpose.exam` 暂留作内部兼容键 | 调测试覆盖/校验/难度 |
-| `assistant/agent.py` `tools.py` | **招牌：在线 chat agent**（单 tool-calling agent + 最近历史 + 预检索引用兜底 + 结构化 trace + SSE）；tools = retrieve_chunks / search_concepts / get_subgraph | 调问答行为 / 加 agent 工具 |
+| `assistant/agent.py` `tools.py` | **招牌：在线 chat agent**（单 tool-calling agent + 最近历史 + 预检索 + 引用编号/证据重合校验 + 只返回实际使用引用 + 校验后 SSE + 结构化 trace）；tools = retrieve_chunks / search_concepts / get_subgraph | 调问答行为 / 加 agent 工具 |
 | `discovery/engine.py` | **知识发现 v2（创新提案）**：多资料集/随机模式；宽候选生成（相似度+词面+结构信号+图谱重要性）+ AI judge seam（Purpose.critic，大池分批并发，`relation_type` 8 类枚举+中文别名回填）+ 算法 fallback；证据每侧 top-2；LLM 标题 seam（确定性 `derive_title` 回退）。**提案层（老板场景）**：findings → `make_proposer_or_none`（Purpose.chat→critic，temp 0.7，json_mode 需 prompt 带 `_PROPOSAL_FORMAT_HINT`）产出 `InnovationProposal`（title/pitch/组合/第一步/风险/status/deep_dive）；`_proposals_from_draft` 概念 grounding（名称多键映射：raw+去括号，同名跨集解析**优先未覆盖资料集**）+ 跨集 ≥2 校验；`_fallback_proposals` 按 relation_type 模板确定性成案；`_avoid_titles` 把历史已采纳/搁置标题喂给 proposer 避重；`deepen_proposal` + `make_deepener_or_none` 五字段深挖（目标/做法/数据/首实验/指标）确定性渲染 markdown；`intent` 全程贯穿 prompt。**桥接图 v2**：有提案时输出 资料集→概念→提案 三层（node_type=proposal 带 status/pitch），无提案回退旧 finding 布局（老报告兼容） | 调发现/提案逻辑 / 评分权重 / 提案数(`_PROPOSAL_TARGET`) / 深挖字段 / 图布局 |
-| `scientific/schemas.py` `parsers.py` `evaluation.py` `prompts.py` `engine.py` | **科研证据图谱**：JATS/TEI/GROBID 结构与坐标；类型化实体/Claim/Experiment/Metric/Condition/Evidence 和受约束 N 元关系；中文优先抽取、证据门、跨论文矩阵/R&D 决策；`ai_verified` proxy 与人工 `verified` 分轨评测 | 调科研本体 / 结构解析 / N 元关系 / gold 指标 / 跨论文决策 |
+| `scientific/schemas.py` `parsers.py` `evaluation.py` `prompts.py` `engine.py` | **科研证据图谱**：JATS/TEI/GROBID 结构与坐标；类型化实体/Claim/Experiment/Metric/Condition/Evidence 和受约束 N 元关系；Claim/数值 exact evidence quote 校验；对称一对一 bbox 指标；跨论文矩阵/R&D 决策；`ai_verified` proxy 与人工 `verified` 分轨评测 | 调科研本体 / 结构解析 / N 元关系 / gold 指标 / 跨论文决策 |
 | `export/renderer.py` | 导出 md/tex/txt（纯 Python）+ pdf（惰性 wkhtmltopdf→xhtml2pdf，`[export]` extra）+ render_chat_markdown | 加导出格式 |
 | `eval/metrics.py` `harness.py` `schemas.py` `__main__.py` `data/` | **离线评估**：纯指标（抽取 F1 / 关系合法+召回 / 笔记覆盖 / 水平测试可溯源+客观题合法 / 问答 grounding）+ harness + CLI + gold fixture | 加评估指标 / 调 gold |
-| `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放 + 同参数复用/异参数冲突保护——notes/test 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
+| `jobs.py` | **artifact-backed detached async 任务表**：emit/finish/subscribe + 有界事件重放 + 同参数复用/异参数冲突保护；完成状态可跨重启读取，执行仍为单进程——notes/test/scientific/discovery 流式生成 | 调后台任务/流式 |
 | `prompt_store.py` | 用户自定义提示词（global + chat/notes/exam）作为「补充偏好」**追加**到内置 system prompt（不覆盖结构化/引用约束；抽取与质检不受影响） | 调自定义 prompt 接入面 |
 | `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源，原子写；含 `discoveries/` 与 `scientific/` 报告）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
-| `api/app.py` + `api/routes/*` | FastAPI：可选 Bearer token / CORS / 错误处理 · sessions · discovery · scientific(`/scientific/run`、列表/读取/删除) · settings · prompts · workflow · chat · notes · test · export · graph；旧 exam 路径隐藏兼容 | 加/改 HTTP 接口 |
+| `api/app.py` + `api/routes/*` | FastAPI：开发可选、生产强制 Bearer token / 生产关闭 docs 与 traceback / CORS / URL 探测限制 · sessions · discovery/scientific durable SSE · settings · workflow · chat · notes · test · export · graph；旧 exam 路径隐藏兼容 | 加/改 HTTP 接口 |
 
 ### 前端 `frontend/src/`
 
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
-| `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），含 sessions 管理、knowledge discovery 运行/删除、notes/test 生成与导出 | 加/改一个后端调用 |
+| `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），统一注入本地 Bearer token；含 sessions、durable discovery/scientific、notes/test 与导出 | 加/改一个后端调用 |
 | `types/index.ts` | 前端契约（对应 `core/types.py`，含 DiscoveryReport） | 改契约（和后端一起改） |
 | `pages/HomePage.tsx` | 知识库列表 + 折叠/拖拽排序 + 资料集/知识库改名 + **知识发现 v2**（运行、提案、历史读取/**确认删除**、桥接图）+ 全局知识点搜索；通用 `ConfirmModal` | 改首页/库管理/发现交互 |
 | `pages/ScientificPage.tsx` | **科研证据客户垂直页**：多选论文、填写研发目标、运行分析、历史报告、论文证据矩阵、跨文献洞察、决策卡与原文 locator 展开/资料集跳转 | 改科研分析交互 / 证据呈现 |
@@ -139,11 +139,19 @@ ruff check src tests                                  # lint
 | `docs/demo/` | **产品演示套件**：`DEMO.md`（六幕图文 + 3–5min 现场台本 + runbook）· `assets/`（10 张实拍截图）· `Corpus2Node-演示.pptx`（11 页，deck.js 可重建）；演示数据 = 主秀库「Python 程序设计」(b4f59dff) + 发现「Reinforcement Learning · 4 提案」 |
 | `docs/DEPLOYMENT_MODELS.md` | 生产开源模型三档推荐（vLLM 参数 + 注册表绑定表 + 显存速查） |
 | `CLAUDE.md` | 操作手册（定位/架构/原则/约定）；`AGENTS.md` 是其旧副本（已 stale，两者均 gitignore） |
-| `README.md` | 按当前要求暂时清空，早期开发阶段不维护对外说明 |
+| `README.md` | 本地启动、主要能力、验证命令、OpenAPI 契约生成与安全 Docker 部署说明 |
 
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-07-13 (2) — 全面项目审阅修复：正确性、安全、持久化、前端与工程化
+- **artifact / 缓存**：source SHA-256、graph schema/provenance（source/model/prompt/config/embedding）与自动失效；公开 Graph DTO 移除 embedding 但保留 evidence；旧无指纹图谱在向量检索前明确要求重建；跨图发现拒绝混用 embedding 空间。
+- **grounding / scientific**：chat 校验引用编号、只回实际使用引用并做保守证据词面重合检查，SSE 先校验后输出；科学 Claim/Metric 必须保存原文 exact quote，bbox 改严格对称一对一；修复 vendor normalizer 丢弃已实例化 Metric/Insight/DecisionCard；科研路径只摄入不建通用图。
+- **任务 / 并发 / 性能**：notes/test/scientific/discovery 长任务事件落盘并可重启后重放；session/report keyed lock 防并发覆盖且无锁表泄漏；共现边每节点封顶、前端默认隐藏；Workspace 图谱单次加载；首页发现报告拆为独立组件。
+- **安全 / 部署**：生产强制 Bearer token、关闭 docs/traceback/type 泄漏、拒绝未授权临时存储；模型探测限制与 URL 校验；上传分格式上限、magic/Office 结构/解压上限；Docker 仅 loopback 暴露 nginx，GROBID/backend 内网；Vercel 明示临时预览语义。
+- **契约 / 工程化**：补 README、`.env.example`、依赖声明；OpenAPI JSON + TS 自动类型快照；Vitest/Testing Library；CI 覆盖 ruff、pytest、契约漂移、前端测试/build/audit、Docker build；npm audit 修至 0。忽略无 `session.json` 的孤儿 UUID 目录，不删除用户 artifact。
+- **验证**：`pytest -q` 194 passed；ruff clean；Vitest 2 files / 4 tests；Vite production build；npm audit 0；OpenAPI/TS snapshot 无漂移；Compose config 解析通过；现有 15 sessions、4 scientific reports 新 schema 只读加载通过。未调用真实 LLM、未修改/提交用户的 `docs/demo/*.pptx`。
 
 ### 2026-07-13 — 30 篇 AI blind proxy 标注 + 正式内部一致性测试
 - **独立标注**：冻结原 30 篇 silver prediction（逐文件 SHA-256），从 PDF 选页独立调用模型盲标；统一裁决 evidence ID 与 N 元必需角色，最终 30/30 `ai_verified` reference：413 entities / 260 relations / 154 Claims / 61 numeric / 120 locators。

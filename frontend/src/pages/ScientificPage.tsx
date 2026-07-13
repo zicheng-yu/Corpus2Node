@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  ApiError,
-  listScientificReports,
-  listSessions,
-  runScientificAnalysis,
-} from "../api/client";
+import { listScientificReports, listSessions, streamScientificAnalysis } from "../api/client";
 import type {
   CourseSession,
   ScientificEvidence,
@@ -24,8 +19,7 @@ const INSIGHT_LABELS: Record<ScientificInsightType, string> = {
 };
 
 function isReady(session: CourseSession): boolean {
-  return !session.lecture_title.startsWith("[总图谱] ") &&
-    (session.status === "graph_ready" || session.status === "notes_ready");
+  return !session.lecture_title.startsWith("[总图谱] ") && session.source_files.length > 0;
 }
 
 function EvidenceLinks({ ids, report }: { ids: string[]; report: ScientificReport }) {
@@ -162,21 +156,30 @@ export function ScientificPage() {
 
   async function run() {
     if (!selected.size) {
-      toast("请至少选择一篇已建图的科技文献", "error");
+      toast("请至少选择一篇已上传的科技文献", "error");
       return;
     }
     setRunning(true);
     try {
-      const next = await runScientificAnalysis({
-        session_ids: [...selected],
-        objective_zh: objective.trim(),
-        language_mode: "zh_bilingual",
-      });
+      const result: { report?: ScientificReport } = {};
+      await streamScientificAnalysis(
+        {
+          session_ids: [...selected],
+          objective_zh: objective.trim(),
+          language_mode: "zh_bilingual",
+        },
+        (event) => {
+          if (event.type === "error") throw new Error(event.data.message || "科研证据分析失败");
+          if (event.type === "done" && event.data.report) result.report = event.data.report;
+        },
+      );
+      const next = result.report;
+      if (!next) throw new Error("科研证据分析未返回报告");
       setReport(next);
       setHistory((current) => [next, ...current.filter((item) => item.report_id !== next.report_id)]);
       toast("科研证据分析完成", "success");
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "科研证据分析失败，请检查模型配置";
+      const message = error instanceof Error ? error.message : "科研证据分析失败，请检查模型配置";
       toast(message, "error");
     } finally {
       setRunning(false);

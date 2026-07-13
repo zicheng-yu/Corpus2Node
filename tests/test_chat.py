@@ -81,6 +81,21 @@ def test_run_chat_appends_citation_when_model_omits_marker():
     assert "[1]" in turn.answer
 
 
+def test_run_chat_removes_invalid_citation_marker():
+    fake = FakeChatModel(responses=[AIMessage(content="二叉搜索树用于查找。[999]")])
+    turn = asyncio.run(run_chat("二叉搜索树是什么", _context(), model=fake))
+    assert "[999]" not in turn.answer
+    assert "参考来源：" in turn.answer
+    assert all(1 <= citation.index <= len(turn.citations) + 10 for citation in turn.citations)
+
+
+def test_run_chat_rejects_answer_unrelated_to_retrieved_evidence():
+    fake = FakeChatModel(responses=[AIMessage(content="月球完全由奶酪构成。[1]")])
+    turn = asyncio.run(run_chat("二叉搜索树是什么", _context(), model=fake))
+    assert "月球完全由奶酪构成" not in turn.answer
+    assert "现有资料不足" in turn.answer
+
+
 def test_run_chat_includes_recent_history():
     fake = FakeChatModel(responses=[AIMessage(content="延续上一轮回答。[1]")])
     history = [
@@ -102,7 +117,9 @@ def test_run_chat_uses_tool_results_as_citations():
     )
     turn = asyncio.run(run_chat("二叉搜索树", _context(), model=fake))
     assert len(turn.citations) >= 1
-    assert any(citation.kind == "concept" for citation in turn.citations)
+    assert any(citation.kind == "chunk" for citation in turn.citations)
+    assert any(citation.source_id == "s" for citation in turn.citations if citation.kind == "chunk")
+    assert any(citation.ref_id.startswith("s-c") for citation in turn.citations)
     assert any(step.type == "tool_call" and step.tool == "search_concepts" for step in turn.trace)
 
 

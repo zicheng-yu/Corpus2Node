@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 SEMANTIC_MERGE_THRESHOLD = 0.90
 COOCCUR_CLOSE_THRESHOLD = 0.48
+MAX_COOCCUR_DEGREE = 6
 
 
 def build_graph_artifact(
@@ -280,7 +281,11 @@ def build_llm_edges(
 
 
 def build_cooccurrence_edges(
-    chunks: list[EvidenceChunk], concepts: list[ConceptNode], *, existing_keys: set[EdgeKey]
+    chunks: list[EvidenceChunk],
+    concepts: list[ConceptNode],
+    *,
+    existing_keys: set[EdgeKey],
+    max_degree: int = MAX_COOCCUR_DEGREE,
 ) -> list[GraphEdge]:
     terms = {
         c.concept_id: {t.lower() for t in {c.name, c.canonical_name, *c.aliases} if t}
@@ -294,18 +299,28 @@ def build_cooccurrence_edges(
         for left, right in itertools.combinations(sorted(mentioned), 2):
             counts[(left, right)] += 1
 
-    edges: list[GraphEdge] = []
+    candidates: list[tuple[int, float, str, str]] = []
     for (left, right), count in counts.items():
-        close = _cosine(by_id[left].embedding, by_id[right].embedding) > COOCCUR_CLOSE_THRESHOLD
+        similarity = _cosine(by_id[left].embedding, by_id[right].embedding)
+        close = similarity > COOCCUR_CLOSE_THRESHOLD
         # Thin the co-occurrence mesh: keep strong pairs (≥3 shared chunks) or
         # medium pairs that are also embedding-near. Drops the long tail that
         # turned the graph into a hairball.
         if not (count >= 3 or (count >= 2 and close)):
             continue
+        candidates.append((count, similarity, left, right))
+
+    edges: list[GraphEdge] = []
+    degree: Counter[str] = Counter()
+    for count, _similarity, left, right in sorted(candidates, reverse=True):
+        if degree[left] >= max_degree or degree[right] >= max_degree:
+            continue
         key: EdgeKey = (left, right, EdgeType.co_occurs_with.value, None)
         if key in existing_keys:
             continue
         existing_keys.add(key)
+        degree[left] += 1
+        degree[right] += 1
         edges.append(
             GraphEdge(
                 source=left,

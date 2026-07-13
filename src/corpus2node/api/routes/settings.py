@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import ipaddress
+from urllib.parse import urlsplit
+
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from corpus2node.llm import factory, store
+from corpus2node.config import settings
 from corpus2node.llm.credentials import (
     LLMSettings,
     ProviderCredential,
@@ -108,6 +112,7 @@ def get_settings() -> LLMSettingsView:
 
 @router.post("/credentials")
 def upsert_credential(payload: CredentialUpsert) -> LLMSettingsView:
+    _validate_base_url(payload.base_url, payload.kind)
     value = store.load()
     if payload.credential_id:
         existing = value.credential(payload.credential_id)
@@ -219,6 +224,12 @@ def list_models(payload: ModelListRequest) -> ModelListView:
         if credential is None:
             raise HTTPException(status_code=404, detail=f"Credential '{payload.credential_id}' not found.")
     elif payload.kind is not None:
+        if settings.app_env.lower() == "production":
+            raise HTTPException(
+                status_code=403,
+                detail="生产环境只允许探测已保存的凭据，禁止任意 endpoint 探测。",
+            )
+        _validate_base_url(payload.base_url, payload.kind)
         credential = ProviderCredential(
             label="probe", kind=payload.kind, base_url=payload.base_url, api_key=payload.api_key
         )
@@ -231,3 +242,38 @@ def list_models(payload: ModelListRequest) -> ModelListView:
         return ModelListView(models=[], error=f"无法连接 {target} —— 本地服务未启动？")
     except Exception as exc:  # surfaces as UI hint, not a 5xx
         return ModelListView(models=[], error=str(exc))
+
+
+def _validate_base_url(value: str, kind: ProviderKind) -> None:
+    if not value.strip():
+        return
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise HTTPException(status_code=400, detail="base_url 必须是无内嵌凭据的 http(s) URL。")
+    hostname = parsed.hostname.lower().rstrip(".")
+    remote_provider = kind not in {ProviderKind.ollama, ProviderKind.lmstudio}
+    if (
+        settings.app_env.lower() == "production"
+        and remote_provider
+        and (hostname == "localhost" or hostname.endswith(".localhost"))
+    ):
+        raise HTTPException(status_code=400, detail="生产环境的远程提供商不能指向 loopback 地址。")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return
+    if address.is_link_local or address.is_multicast or address.is_unspecified:
+        raise HTTPException(status_code=400, detail="base_url 指向不允许的网络地址。")
+    if (
+        settings.app_env.lower() == "production"
+        and address.is_loopback
+        and remote_provider
+    ):
+        raise HTTPException(status_code=400, detail="生产环境的远程提供商不能指向 loopback 地址。")

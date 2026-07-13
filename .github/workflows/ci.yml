@@ -11,16 +11,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
-          version: "0.5.x"
+          version: "0.10.8"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install backend dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests scripts
       - name: Test
         run: uv run pytest -q
+      - name: Check OpenAPI snapshot
+        run: |
+          uv run python scripts/export_openapi.py --output /tmp/openapi.json
+          diff -u docs/openapi.json /tmp/openapi.json
 
   frontend:
     runs-on: ubuntu-latest
@@ -36,5 +40,22 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
+      - name: Test
+        run: npm test
+      - name: Check generated API types
+        run: |
+          npm run generate:api
+          git diff --exit-code -- src/types/api.generated.ts
       - name: Build
         run: npm run build
+      - name: Audit production and development dependencies
+        run: npm audit --audit-level=high
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production images
+        env:
+          API_AUTH_TOKEN: ci-only-build-token
+        run: docker compose -f deploy/docker-compose.yml build backend nginx

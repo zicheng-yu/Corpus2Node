@@ -51,19 +51,28 @@ def search_concepts(
     if not pool:
         return []
     ranked = _rank(embeddings.embed_query(query), [(concept, concept.embedding) for concept in pool], limit)
-    return [
-        RetrievalResult(
-            kind="concept",
-            ref_id=concept.concept_id,
-            score=round(score, 4),
-            title=concept.name,
-            snippet=concept.definition or concept.summary,
-            locator="概念",
-            concept_ids=[concept.concept_id],
-            metadata={"importance": concept.importance_score},
+    results: list[RetrievalResult] = []
+    for concept, score in ranked:
+        evidence = concept.evidence_refs[0] if concept.evidence_refs else None
+        results.append(
+            RetrievalResult(
+                kind="concept",
+                ref_id=concept.concept_id,
+                score=round(score, 4),
+                title=concept.name,
+                snippet=concept.definition or concept.summary,
+                locator=evidence.locator if evidence else "概念",
+                source_id=evidence.source_id if evidence else None,
+                source_type=evidence.source_type if evidence else None,
+                concept_ids=[concept.concept_id],
+                metadata={
+                    "importance": concept.importance_score,
+                    "evidence_snippet": evidence.snippet if evidence else "",
+                    "evidence_chunk_id": evidence.chunk_id if evidence else "",
+                },
+            )
         )
-        for concept, score in ranked
-    ]
+    return results
 
 
 def local_search(

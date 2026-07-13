@@ -13,6 +13,8 @@ if str(SRC) not in sys.path:
 # deployment stores temporary debug artifacts in the writable runtime temp dir.
 os.environ.setdefault("APP_ENV", "production")
 os.environ.setdefault("DEBUG_TRACEBACKS", "false")
+os.environ.setdefault("REQUIRE_AUTH_IN_PRODUCTION", "true")
+os.environ.setdefault("ALLOW_EPHEMERAL_STORAGE", "true")
 os.environ.setdefault("LOCAL_STORAGE_PATH", "/tmp/corpus2node-artifacts")
 os.environ.setdefault("VECTOR_STORE_PATH", "/tmp/corpus2node-artifacts/indexes")
 os.environ.setdefault("EMBED_PROVIDER", "hashing")

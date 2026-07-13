@@ -27,6 +27,25 @@ import type {
 
 const DEFAULT_BASE = import.meta.env.PROD ? "/api" : "http://localhost:8000";
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? DEFAULT_BASE).replace(/\/$/, "");
+const AUTH_TOKEN_KEY = "c2n:api-auth-token";
+const nativeFetch = window.fetch.bind(window);
+
+export function getApiAuthToken(): string {
+  return localStorage.getItem(AUTH_TOKEN_KEY) ?? "";
+}
+
+export function setApiAuthToken(token: string): void {
+  const value = token.trim();
+  if (value) localStorage.setItem(AUTH_TOKEN_KEY, value);
+  else localStorage.removeItem(AUTH_TOKEN_KEY);
+}
+
+async function fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const token = getApiAuthToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return nativeFetch(input, { ...init, headers });
+}
 
 function apiUrl(path: string): URL {
   return new URL(`${BASE}${path}`, window.location.origin);
@@ -84,11 +103,14 @@ async function pumpSSE<T>(response: Response, onEvent: (event: T) => void): Prom
       buffer = buffer.slice(idx + 2);
       const line = raw.replace(/^data: ?/, "").trim();
       if (!line) continue;
+      let parsed: T;
       try {
-        onEvent(JSON.parse(line) as T);
+        parsed = JSON.parse(line) as T;
       } catch {
         // ignore malformed / keepalive lines
+        continue;
       }
+      onEvent(parsed);
     }
   }
 }
@@ -131,6 +153,8 @@ export function uploadSourceWithProgress(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/sessions/${sessionId}/sources`);
+    const token = getApiAuthToken();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     });
@@ -213,6 +237,29 @@ export function runDiscovery(payload: {
   return postJson<DiscoveryReport>("/discovery/run", payload);
 }
 
+export interface LongJobEvent<T> {
+  type: "start" | "done" | "error" | string;
+  data: { job_id?: string; report?: T; message?: string };
+}
+
+export async function streamDiscovery(
+  payload: {
+    session_ids?: string[];
+    mode?: "selected" | "random";
+    intent?: string;
+    limit?: number;
+    seed?: number;
+  },
+  onEvent: (event: LongJobEvent<DiscoveryReport>) => void,
+): Promise<void> {
+  const response = await fetch(`${BASE}/discovery/run/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await pumpSSE(response, onEvent);
+}
+
 export async function updateProposalStatus(
   discoveryId: string,
   proposalId: string,
@@ -253,6 +300,22 @@ export function runScientificAnalysis(payload: {
   language_mode?: ScientificLanguageMode;
 }): Promise<ScientificReport> {
   return postJson<ScientificReport>("/scientific/run", payload);
+}
+
+export async function streamScientificAnalysis(
+  payload: {
+    session_ids: string[];
+    objective_zh?: string;
+    language_mode?: ScientificLanguageMode;
+  },
+  onEvent: (event: LongJobEvent<ScientificReport>) => void,
+): Promise<void> {
+  const response = await fetch(`${BASE}/scientific/run/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await pumpSSE(response, onEvent);
 }
 
 export async function listScientificReports(): Promise<ScientificReport[]> {

@@ -14,6 +14,7 @@ class SessionStatus(str, Enum):
     draft = "draft"
     uploaded = "uploaded"
     ingesting = "ingesting"
+    ingested = "ingested"
     building_graph = "building_graph"
     merging_graph = "merging_graph"
     graph_ready = "graph_ready"
@@ -62,6 +63,7 @@ class SourceFile(BaseModel):
     content_type: str
     storage_path: str
     size_bytes: int
+    content_sha256: str = ""
     uploaded_at: datetime = Field(default_factory=utcnow)
     ingested: bool = False
     ingest_artifact_path: str | None = None
@@ -107,6 +109,8 @@ class IngestArtifact(BaseModel):
     source_id: UUID
     source_kind: SourceKind
     chunks: list[EvidenceChunk] = Field(default_factory=list)
+    source_sha256: str = ""
+    embedding_signature: str = ""
     created_at: datetime = Field(default_factory=utcnow)
     extra: dict[str, Any] = Field(default_factory=dict)
 
@@ -134,8 +138,8 @@ class ConceptNode(BaseModel):
     embedding: list[float] = Field(default_factory=list)
     importance_score: float = 0.0
     graph_metrics: dict[str, float] = Field(default_factory=dict)
-    source_count: int = Field(default=0, exclude=True)
-    evidence_refs: list[EvidenceRef] = Field(default_factory=list, exclude=True)
+    source_count: int = 0
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
 
 
 class TopicClusterNode(BaseModel):
@@ -160,13 +164,70 @@ class CourseGraphMeta(BaseModel):
     source_session_ids: list[str] = Field(default_factory=list)
 
 
+class ArtifactProvenance(BaseModel):
+    """Reproducibility and cache-invalidation metadata for persisted artifacts."""
+
+    schema_version: str = "2.0"
+    pipeline_version: str = "graph-v2"
+    source_hashes: dict[str, str] = Field(default_factory=dict)
+    embedding_signature: str = ""
+    graph_model_signature: str = ""
+    critic_model_signature: str = ""
+    graph_prompt_sha256: str = ""
+    critic_prompt_sha256: str = ""
+    config_sha256: str = ""
+
+
 class GraphArtifact(BaseModel):
+    schema_version: str = "2.0"
     session_id: UUID
     concepts: list[ConceptNode] = Field(default_factory=list)
     topic_clusters: list[TopicClusterNode] = Field(default_factory=list)
     edges: list[GraphEdge] = Field(default_factory=list)
     built_at: datetime = Field(default_factory=utcnow)
     course_meta: CourseGraphMeta | None = None
+    provenance: ArtifactProvenance = Field(default_factory=ArtifactProvenance)
+
+
+class ConceptNodeView(BaseModel):
+    """Public concept DTO: citeable metadata without internal embedding vectors."""
+
+    concept_id: str
+    name: str
+    canonical_name: str
+    aliases: list[str] = Field(default_factory=list)
+    definition: str = ""
+    summary: str = ""
+    key_points: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    prerequisites: list[str] = Field(default_factory=list)
+    applications: list[str] = Field(default_factory=list)
+    importance_score: float = 0.0
+    graph_metrics: dict[str, float] = Field(default_factory=dict)
+    source_count: int = 0
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+
+
+class GraphArtifactView(BaseModel):
+    schema_version: str = "2.0"
+    session_id: UUID
+    concepts: list[ConceptNodeView] = Field(default_factory=list)
+    topic_clusters: list[TopicClusterNode] = Field(default_factory=list)
+    edges: list[GraphEdge] = Field(default_factory=list)
+    built_at: datetime
+    course_meta: CourseGraphMeta | None = None
+
+    @classmethod
+    def from_artifact(cls, graph: GraphArtifact) -> "GraphArtifactView":
+        return cls(
+            schema_version=graph.schema_version,
+            session_id=graph.session_id,
+            concepts=[ConceptNodeView.model_validate(value.model_dump(exclude={"embedding"})) for value in graph.concepts],
+            topic_clusters=graph.topic_clusters,
+            edges=graph.edges,
+            built_at=graph.built_at,
+            course_meta=graph.course_meta,
+        )
 
 
 class SearchConceptHit(BaseModel):
@@ -174,8 +235,8 @@ class SearchConceptHit(BaseModel):
     name: str
     canonical_name: str
     score: float
-    source_count: int = Field(exclude=True)
-    evidence_chunk_ids: list[str] = Field(default_factory=list, exclude=True)
+    source_count: int = 0
+    evidence_chunk_ids: list[str] = Field(default_factory=list)
 
 
 class SearchChunkHit(BaseModel):
@@ -184,10 +245,10 @@ class SearchChunkHit(BaseModel):
     source_type: SourceKind
     score: float
     text: str
-    page_start: int | None = Field(default=None, exclude=True)
-    page_end: int | None = Field(default=None, exclude=True)
-    time_start: float | None = Field(default=None, exclude=True)
-    time_end: float | None = Field(default=None, exclude=True)
+    page_start: int | None = None
+    page_end: int | None = None
+    time_start: float | None = None
+    time_end: float | None = None
 
 
 class SearchResponse(BaseModel):

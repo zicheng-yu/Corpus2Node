@@ -33,6 +33,8 @@ def test_optional_api_auth(monkeypatch) -> None:
 def test_production_error_response_hides_traceback(monkeypatch) -> None:
     monkeypatch.setattr(settings, "app_env", "production")
     monkeypatch.setattr(settings, "debug_tracebacks", True)
+    monkeypatch.setattr(settings, "require_auth_in_production", False)
+    monkeypatch.setattr(settings, "allow_ephemeral_storage", True)
 
     @app.get("/__test_boom")
     async def __test_boom():
@@ -43,4 +45,17 @@ def test_production_error_response_hides_traceback(monkeypatch) -> None:
     assert response.status_code == 500
     body = response.json()
     assert body["detail"] == "Internal server error."
+    assert "type" not in body
     assert "traceback" not in body
+
+
+def test_production_requires_auth_configuration(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "api_auth_token", "")
+    monkeypatch.setattr(settings, "require_auth_in_production", True)
+    monkeypatch.setattr(settings, "allow_ephemeral_storage", True)
+    client = TestClient(app)
+    assert client.get("/health").status_code == 200
+    response = client.get("/sessions")
+    assert response.status_code == 503
+    assert "API_AUTH_TOKEN" in response.json()["detail"]

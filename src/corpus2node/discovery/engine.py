@@ -277,6 +277,12 @@ def _load_contexts(request: DiscoveryRequest, rng: random.Random) -> list[Discov
 
     if not contexts:
         raise DiscoveryInputError("No selectable sessions with graph concepts were found.")
+    if len(contexts) > 1:
+        signatures = {context.graph.provenance.embedding_signature for context in contexts}
+        if "" in signatures or len(signatures) != 1:
+            raise DiscoveryInputError(
+                "所选资料集的 embedding 指纹缺失或不一致，请用当前 embedding 配置重新运行各知识图谱流程。"
+            )
     return contexts
 
 

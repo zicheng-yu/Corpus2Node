@@ -6,19 +6,19 @@
 
 ## 本轮完成
 
-1. **冻结 prediction**：桌面 MARL corpus 的 30 篇 DeepSeek silver 已复制为 immutable snapshot，manifest 记录逐文件 SHA-256 与 bytes。
-2. **AI blind proxy 标注**：不读取 prediction，从 PDF 独立盲标 30/30；确定性裁决删除缺少 evidence/N 元必需角色的关系。Reference 共 413 entities / 260 relations / 154 Claims / 61 numeric / 120 locators。
-3. **状态分轨**：独立审计指出 AI 结果不能占用人工双审 `verified`，因此新增 `ai_verified`；默认正式 evaluator 仍只准入人工 `verified`，内部 benchmark 显式准入 AI proxy。
-4. **真实评测**：Entity exact F1 0.3863；full-role Relation exact F1 0.0283；heuristic Claim fuzzy F1 0.4375；Claim exact/Numeric exact F1 0；page/table locator key agreement 0.9250、GROBID-derived bbox-set agreement 0.9237。
-5. **审计结论 WARN**：未发现 prediction 直接泄漏，当前结果可重算；但 reference 复用 prompt/schema/page-selection，属于相关 AI proxy，不是 human gold。120 locators 中 115 个仅页级，locator 分数不能解释为句级定位准确率。
-6. **审计链增强**：prediction/reference manifest 校验文件集合、bytes、SHA-256；reference 另存并校验完整 prompt artifact 与 30 个源 PDF hash；结果记录两个 manifest digest、prompt digest、指标口径、locator 粒度与 bootstrap 限制。说明见 `docs/SCIENTIFIC_BENCHMARK.md`。
+1. **缓存与向量正确性**：graph artifact 带完整 provenance 并按输入/模型/prompt/config 自动失效；公开 DTO 不下发 embedding；chat/search/notes/test 与跨图发现都阻止未知或不一致的 embedding 空间。
+2. **可溯源质量**：chat 只回实际引用并校验编号与保守词面证据；科学 Claim/Metric 要求 exact quote，bbox 为严格一对一；修复 scientific vendor normalizer 丢 Metric/Insight/DecisionCard。
+3. **任务与并发**：长任务事件 artifact 化、可跨重启重放；workflow/chat/report keyed lock 防覆盖并回收空闲锁；科研分析可直接 ingest-only。
+4. **安全与部署**：生产强制 token、关闭 docs/内部错误信息、限制模型 endpoint 探测；上传按格式限额并验证 magic/Office 结构；Compose 只暴露 loopback nginx，Vercel 仅显式临时预览。
+5. **前端与工程化**：图谱只取一次、共现边默认隐藏；发现报告从首页拆出；访问 token 设置、SSE 错误传播、工作区错误态；补 Vitest、OpenAPI/TS 快照、CI、README、`.env.example`、依赖和 npm 审计。
+6. **验收**：194 backend tests、ruff、4 frontend tests、production build、npm audit 0、OpenAPI/TS drift、Compose config、15 个现有 session + 4 份 scientific report 兼容读取均通过。
 
-## 当前运行状态
+## 当前状态
 
-- GROBID：`scripts/grobid.sh status`，容器 `corpus2node-grobid`，`http://127.0.0.1:8070` 健康。
-- 桌面 corpus：`/Users/zicheng/Desktop/marl-top3-2024-2025`；内部结果和审计在 `results/`。
-- 用户的 `docs/demo/*.pptx` 改动不属于本轮，提交时必须排除；不得 push。
+- 本轮未调用真实 LLM、未使用远程服务器、未运行 Docker image build；Docker build 已放入 CI，本机 Compose 配置解析通过。
+- 用户已有的 `docs/demo/Corpus2Node-演示.pptx` 修改和 `Corpus2Node-客户演示-5页.pptx` 未跟踪文件不属于本轮，必须继续排除；不得 push。
+- 三个孤儿 UUID artifact 目录仅从 session 列表忽略，没有删除或移动。
 
 ## 下一步最佳动作
 
-由 MARL 领域专家按 `docs/SCIENTIFIC_GOLD_GUIDE.md` 双审并裁决 30 篇，生成真正的 `verified` human gold。技术侧优先把 Claim/数值 evidence 从页级升级为原文 quote + sentence/table-cell locator，并稳定实体 canonical ID 与 N 元角色 ID，之后再重跑 human-gold baseline。
+用一份真实小语料在浏览器验收 workflow、chat、notes/test、scientific/discovery 的完整交互与 token 成本；之后回到 30 篇 human-gold 双审，或进入 `Course→Corpus` 契约重命名 / 持久化向量库专项。

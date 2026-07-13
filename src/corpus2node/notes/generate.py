@@ -36,7 +36,7 @@ from corpus2node.core.types import (
     SessionStatus,
 )
 from corpus2node.index import search
-from corpus2node.index.embeddings import get_embeddings
+from corpus2node.index.embeddings import ensure_embedding_compatible, get_embeddings
 from corpus2node.llm import factory
 from corpus2node.llm.credentials import Purpose
 from corpus2node.llm.structured import make_structured
@@ -84,7 +84,9 @@ async def generate_notes(
     if not graph.concepts:
         raise ValueError("No concepts available to generate notes.")
 
+    injected_embeddings = embeddings is not None
     embeddings = embeddings or get_embeddings()
+    ensure_embedding_compatible(graph, embeddings, require_known=not injected_embeddings)
     chunks = [chunk for artifact in local.list_ingest_artifacts(request.session_id) for chunk in artifact.chunks]
     by_chunk_id = {chunk.chunk_id: chunk for chunk in chunks}
     valid_ids = {concept.concept_id for concept in graph.concepts}

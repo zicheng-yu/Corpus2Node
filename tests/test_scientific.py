@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from corpus2node.api.app import app
 from corpus2node.core.types import CourseSession, EvidenceChunk, IngestArtifact, SessionStatus, SourceKind
-from corpus2node.scientific.engine import run_scientific_analysis
+from corpus2node.scientific.engine import _extract_paper, _load_paper_input, run_scientific_analysis
 from corpus2node.scientific.schemas import (
     LLMCrossPaperInsight,
     LLMCrossPaperSynthesis,
@@ -20,6 +20,7 @@ from corpus2node.scientific.schemas import (
     LLMPaperRelation,
     ScientificAnalysisRequest,
     ScientificInsightType,
+    ScientificLanguageMode,
     ScientificReport,
 )
 from corpus2node.storage import local
@@ -89,6 +90,7 @@ def _paper_output(name: str) -> LLMPaperExtraction:
                 claim_type="实验结果",
                 statement_zh=f"{name} 在论文实验中显示出协作学习能力。",
                 statement_original=f"{name} learns cooperative policies.",
+                evidence_quote=name,
                 subject=name,
                 predicate_zh="显示",
                 object="协作学习能力",
@@ -99,6 +101,12 @@ def _paper_output(name: str) -> LLMPaperExtraction:
                 claim_type="无效主张",
                 statement_zh="这条主张没有真实证据。",
                 evidence_ids=["NOT_REAL"],
+            ),
+            LLMPaperClaim(
+                claim_type="伪造引文",
+                statement_zh="这条主张引用了不存在于原文的文字。",
+                evidence_quote="fabricated verbatim quote",
+                evidence_ids=["C01"],
             ),
         ],
         experiments=[
@@ -112,8 +120,15 @@ def _paper_output(name: str) -> LLMPaperExtraction:
                     LLMPaperMetricResult(
                         metric_name="团队回报",
                         comparison_zh="与基线比较团队回报。",
+                        evidence_quote=name,
                         evidence_ids=["C02"],
-                    )
+                    ),
+                    LLMPaperMetricResult(
+                        metric_name="伪造指标",
+                        value="999",
+                        evidence_quote="fabricated numeric quote",
+                        evidence_ids=["C02"],
+                    ),
                 ],
                 conclusion_zh="该方法在给定设置中有效。",
                 evidence_ids=["C01"],
@@ -169,6 +184,7 @@ def test_scientific_analysis_builds_grounded_cross_paper_report():
     assert len(report.papers) == 2
     assert len(report.claims) == 2
     assert len(report.experiments) == 2
+    assert all(len(experiment.metrics) == 1 for experiment in report.experiments)
     assert len(report.conditions) == 2
     assert {value.relation_type.value for value in report.nary_relations} >= {"EVALUATED_ON", "SUPPORTS"}
     assert all(value.experiment_ids for value in report.nary_relations)
@@ -179,8 +195,31 @@ def test_scientific_analysis_builds_grounded_cross_paper_report():
     valid_ids = {evidence.evidence_id for evidence in report.evidence}
     assert valid_ids
     assert all(set(claim.evidence_ids) <= valid_ids for claim in report.claims)
+    assert all(claim.evidence_quote in {"VDN", "QMIX"} for claim in report.claims)
     assert all(evidence.locator.startswith("原始文献 · 第") for evidence in report.evidence)
     assert local.load_scientific_report(report.report_id).title_zh == report.title_zh
+
+
+def test_scientific_extraction_cache_tracks_prompt_model_and_schema(monkeypatch):
+    session_id = _seed_paper("VDN", "VDN 通过加和分解团队价值函数。")
+    item = _load_paper_input(session_id)
+    calls = 0
+
+    async def paper_caller(prompt: str) -> LLMPaperExtraction:
+        nonlocal calls
+        calls += 1
+        return _paper_output("VDN")
+
+    asyncio.run(_extract_paper(item, paper_caller, ScientificLanguageMode.zh_bilingual))
+    asyncio.run(_extract_paper(item, paper_caller, ScientificLanguageMode.zh_bilingual))
+    assert calls == 1
+
+    monkeypatch.setattr(
+        "corpus2node.scientific.engine.PAPER_EXTRACTION_SYSTEM_PROMPT",
+        "changed extraction prompt",
+    )
+    asyncio.run(_extract_paper(item, paper_caller, ScientificLanguageMode.zh_bilingual))
+    assert calls == 2
 
 
 def test_scientific_report_routes_list_get_and_delete(monkeypatch):
@@ -200,6 +239,25 @@ def test_scientific_report_routes_list_get_and_delete(monkeypatch):
     assert any(item["report_id"] == report.report_id for item in client.get("/scientific").json())
     assert client.delete(f"/scientific/{report.report_id}").json() == {"ok": True}
     assert client.get(f"/scientific/{report.report_id}").status_code == 404
+
+
+def test_scientific_stream_runs_as_a_detached_replayable_job(monkeypatch):
+    session_id = _seed_paper("VDN", "有证据的论文片段。")
+    report = ScientificReport(title_zh="流式科研报告", session_ids=[session_id])
+
+    async def fake_run(request: ScientificAnalysisRequest) -> ScientificReport:
+        local.save_scientific_report(report)
+        return report
+
+    monkeypatch.setattr("corpus2node.api.routes.scientific.run_scientific_analysis", fake_run)
+    response = client.post(
+        "/scientific/run/stream",
+        json={"session_ids": [str(session_id)], "objective_zh": "stream"},
+    )
+    assert response.status_code == 200
+    assert '"type": "start"' in response.text
+    assert '"type": "done"' in response.text
+    assert report.report_id in response.text
 
 
 def test_paper_schema_normalizes_common_json_mode_variants():

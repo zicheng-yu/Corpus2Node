@@ -8,8 +8,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from corpus2node.config import settings
 from corpus2node.core.text import normalize_text
 from corpus2node.core.types import CourseSession, EvidenceChunk
+from corpus2node.graph.workflow import ingest_sources_only
 from corpus2node.llm import factory
 from corpus2node.llm.credentials import Purpose
 from corpus2node.llm.structured import make_structured
@@ -51,6 +53,7 @@ MAX_CHUNKS_PER_PAPER = 30
 MAX_CHARS_PER_PAPER = 36_000
 MIN_PAPERS_FOR_CROSS_ANALYSIS = 2
 STRUCTURED_ATTEMPTS = 2
+EXTRACTION_CACHE_SCHEMA_VERSION = "2.0"
 
 
 class ScientificInputError(ValueError):
@@ -72,6 +75,7 @@ async def run_scientific_analysis(
     paper_caller: PaperCaller | None = None,
     synthesis_caller: SynthesisCaller | None = None,
 ) -> ScientificReport:
+    await asyncio.gather(*[_prepare_scientific_session(value) for value in _dedupe(request.session_ids)])
     paper_inputs = [_load_paper_input(session_id) for session_id in _dedupe(request.session_ids)]
     if not paper_inputs:
         raise ScientificInputError("至少选择一篇已解析的科技文献。")
@@ -265,10 +269,15 @@ def re_search_outperformance(text: str) -> bool:
 
 async def _extract_paper(item: _PaperInput, caller: PaperCaller, language_mode) -> LLMPaperExtraction:
     cache_path = local.session_dir(item.session.session_id) / "scientific_extraction.json"
+    cache_provenance = _extraction_cache_provenance(caller)
     if cache_path.exists():
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            if cached.get("fingerprint") == item.fingerprint and cached.get("language_mode") == language_mode.value:
+            if (
+                cached.get("fingerprint") == item.fingerprint
+                and cached.get("language_mode") == language_mode.value
+                and cached.get("provenance") == cache_provenance
+            ):
                 return LLMPaperExtraction.model_validate(cached["extraction"])
         except (OSError, ValueError, KeyError):
             logger.warning("忽略不可读的科研抽取缓存：%s", cache_path)
@@ -279,10 +288,70 @@ async def _extract_paper(item: _PaperInput, caller: PaperCaller, language_mode) 
         {
             "fingerprint": item.fingerprint,
             "language_mode": language_mode.value,
+            "provenance": cache_provenance,
             "extraction": result.model_dump(mode="json"),
         },
     )
     return result
+
+
+def _extraction_cache_provenance(caller: PaperCaller) -> dict[str, str]:
+    schema = json.dumps(LLMPaperExtraction.model_json_schema(), ensure_ascii=False, sort_keys=True)
+    caller_name = f"{getattr(caller, '__module__', '')}.{getattr(caller, '__qualname__', type(caller).__name__)}"
+    return {
+        "schema_version": EXTRACTION_CACHE_SCHEMA_VERSION,
+        "model_signature": factory.purpose_signature(Purpose.graph),
+        "caller_signature": caller_name,
+        "system_prompt_sha256": hashlib.sha256(PAPER_EXTRACTION_SYSTEM_PROMPT.encode()).hexdigest(),
+        "output_schema_sha256": hashlib.sha256(schema.encode()).hexdigest(),
+    }
+
+
+async def _prepare_scientific_session(session_id) -> None:
+    """Ingest text and attempt structured parsing only inside the scientific lane."""
+    session = local.load_session(session_id)
+    if session.source_files:
+        await ingest_sources_only(session_id)
+    await asyncio.to_thread(_parse_structured_sources_best_effort, session_id)
+
+
+def _parse_structured_sources_best_effort(session_id) -> None:
+    from corpus2node.scientific.parsers import ScientificParseError, parse_grobid_pdf, parse_scientific_xml
+
+    session = local.load_session(session_id)
+    existing = {document.source_id for document in local.list_scientific_documents(session_id)}
+    grobid_alive: bool | None = None
+    for source in session.source_files:
+        source_id = str(source.source_id)
+        if source_id in existing:
+            continue
+        suffix = Path(source.filename).suffix.lower()
+        try:
+            if suffix in {".xml", ".nxml"}:
+                document = parse_scientific_xml(source.storage_path, source_id=source_id)
+            elif suffix == ".pdf":
+                if grobid_alive is None:
+                    import httpx
+
+                    try:
+                        response = httpx.get(
+                            f"{settings.grobid_base_url.rstrip('/')}/api/isalive", timeout=0.8
+                        )
+                        grobid_alive = response.status_code == 200
+                    except httpx.HTTPError:
+                        grobid_alive = False
+                if not grobid_alive:
+                    continue
+                document = parse_grobid_pdf(
+                    source.storage_path,
+                    source_id=source_id,
+                    base_url=settings.grobid_base_url,
+                )
+            else:
+                continue
+            local.save_scientific_document(session_id, document)
+        except (ScientificParseError, OSError) as exc:
+            logger.info("科研结构解析跳过 %s: %s", source.filename, exc)
 
 
 async def _call_with_retry(caller, prompt: str, *, stage: str):
@@ -456,6 +525,16 @@ def _convert_extraction(item: _PaperInput, raw: LLMPaperExtraction):
                 ids.append(evidence.evidence_id)
         return ids
 
+    def evidence_quote(aliases: list[str], quote: str) -> str:
+        candidate = normalize_text(quote)
+        if not candidate:
+            return ""
+        for alias in aliases:
+            chunk = item.alias_to_chunk.get(alias.strip().upper())
+            if chunk is not None and candidate.casefold() in normalize_text(chunk.text).casefold():
+                return candidate
+        return ""
+
     entities = [
         ScientificEntity(
             session_id=session_id,
@@ -495,6 +574,7 @@ def _convert_extraction(item: _PaperInput, raw: LLMPaperExtraction):
             claim_type=normalize_text(value.claim_type) or "论文主张",
             statement_zh=normalize_text(value.statement_zh),
             statement_original=normalize_text(value.statement_original),
+            evidence_quote=quote,
             subject=normalize_text(value.subject),
             predicate_zh=normalize_text(value.predicate_zh),
             object=normalize_text(value.object),
@@ -504,7 +584,9 @@ def _convert_extraction(item: _PaperInput, raw: LLMPaperExtraction):
             evidence_ids=ids,
         )
         for value in raw.claims
-        if (ids := evidence_ids(value.evidence_ids)) and normalize_text(value.statement_zh)
+        if (ids := evidence_ids(value.evidence_ids))
+        and normalize_text(value.statement_zh)
+        and (quote := evidence_quote(value.evidence_ids, value.evidence_quote))
     ]
     experiments: list[ScientificExperiment] = []
     for value in raw.experiments:
@@ -515,10 +597,13 @@ def _convert_extraction(item: _PaperInput, raw: LLMPaperExtraction):
                 value=normalize_text(metric.value),
                 unit=normalize_text(metric.unit),
                 comparison_zh=normalize_text(metric.comparison_zh),
+                evidence_quote=quote,
                 evidence_ids=metric_ids,
             )
             for metric in value.metrics
-            if (metric_ids := evidence_ids(metric.evidence_ids)) and normalize_text(metric.metric_name)
+            if (metric_ids := evidence_ids(metric.evidence_ids))
+            and normalize_text(metric.metric_name)
+            and (quote := evidence_quote(metric.evidence_ids, metric.evidence_quote))
         ]
         combined_evidence = _unique(experiment_evidence + [ref for metric in metrics for ref in metric.evidence_ids])
         if not combined_evidence or not normalize_text(value.name_zh):

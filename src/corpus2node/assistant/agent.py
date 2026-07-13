@@ -1,12 +1,8 @@
-"""The online chat agent: a single tool-calling agent that must ground answers in
-retrieved chunks/concepts, with a structured trace + subgraph + citations.
-
-Grounding is *guaranteed*: if the model answers without calling a tool, we run a
-fallback local_search so every answer carries at least one citation + a subgraph.
-"""
+"""Online tool-calling agent with evidence retrieval and citation validation."""
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from uuid import UUID
@@ -19,9 +15,11 @@ from corpus2node import prompt_store
 from corpus2node.assistant.tools import ChatContext, build_tools
 from corpus2node.core.types import ChatCitation, ChatMessage, ChatStreamEvent, ChatTraceStep, SubgraphResponse
 from corpus2node.index import search
+from corpus2node.index.embeddings import ensure_embedding_compatible
 from corpus2node.storage import local
 
 logger = logging.getLogger(__name__)
+
 
 SYSTEM_PROMPT = """你是 Corpus2Node 的资料学习助手。
 - 必须先调用检索工具（retrieve_chunks / search_concepts / get_subgraph），再回答；只能基于检索到的图谱概念与原文片段作答，不要编造图谱外内容。
@@ -41,6 +39,7 @@ class ChatTurn:
 
 def load_context(session_id: UUID, embeddings: Embeddings) -> ChatContext:
     graph = local.load_graph_artifact(session_id)
+    ensure_embedding_compatible(graph, embeddings)
     chunks = [chunk for artifact in local.list_ingest_artifacts(session_id) for chunk in artifact.chunks]
     return ChatContext(graph, chunks, embeddings)
 
@@ -54,10 +53,11 @@ async def run_chat(query: str, ctx: ChatContext, *, model, history: list[ChatMes
     answer = _message_text(messages[-1]) if messages else ""
     trace = _trace_from_messages(messages)
     _ensure_grounding(ctx, query)
-    answer = _ensure_answer_cites(answer, ctx)
+    answer = _validate_grounded_answer(answer, ctx)
+    cited_indices = _citation_indices(answer, len(ctx.retrievals))
     turn = ChatTurn(
         answer=answer,
-        citations=ctx.citations(),
+        citations=ctx.citations(cited_indices),
         trace=trace,
         subgraph=_choose_subgraph(ctx, query),
     )
@@ -82,13 +82,11 @@ async def stream_chat_events(
                 text = _message_text(event["data"]["chunk"])
                 if text:
                     answer_parts.append(text)
-                    yield ChatStreamEvent(type="token", data={"text": text})
             elif kind == "on_chat_model_end" and not answer_parts:
-                # model didn't stream token-by-token — emit the final text as one token
+                # Some providers only expose the final text at model-end.
                 text = _message_text(event["data"].get("output"))
                 if text:
                     answer_parts.append(text)
-                    yield ChatStreamEvent(type="token", data={"text": text})
             elif kind == "on_tool_start":
                 yield ChatStreamEvent(type="tool_call", data={"tool": event.get("name", ""), "args": event["data"].get("input", {})})
             elif kind == "on_tool_end":
@@ -97,14 +95,17 @@ async def stream_chat_events(
                     yield ChatStreamEvent(type="subgraph", data=ctx.subgraph.model_dump(mode="json"))
 
         _ensure_grounding(ctx, query)
-        suffix = _missing_citation_suffix("".join(answer_parts), ctx)
-        if suffix:
-            answer_parts.append(suffix)
-            yield ChatStreamEvent(type="token", data={"text": suffix})
+        raw_answer = "".join(answer_parts)
+        answer = _validate_grounded_answer(raw_answer, ctx)
+        answer_parts = [answer]
+        # Buffer model tokens until deterministic citation/support validation finishes;
+        # this prevents an unsupported draft from flashing in the UI or being persisted.
+        yield ChatStreamEvent(type="token", data={"text": answer})
         subgraph = _choose_subgraph(ctx, query)
         if subgraph is not None:
             yield ChatStreamEvent(type="subgraph", data=subgraph.model_dump(mode="json"))
-        for citation in ctx.citations():
+        cited_indices = _citation_indices("".join(answer_parts), len(ctx.retrievals))
+        for citation in ctx.citations(cited_indices):
             yield ChatStreamEvent(type="citation", data=citation.model_dump(mode="json"))
         yield ChatStreamEvent(type="done", data={"answer": "".join(answer_parts)})
     except Exception as exc:  # surface as a terminal error event, never crash the stream
@@ -145,22 +146,65 @@ def _agent_messages(query: str, history: list[ChatMessage] | None = None) -> lis
     return messages
 
 
-def _ensure_answer_cites(answer: str, ctx: ChatContext) -> str:
+def _validate_grounded_answer(answer: str, ctx: ChatContext) -> str:
+    """Remove invalid markers and reject answers with no lexical evidence support.
+
+    This is deliberately conservative: it does not claim semantic entailment. It
+    guarantees that every returned marker maps to a real retrieval and that a
+    topically unrelated answer is not presented as grounded.
+    """
+    answer = _remove_invalid_markers(answer, len(ctx.retrievals)).strip()
+    if not ctx.retrievals:
+        return "现有资料不足以可靠回答该问题。"
+    if answer and not _answer_overlaps_evidence(answer, ctx):
+        refs = " ".join(f"[{citation.index}]" for citation in ctx.citations()[:2])
+        return f"现有资料不足以支持模型生成的回答，请补充资料或缩小问题范围。\n\n参考来源：{refs}"
     suffix = _missing_citation_suffix(answer, ctx)
     return answer + suffix if suffix else answer
 
 
 def _missing_citation_suffix(answer: str, ctx: ChatContext) -> str:
-    if not ctx.retrievals or _has_citation_marker(answer):
+    if not ctx.retrievals or _citation_indices(answer, len(ctx.retrievals)):
         return ""
     refs = " ".join(f"[{citation.index}]" for citation in ctx.citations()[:2])
     return f"\n\n参考来源：{refs}"
 
 
-def _has_citation_marker(text: str) -> bool:
-    import re
+def _remove_invalid_markers(text: str, retrieval_count: int) -> str:
+    def replace(match: re.Match[str]) -> str:
+        index = int(match.group(1))
+        return match.group(0) if 1 <= index <= retrieval_count else ""
 
-    return bool(re.search(r"\[\d+\]", text or ""))
+    return re.sub(r"\[(\d+)\]", replace, text or "")
+
+
+def _citation_indices(text: str, retrieval_count: int) -> set[int]:
+    return {
+        index
+        for value in re.findall(r"\[(\d+)\]", text or "")
+        if 1 <= (index := int(value)) <= retrieval_count
+    }
+
+
+def _answer_overlaps_evidence(answer: str, ctx: ChatContext) -> bool:
+    answer_tokens = _semantic_tokens(re.sub(r"\[\d+\]", "", answer))
+    if not answer_tokens:
+        return False
+    evidence = " ".join(
+        f"{result.title} {result.snippet} {result.metadata.get('evidence_snippet', '')}"
+        for result in ctx.retrievals
+    )
+    evidence_tokens = _semantic_tokens(evidence)
+    overlap = answer_tokens & evidence_tokens
+    return len(overlap) >= 2 or len(overlap) / max(1, len(answer_tokens)) >= 0.12
+
+
+def _semantic_tokens(text: str) -> set[str]:
+    lowered = text.lower()
+    words = set(re.findall(r"[a-z][a-z0-9_+-]{2,}", lowered))
+    chinese = re.sub(r"[^一-鿿]", "", lowered)
+    bigrams = {chinese[index : index + 2] for index in range(max(0, len(chinese) - 1))}
+    return words | bigrams
 
 
 def _choose_subgraph(ctx: ChatContext, query: str) -> SubgraphResponse | None:

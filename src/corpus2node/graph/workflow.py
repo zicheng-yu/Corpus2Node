@@ -11,10 +11,10 @@ token usage and (for the critic) repair counts into a WorkflowRunArtifact saved 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import AsyncIterator, Callable
-from pathlib import Path
-from corpus2node.core.clock import utcnow
 from typing import TypedDict
 from uuid import UUID
 
@@ -22,12 +22,27 @@ from langchain_core.embeddings import Embeddings
 from langgraph.graph import END, START, StateGraph
 
 from corpus2node.config import settings
-from corpus2node.core.types import GraphArtifact, IngestArtifact, SessionStatus, SourceFile
+from corpus2node.core.clock import utcnow
+from corpus2node.core.types import (
+    ArtifactProvenance,
+    EvidenceChunk,
+    GraphArtifact,
+    IngestArtifact,
+    SessionStatus,
+    SourceFile,
+)
 from corpus2node.graph.build import build_graph_artifact
-from corpus2node.graph.critic import ACritic, apply_repair, critique_candidates, make_acritic
+from corpus2node.graph.critic import (
+    CRITIC_SYSTEM_PROMPT,
+    ACritic,
+    apply_repair,
+    critique_candidates,
+    make_acritic,
+)
 from corpus2node.graph.extract import AStructured, extract_graph_candidates, make_astructured
+from corpus2node.graph.prompts import GRAPH_SYSTEM_PROMPT
 from corpus2node.graph.schemas import GraphCriticReport, GraphExtractionResult
-from corpus2node.index.embeddings import get_embeddings
+from corpus2node.index.embeddings import embedding_signature, get_embeddings
 from corpus2node.ingest.chunk import make_chunks_from_blocks
 from corpus2node.llm import factory
 from corpus2node.llm.credentials import Purpose
@@ -53,35 +68,6 @@ def default_extract_blocks(source: SourceFile) -> list[str]:
     return extract_blocks_for(source)
 
 
-def _try_parse_scientific_source(session_id: UUID, source: SourceFile) -> None:
-    """Best-effort structure lane; ordinary ingestion remains available when GROBID is offline."""
-    suffix = Path(source.filename).suffix.lower()
-    if suffix not in {".xml", ".nxml", ".pdf"}:
-        return
-    from corpus2node.scientific.parsers import ScientificParseError, parse_grobid_pdf, parse_scientific_xml
-
-    try:
-        if suffix == ".pdf":
-            import httpx
-
-            try:
-                response = httpx.get(f"{settings.grobid_base_url.rstrip('/')}/api/isalive", timeout=0.8)
-                if response.status_code != 200:
-                    return
-            except httpx.HTTPError:
-                return
-            document = parse_grobid_pdf(
-                source.storage_path,
-                source_id=str(source.source_id),
-                base_url=settings.grobid_base_url,
-            )
-        else:
-            document = parse_scientific_xml(source.storage_path, source_id=str(source.source_id))
-        local.save_scientific_document(session_id, document)
-    except ScientificParseError as exc:
-        logger.info("structured scientific parsing unavailable for %s: %s", source.filename, exc)
-
-
 def build_workflow(
     *,
     astructured: AStructured,
@@ -89,6 +75,7 @@ def build_workflow(
     embeddings: Embeddings,
     extract_blocks: ExtractBlocks,
     recorder: RunRecorder,
+    provenance: ArtifactProvenance,
 ):
     """Compile the ingest -> extract -> critic -> build StateGraph with the given seams bound."""
 
@@ -96,14 +83,37 @@ def build_workflow(
         async with recorder.node("ingest") as run:
             session_id = UUID(state["session_id"])
             session = local.load_session(session_id)
-            pending = [source for source in session.source_files if not source.ingested]
-            for source in pending:
-                chunks = await asyncio.to_thread(_ingest_source, source, extract_blocks, embeddings)
-                local.save_ingest_artifact(
-                    IngestArtifact(session_id=session_id, source_id=source.source_id, source_kind=source.kind, chunks=chunks)
+            pending: list[SourceFile] = []
+            for source in session.source_files:
+                source_hash = provenance.source_hashes[str(source.source_id)]
+                artifact = _load_ingest_artifact_or_none(session_id, source)
+                needs_extract = artifact is None or artifact.source_sha256 != source_hash
+                needs_embedding = (
+                    needs_extract
+                    or artifact.embedding_signature != provenance.embedding_signature
+                    or any(not chunk.embedding for chunk in artifact.chunks)
                 )
-                await asyncio.to_thread(_try_parse_scientific_source, session_id, source)
+                if not needs_extract and not needs_embedding:
+                    source.ingested = True
+                    source.ingest_artifact_path = str(local.ingest_path(session_id, source.source_id))
+                    continue
+                pending.append(source)
+                if needs_extract:
+                    chunks = await asyncio.to_thread(_ingest_source, source, extract_blocks, embeddings)
+                else:
+                    chunks = await asyncio.to_thread(_reembed_chunks, artifact.chunks, embeddings)
+                local.save_ingest_artifact(
+                    IngestArtifact(
+                        session_id=session_id,
+                        source_id=source.source_id,
+                        source_kind=source.kind,
+                        chunks=chunks,
+                        source_sha256=source_hash,
+                        embedding_signature=provenance.embedding_signature,
+                    )
+                )
                 source.ingested = True
+                source.ingest_artifact_path = str(local.ingest_path(session_id, source.source_id))
             session.updated_at = utcnow()
             local.save_session(session)
             total = sum(len(artifact.chunks) for artifact in local.list_ingest_artifacts(session_id))
@@ -163,6 +173,7 @@ def build_workflow(
             graph = await asyncio.to_thread(
                 build_graph_artifact, session_id, chunks, candidates, embeddings=embeddings
             )
+            graph.provenance = provenance
             local.save_graph_artifact(graph)
             run.detail = {"concepts": len(graph.concepts), "edges": len(graph.edges), "clusters": len(graph.topic_clusters)}
             logger.info(
@@ -203,14 +214,20 @@ async def run_workflow(
     acritic: ACritic | None = None,
     embeddings: Embeddings | None = None,
     extract_blocks: ExtractBlocks | None = None,
+    force: bool = False,
 ) -> GraphArtifact:
     """Run the full offline pipeline for a session and return the built graph."""
     session = local.load_session(session_id)
     if not session.source_files:
         raise ValueError("Session has no source files to process.")
+    embeddings = embeddings or get_embeddings()
+    provenance = _build_provenance(session, embeddings)
+    if not force:
+        cached = _load_valid_cached_graph(session, provenance)
+        if cached is not None:
+            return cached
     logger.info("workflow start: session=%s, sources=%d", session_id, len(session.source_files))
 
-    embeddings = embeddings or get_embeddings()
     if astructured is None:
         method = factory.structured_output_method(Purpose.graph)
         astructured = make_astructured(factory.build_chat_model(Purpose.graph), method=method)
@@ -224,7 +241,12 @@ async def run_workflow(
 
     recorder = RunRecorder(session_id)
     workflow = build_workflow(
-        astructured=astructured, acritic=acritic, embeddings=embeddings, extract_blocks=extract_blocks, recorder=recorder
+        astructured=astructured,
+        acritic=acritic,
+        embeddings=embeddings,
+        extract_blocks=extract_blocks,
+        recorder=recorder,
+        provenance=provenance,
     )
     try:
         final = await workflow.ainvoke(
@@ -263,10 +285,11 @@ _NODE_STAGE = {"ingest": "ingest", "extract": "extract", "critic": "critic", "bu
 async def stream_workflow(
     session_id: UUID,
     *,
-    astructured: AStructured,
+    astructured: AStructured | None = None,
     acritic: ACritic | None = None,
-    embeddings: Embeddings,
+    embeddings: Embeddings | None = None,
     extract_blocks: ExtractBlocks | None = None,
+    force: bool = False,
 ) -> AsyncIterator[dict]:
     """Run the pipeline, yielding a real event after each node so the UI reflects
     actual progress (instead of a fake 0→done jump). Idempotent: a session that's
@@ -275,10 +298,13 @@ async def stream_workflow(
     if not session.source_files:
         raise ValueError("Session has no source files to process.")
 
-    # Already built → don't re-run (fixes "re-entering re-runs the pipeline").
-    # Key on graph EXISTENCE, not status (status can be a stale building_graph).
-    try:
-        graph = local.load_graph_artifact(session_id)
+    embeddings = embeddings or get_embeddings()
+    provenance = _build_provenance(session, embeddings)
+    if not force:
+        graph = _load_valid_cached_graph(session, provenance)
+    else:
+        graph = None
+    if graph is not None:
         if session.stats.chunk_count == 0:
             session.stats.chunk_count = _chunk_count(session_id)
             session.updated_at = utcnow()
@@ -291,10 +317,11 @@ async def stream_workflow(
             "cached": True,
         }}
         return
-    except FileNotFoundError:
-        pass  # no graph yet — build it
 
     extract_blocks = extract_blocks or default_extract_blocks
+    if astructured is None:
+        method = factory.structured_output_method(Purpose.graph)
+        astructured = make_astructured(factory.build_chat_model(Purpose.graph), method=method)
     acritic = _resolve_acritic(acritic)
     session.status = SessionStatus.building_graph
     session.error_message = None
@@ -304,7 +331,12 @@ async def stream_workflow(
 
     recorder = RunRecorder(session_id)
     workflow = build_workflow(
-        astructured=astructured, acritic=acritic, embeddings=embeddings, extract_blocks=extract_blocks, recorder=recorder
+        astructured=astructured,
+        acritic=acritic,
+        embeddings=embeddings,
+        extract_blocks=extract_blocks,
+        recorder=recorder,
+        provenance=provenance,
     )
     state0 = {"session_id": str(session_id), "chunk_count": 0, "concept_count": 0, "relation_count": 0, "cluster_count": 0}
     try:
@@ -361,6 +393,140 @@ def _ingest_source(source: SourceFile, extract_blocks: ExtractBlocks, embeddings
         for chunk, vector in zip(chunks, vectors):
             chunk.embedding = list(vector)
     return chunks
+
+
+async def ingest_sources_only(
+    session_id: UUID, *, extract_blocks: ExtractBlocks | None = None
+) -> int:
+    """Prepare source chunks without graph extraction or embedding-model work.
+
+    The scientific vertical uses this profile so an uploaded paper can be analysed
+    without first paying for the generic knowledge-graph workflow.
+    """
+    extract_blocks = extract_blocks or default_extract_blocks
+    session = local.load_session(session_id)
+    if not session.source_files:
+        if local.list_ingest_artifacts(session_id):
+            return _chunk_count(session_id)
+        raise ValueError("Session has no source files to process.")
+    previous_status = session.status
+    session.status = SessionStatus.ingesting
+    session.updated_at = utcnow()
+    local.save_session(session)
+    try:
+        for source in session.source_files:
+            source_hash = _source_sha256(source)
+            artifact = _load_ingest_artifact_or_none(session_id, source)
+            if artifact is None or artifact.source_sha256 != source_hash:
+                blocks = await asyncio.to_thread(extract_blocks, source)
+                chunks = make_chunks_from_blocks(str(source.source_id), source.kind, blocks)
+                artifact = IngestArtifact(
+                    session_id=session_id,
+                    source_id=source.source_id,
+                    source_kind=source.kind,
+                    chunks=chunks,
+                    source_sha256=source_hash,
+                    embedding_signature="none",
+                )
+                local.save_ingest_artifact(artifact)
+            elif not artifact.source_sha256:
+                artifact.source_sha256 = source_hash
+                local.save_ingest_artifact(artifact)
+            source.ingested = True
+            source.ingest_artifact_path = str(local.ingest_path(session_id, source.source_id))
+        session.stats.chunk_count = _chunk_count(session_id)
+        session.status = (
+            previous_status
+            if previous_status in {SessionStatus.graph_ready, SessionStatus.notes_ready}
+            else SessionStatus.ingested
+        )
+        session.error_message = None
+        session.updated_at = utcnow()
+        local.save_session(session)
+        return session.stats.chunk_count
+    except Exception as exc:
+        session.status = SessionStatus.failed
+        session.error_message = str(exc)
+        session.updated_at = utcnow()
+        local.save_session(session)
+        raise
+
+
+def _reembed_chunks(chunks: list[EvidenceChunk], embeddings: Embeddings) -> list[EvidenceChunk]:
+    values = [chunk.model_copy(deep=True) for chunk in chunks]
+    vectors = embeddings.embed_documents([chunk.text for chunk in values]) if values else []
+    for chunk, vector in zip(values, vectors):
+        chunk.embedding = list(vector)
+    return values
+
+
+def _load_ingest_artifact_or_none(session_id: UUID, source: SourceFile) -> IngestArtifact | None:
+    try:
+        return local.load_ingest_artifact(session_id, source.source_id)
+    except FileNotFoundError:
+        return None
+
+
+def _source_sha256(source: SourceFile) -> str:
+    if source.content_sha256:
+        return source.content_sha256
+    digest = hashlib.sha256()
+    try:
+        with open(source.storage_path, "rb") as handle:
+            while block := handle.read(1024 * 1024):
+                digest.update(block)
+    except FileNotFoundError:
+        digest.update(f"missing:{source.source_id}:{source.size_bytes}".encode())
+    source.content_sha256 = digest.hexdigest()
+    return source.content_sha256
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _build_provenance(session, embeddings: Embeddings) -> ArtifactProvenance:
+    source_hashes = {str(source.source_id): _source_sha256(source) for source in session.source_files}
+    local.save_session(session)
+    config = {
+        "extract_batch_max_chars": settings.extract_batch_max_chars,
+        "extract_batch_max_chunks": settings.extract_batch_max_chunks,
+        "graph_critic_enabled": settings.graph_critic_enabled,
+        "critic_batch_concepts": settings.critic_batch_concepts,
+        "critic_batch_relations": settings.critic_batch_relations,
+    }
+    return ArtifactProvenance(
+        source_hashes=source_hashes,
+        embedding_signature=embedding_signature(embeddings),
+        graph_model_signature=factory.purpose_signature(Purpose.graph),
+        critic_model_signature=(
+            factory.purpose_signature(Purpose.critic) if settings.graph_critic_enabled else "disabled"
+        ),
+        graph_prompt_sha256=_sha256_text(GRAPH_SYSTEM_PROMPT),
+        critic_prompt_sha256=_sha256_text(CRITIC_SYSTEM_PROMPT),
+        config_sha256=_sha256_text(json.dumps(config, sort_keys=True)),
+    )
+
+
+def _load_valid_cached_graph(
+    session, provenance: ArtifactProvenance
+) -> GraphArtifact | None:
+    try:
+        graph = local.load_graph_artifact(session.session_id)
+    except FileNotFoundError:
+        return None
+    if graph.provenance != provenance:
+        logger.info("workflow cache invalidated: session=%s provenance changed", session.session_id)
+        return None
+    return graph
+
+
+def load_valid_cached_graph(session_id: UUID, embeddings: Embeddings) -> GraphArtifact | None:
+    """Public cache preflight used by the API before it resolves paid LLM clients."""
+    session = local.load_session(session_id)
+    if not session.source_files:
+        return None
+    return _load_valid_cached_graph(session, _build_provenance(session, embeddings))
 
 
 def _candidates_path(session_id: UUID):

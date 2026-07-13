@@ -319,9 +319,26 @@ def _locator_key(value: GoldLocator) -> tuple:
 
 
 def _bbox_match(gold: list[ScientificBBox], predicted: list[ScientificBBox]) -> bool:
-    if not gold:
-        return not predicted
-    return all(any(_iou(left, right) >= 0.8 for right in predicted) for left in gold)
+    if len(gold) != len(predicted):
+        return False
+    candidates = sorted(
+        (
+            (_iou(left, right), left_index, right_index)
+            for left_index, left in enumerate(gold)
+            for right_index, right in enumerate(predicted)
+        ),
+        reverse=True,
+    )
+    matched_left: set[int] = set()
+    matched_right: set[int] = set()
+    for score, left_index, right_index in candidates:
+        if score < 0.8:
+            break
+        if left_index in matched_left or right_index in matched_right:
+            continue
+        matched_left.add(left_index)
+        matched_right.add(right_index)
+    return len(matched_left) == len(gold)
 
 
 def _iou(left: ScientificBBox, right: ScientificBBox) -> float:

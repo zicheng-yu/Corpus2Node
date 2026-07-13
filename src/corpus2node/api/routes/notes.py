@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from corpus2node import jobs
 from corpus2node.core.types import GenerateNotesRequest, NoteDocument
+from corpus2node.index.embeddings import EmbeddingProvenanceError
 from corpus2node.llm.factory import LLMConfigError
 from corpus2node.notes import generate as notes_generate
 from corpus2node.storage import local
@@ -36,6 +37,8 @@ async def generate_notes(request: GenerateNotesRequest) -> NoteDocument:
         raise HTTPException(status_code=404, detail="Session or graph not found. Build the graph first.") from exc
     except LLMConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except EmbeddingProvenanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,6 +30,25 @@ LOCAL_DEFAULT_CONCURRENCY = 4
 
 class LLMConfigError(RuntimeError):
     """Raised when a purpose has no usable credential/model binding."""
+
+
+def purpose_signature(purpose: Purpose, *, value: LLMSettings | None = None) -> str:
+    """Return a secret-free fingerprint for the model configuration behind a purpose."""
+    try:
+        binding, credential = resolve(purpose, value or store.load())
+    except LLMConfigError:
+        return "unbound"
+    model = binding.model or credential.default_model
+    payload = {
+        "kind": credential.kind.value,
+        "base_url": native_base_url(credential),
+        "model": model,
+        "num_ctx": credential.num_ctx,
+        "temperature": binding.temperature,
+        "max_output_tokens": binding.max_output_tokens,
+    }
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
+    return f"{credential.kind.value}:{model or 'unset'}:{digest}"
 
 
 def native_base_url(credential: ProviderCredential) -> str:

@@ -10,6 +10,7 @@ from corpus2node.api.app import app
 from corpus2node.core.types import CourseSession, SourceFile, SourceKind
 from corpus2node.scientific.evaluation import (
     GoldReviewStatus,
+    _bbox_match,
     evaluate_gold_corpus,
     evaluate_paper,
     load_gold_directory,
@@ -69,6 +70,15 @@ def test_tei_parser_preserves_page_bbox_sentence_and_table_cell_locator():
     assert document.tables[0].cells[1].locator.table_column == 1
     assert document.tables[0].cells[1].locator.bboxes[0].width == 300
     assert document.formulas[0].locator.bboxes[0].y == 300
+
+
+def test_bbox_matching_is_symmetric_and_one_to_one():
+    from corpus2node.scientific.schemas import ScientificBBox
+
+    box = ScientificBBox(page=1, x=10, y=20, width=100, height=12)
+    assert _bbox_match([box], [box])
+    assert not _bbox_match([box], [box, box])
+    assert not _bbox_match([box, box], [box])
 
 
 def test_grobid_client_requests_sentence_segmentation_and_coordinates(tmp_path):
