@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal, InvalidOperation
+from difflib import SequenceMatcher
 from enum import Enum
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from corpus2node.scientific.schemas import ScientificBBox, ScientificEntityType,
 class GoldReviewStatus(str, Enum):
     unreviewed = "unreviewed"
     silver = "silver"
+    ai_verified = "ai_verified"
     verified = "verified"
 
 
@@ -85,6 +87,21 @@ class ScientificEvaluationResult(BaseModel):
     entity: PRF
     relation: PRF
     claim: PRF
+    claim_exact: PRF
+    numeric_result: PRF
+    locator_exact_accuracy: float
+    locator_bbox_accuracy: float
+    locator_count: int
+    bbox_locator_count: int
+
+
+class ScientificPaperEvaluation(BaseModel):
+    paper_id: str
+    title: str
+    entity: PRF
+    relation: PRF
+    claim: PRF
+    claim_exact: PRF
     numeric_result: PRF
     locator_exact_accuracy: float
     locator_bbox_accuracy: float
@@ -97,18 +114,15 @@ def evaluate_gold_corpus(
     prediction_dir: str | Path,
     *,
     require_verified: bool = True,
+    accepted_statuses: set[GoldReviewStatus] | None = None,
 ) -> ScientificEvaluationResult:
-    gold_files = sorted(Path(gold_dir).glob("*.json"))
-    predictions = {
-        value.paper_id: value
-        for path in Path(prediction_dir).glob("*.json")
-        if (value := ScientificGoldPaper.model_validate_json(path.read_text(encoding="utf-8")))
-    }
-    counts = {name: [0, 0, 0] for name in ("entity", "relation", "claim", "numeric")}
+    gold_papers = _load_papers(gold_dir)
+    predictions = {value.paper_id: value for value in _load_papers(prediction_dir)}
+    allowed = accepted_statuses or {GoldReviewStatus.verified}
+    counts = {name: [0, 0, 0] for name in ("entity", "relation", "claim", "claim_exact", "numeric")}
     exact_locator = bbox_locator = locator_count = bbox_locator_count = evaluated = skipped = 0
-    for path in gold_files:
-        gold = ScientificGoldPaper.model_validate_json(path.read_text(encoding="utf-8"))
-        if require_verified and gold.review_status != GoldReviewStatus.verified:
+    for gold in gold_papers:
+        if require_verified and gold.review_status not in allowed:
             skipped += 1
             continue
         evaluated += 1
@@ -124,7 +138,11 @@ def evaluate_gold_corpus(
         )
         _accumulate(counts["entity"], _entity_keys(gold), _entity_keys(prediction))
         _accumulate(counts["relation"], _relation_keys(gold), _relation_keys(prediction))
-        _accumulate(counts["claim"], _claim_keys(gold), _claim_keys(prediction))
+        claim_matches = _claim_match_count(gold.claims, prediction.claims)
+        counts["claim"][0] += claim_matches
+        counts["claim"][1] += len(prediction.claims)
+        counts["claim"][2] += len(gold.claims)
+        _accumulate(counts["claim_exact"], _claim_keys(gold), _claim_keys(prediction))
         _accumulate(counts["numeric"], _numeric_keys(gold), _numeric_keys(prediction))
         predicted_locators = {value.evidence_id: value for value in prediction.locators}
         for locator in gold.locators:
@@ -140,19 +158,71 @@ def evaluate_gold_corpus(
                 if _bbox_match(locator.bboxes, candidate.bboxes):
                     bbox_locator += 1
     if require_verified and evaluated == 0:
-        raise ValueError("没有 review_status=verified 的 gold 标注，拒绝输出虚假的正式指标。")
+        expected = ", ".join(sorted(value.value for value in allowed))
+        raise ValueError(f"没有 review_status in {{{expected}}} 的参考标注，拒绝输出指标。")
     return ScientificEvaluationResult(
         evaluated_papers=evaluated,
         skipped_unverified_papers=skipped,
         entity=_prf(*counts["entity"]),
         relation=_prf(*counts["relation"]),
         claim=_prf(*counts["claim"]),
+        claim_exact=_prf(*counts["claim_exact"]),
         numeric_result=_prf(*counts["numeric"]),
         locator_exact_accuracy=exact_locator / locator_count if locator_count else 0.0,
         locator_bbox_accuracy=bbox_locator / bbox_locator_count if bbox_locator_count else 0.0,
         locator_count=locator_count,
         bbox_locator_count=bbox_locator_count,
     )
+
+
+def evaluate_paper(gold: ScientificGoldPaper, prediction: ScientificGoldPaper) -> ScientificPaperEvaluation:
+    counts = {}
+    for name, gold_keys, prediction_keys in (
+        ("entity", _entity_keys(gold), _entity_keys(prediction)),
+        ("relation", _relation_keys(gold), _relation_keys(prediction)),
+        ("claim_exact", _claim_keys(gold), _claim_keys(prediction)),
+        ("numeric", _numeric_keys(gold), _numeric_keys(prediction)),
+    ):
+        counts[name] = _prf(len(gold_keys & prediction_keys), len(prediction_keys), len(gold_keys))
+    predicted_locators = {value.evidence_id: value for value in prediction.locators}
+    claim = _prf(_claim_match_count(gold.claims, prediction.claims), len(prediction.claims), len(gold.claims))
+    exact = bbox = bbox_count = 0
+    for locator in gold.locators:
+        candidate = predicted_locators.get(locator.evidence_id)
+        if locator.bboxes:
+            bbox_count += 1
+        if candidate is None:
+            continue
+        if _locator_key(locator) == _locator_key(candidate):
+            exact += 1
+        if locator.bboxes and _bbox_match(locator.bboxes, candidate.bboxes):
+            bbox += 1
+    return ScientificPaperEvaluation(
+        paper_id=gold.paper_id,
+        title=gold.title,
+        entity=counts["entity"],
+        relation=counts["relation"],
+        claim=claim,
+        claim_exact=counts["claim_exact"],
+        numeric_result=counts["numeric"],
+        locator_exact_accuracy=exact / len(gold.locators) if gold.locators else 0.0,
+        locator_bbox_accuracy=bbox / bbox_count if bbox_count else 0.0,
+        locator_count=len(gold.locators),
+        bbox_locator_count=bbox_count,
+    )
+
+
+def load_gold_directory(path: str | Path) -> list[ScientificGoldPaper]:
+    return _load_papers(path)
+
+
+def _load_papers(path: str | Path) -> list[ScientificGoldPaper]:
+    papers = []
+    for candidate in sorted(Path(path).glob("*.json")):
+        if candidate.name == "MANIFEST.json":
+            continue
+        papers.append(ScientificGoldPaper.model_validate_json(candidate.read_text(encoding="utf-8")))
+    return papers
 
 
 def write_gold_template(record: dict, target: str | Path) -> Path:
@@ -189,6 +259,38 @@ def _relation_keys(value: ScientificGoldPaper) -> set[tuple]:
 
 def _claim_keys(value: ScientificGoldPaper) -> set[str]:
     return {_normalize(item.text) for item in value.claims}
+
+
+def _claim_match_count(gold: list[GoldClaim], predicted: list[GoldClaim]) -> int:
+    candidates = []
+    for gold_index, left in enumerate(gold):
+        left_evidence = set(left.evidence_ids)
+        for predicted_index, right in enumerate(predicted):
+            if left_evidence and not left_evidence.intersection(right.evidence_ids):
+                continue
+            score = _claim_similarity(left.text, right.text)
+            if score >= 0.45:
+                candidates.append((score, gold_index, predicted_index))
+    matched_gold: set[int] = set()
+    matched_predicted: set[int] = set()
+    for _, gold_index, predicted_index in sorted(candidates, reverse=True):
+        if gold_index in matched_gold or predicted_index in matched_predicted:
+            continue
+        matched_gold.add(gold_index)
+        matched_predicted.add(predicted_index)
+    return len(matched_gold)
+
+
+def _claim_similarity(left: str, right: str) -> float:
+    left_text = re.sub(r"\W+", "", left.casefold())
+    right_text = re.sub(r"\W+", "", right.casefold())
+    if not left_text or not right_text:
+        return 0.0
+    left_bigrams = {left_text[index:index + 2] for index in range(max(1, len(left_text) - 1))}
+    right_bigrams = {right_text[index:index + 2] for index in range(max(1, len(right_text) - 1))}
+    dice = 2 * len(left_bigrams & right_bigrams) / (len(left_bigrams) + len(right_bigrams))
+    sequence = SequenceMatcher(None, left_text, right_text).ratio()
+    return max(dice, sequence)
 
 
 def _number(value: str) -> str:

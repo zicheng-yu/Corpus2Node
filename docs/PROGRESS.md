@@ -9,11 +9,11 @@
 
 ## 当前已验证状态
 
-- **后端测试 173 passed**（`.venv/bin/python -m pytest -q`，2026-07-12 实测，1.99s）。
+- **后端测试 176 passed**（`uv run pytest -q`，2026-07-13 实测，1.73s）。
 - **全离线 LLM 方案已落地并本机实测**：注册表 kind += `ollama`/`lmstudio`（免密钥、默认本地端点、`num_ctx`/`max_concurrency`）；本机 M3 用 `gemma4:e2b-it-qat` + `bge-m3`（嵌入）真 HTTP 跑通 workflow/chat/测试/models 全流程（`llama3.1:8b` 参照组同过）；PDF 无 Kimi 时 pypdf 本地解析、视频回退 whisper 音轨转写。
 - **LLM 配置已统一到注册表/UI（本轮）**：Kimi（vision）与远程 embedding 都成为注册表凭据 + 用途；`config.py` 不再有任何 LLM 凭据；`.env` 只剩基础设施 + 首次种子，`.env`/`.env.example` 格式对齐。设置面板改为「凭据=端点+密钥+模型 一体，下面单选下拉直接绑」。
 - **前端 `npm run build` 通过**（2026-07-12 实测）。
-- **ruff clean**（`.venv/bin/ruff check src tests`，2026-07-12 实测）。分支 `feat`。
+- **ruff clean**（`uv run ruff check src tests scripts`，2026-07-13 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/水平测试）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
 - **在线闭环可跑**：chat agent（强制引用 + trace + SSE）、notes（map-reduce + coverage critic）、水平测试（importance plan + generator + verifier 回路）、export（md/tex/txt/pdf）路由齐全且有测试覆盖。
 - **多模态摄入**：文档 7 类 + PDF（Kimi file-extract ↔ 无 Kimi 时 pypdf 本地）+ 图片/视频（Kimi vision/K2.6；vision 绑本地 VLM 时图片走同路径、视频回退 whisper 音轨转写）+ 音频（faster-whisper），注册表式接入。
@@ -28,7 +28,7 @@
 - **多客户定制策略已定**：见 `docs/CUSTOMIZATION.md`，采用“单产品核心 + 客户配置包 + 客户适配器 + 独立部署”，不复制仓库、不维护长期客户分支；当前未提前实现缺少真实客户字段的配置框架。
 - **科研与 R&D 垂直方向已形成方案**：见 `docs/SCIENTIFIC_RD.md`；定位从通用概念图谱升级为“原始科技文献 → 科研实体/实验关系 → claim-evidence graph → 证据矩阵/矛盾/空白 → R&D 决策卡”，建议作为客户配置体系的首个 scientific profile。
 - **科研证据图谱 MVP 技术主线已落地并真实验证**：新增独立 `scientific/` 垂直包、`/scientific` API 与“科研证据”页面；单篇抽取 Paper/Entity/Relation/Claim/Experiment，所有模型证据编号经后端映射并校验到真实 `session/source/chunk/locator`；跨论文生成证据矩阵、洞察和 R&D 决策卡，供应商 JSON 方言有边界归一化、限次重试、单篇内容指纹缓存及确定性证据综合兜底。用现有 VDN/QMIX + DeepSeek 真实跑通，报告 `f1c88905-7d9f-4434-9780-978e94bcd238`：2 papers / 19 entities / 19 relations / 10 claims / 3 experiments / 27 evidence / 2 insights / 1 decision；claim 引用有效率 **11/11**。内容策略为中文叙述，英文正式名称独立保留。
-- **Scientific ingestion / N 元实验关系 / gold eval 主线已落地并真实批测**：JATS/TEI/GROBID 统一到 `ScientificDocument`，保存 section/sentence/page/bbox/table-cell/formula/citation；workflow 对 XML 优先结构解析、PDF 在 GROBID 可用时自动落 TEI，服务离线则不伪造 bbox且不阻断原摄入。Claim、Experiment、MetricResult、Condition、Evidence 与 Method/Dataset/Baseline 通过受角色约束的 N 元关系显式连接。桌面 MARL corpus 已有 131/131 PDF、30/30 GROBID TEI/JSON 和 30/30 DeepSeek silver：431 entities / 376 relations / 166 中文 Claims / 74 numeric results / 143 locators（141 bbox、5 table-cell）。正式评测覆盖实体/关系/Claim/数值/locator，并只接纳 `verified` 标注。
+- **Scientific ingestion / N 元实验关系 / gold eval 主线已落地并真实批测**：JATS/TEI/GROBID 统一到 `ScientificDocument`，保存 section/sentence/page/bbox/table-cell/formula/citation；workflow 对 XML 优先结构解析、PDF 在 GROBID 可用时自动落 TEI，服务离线则不伪造 bbox且不阻断原摄入。Claim、Experiment、MetricResult、Condition、Evidence 与 Method/Dataset/Baseline 通过受角色约束的 N 元关系显式连接。桌面 MARL corpus 已有 131/131 PDF、30/30 GROBID TEI/JSON 和 30/30 DeepSeek silver。另完成 30 篇独立盲跑 AI proxy（`ai_verified`）：413 entities / 260 relations / 154 Claims / 61 numeric / 120 locators；内部一致性基线 Entity exact F1 0.3863、full-role Relation exact F1 0.0283、Claim fuzzy F1 0.4375、Claim/Numeric exact F1 0。Locator 0.9250 主要是页级一致率，不是句级准确率。人工 gold 继续只接纳 `verified`，详见 `docs/SCIENTIFIC_BENCHMARK.md`。
 - **mixed 多模态抽取问题已修复（本轮）**：`06 mixed` 摄入正常（image 1 chunk + PDF 40 chunks），抽取阶段曾有 84 concepts / 60 relations，问题是 critic grounding 检索给大量真实概念提示“未检索到相关片段”，且近清空保护只拦截“全删”不拦截“84 删 83”。已改为字面证据优先 + embedding 补充，并加近清空保护；用旧 artifact 无外部调用复核可为 55/84 个旧 verdict 概念找到原文片段。
 
 ## 仓库根目录
@@ -63,7 +63,7 @@ ruff check src tests                                  # lint
 
 ## 当前最高优先级未完成功能
 
-1. **完成 30 篇科研 gold 的人工双审**：解析、预标注、评测契约已完成；需领域标注者把 silver 校正并裁决为 verified 后，才能记录正式 entity/relation/Claim/numeric/locator baseline。
+1. **完成 30 篇科研 gold 的人工双审**：AI blind proxy 内部基线已完成，但不能替代专家标注；需领域标注者把 silver 校正并裁决为 `verified`，才能记录 human-gold accuracy。
 2. **收集前两个真实客户的差异矩阵**（品牌 / 能力 / 限制 / 集成 / 数据边界），据此落地第一版 profile schema 与 loader；scientific profile 作为首个垂直包。
 3. **记录真实 eval baseline 数字**（抽取 F1 / 问答 grounding / 水平测试可溯源率）。
 4. **Step 7 工程化收尾**：`Course→Corpus` 契约重命名、持久化向量库、Docker、README 补全。
@@ -71,7 +71,7 @@ ruff check src tests                                  # lint
 
 ## 当前 blocker
 
-- 30 篇科研语料的自动预标注与结构定位已经完成，但 **silver 不能冒充 gold**；正式准确率唯一剩余外部依赖是领域标注者双审、争议裁决并把文件改为 `review_status=verified`。评测 CLI 会在 verified=0 时拒绝出分。
+- 30 篇 AI blind proxy 与内部一致性分数已经完成，但它复用同一 prompt/schema/page-selection 管线，只能标为 `ai_verified`。**AI proxy 不能冒充 human gold**；专家准确率仍依赖领域标注者双审、争议裁决并改为 `review_status=verified`。
 
 ---
 
@@ -100,7 +100,7 @@ ruff check src tests                                  # lint
 | `exam/generate.py` `validate.py` `prompts.py` `schemas.py` | **水平测试**：确定性按 `importance_score` 规划知识点 → generator 自动选题目形式 → **verifier 独立求解回路**；目录名与 `Purpose.exam` 暂留作内部兼容键 | 调测试覆盖/校验/难度 |
 | `assistant/agent.py` `tools.py` | **招牌：在线 chat agent**（单 tool-calling agent + 最近历史 + 预检索引用兜底 + 结构化 trace + SSE）；tools = retrieve_chunks / search_concepts / get_subgraph | 调问答行为 / 加 agent 工具 |
 | `discovery/engine.py` | **知识发现 v2（创新提案）**：多资料集/随机模式；宽候选生成（相似度+词面+结构信号+图谱重要性）+ AI judge seam（Purpose.critic，大池分批并发，`relation_type` 8 类枚举+中文别名回填）+ 算法 fallback；证据每侧 top-2；LLM 标题 seam（确定性 `derive_title` 回退）。**提案层（老板场景）**：findings → `make_proposer_or_none`（Purpose.chat→critic，temp 0.7，json_mode 需 prompt 带 `_PROPOSAL_FORMAT_HINT`）产出 `InnovationProposal`（title/pitch/组合/第一步/风险/status/deep_dive）；`_proposals_from_draft` 概念 grounding（名称多键映射：raw+去括号，同名跨集解析**优先未覆盖资料集**）+ 跨集 ≥2 校验；`_fallback_proposals` 按 relation_type 模板确定性成案；`_avoid_titles` 把历史已采纳/搁置标题喂给 proposer 避重；`deepen_proposal` + `make_deepener_or_none` 五字段深挖（目标/做法/数据/首实验/指标）确定性渲染 markdown；`intent` 全程贯穿 prompt。**桥接图 v2**：有提案时输出 资料集→概念→提案 三层（node_type=proposal 带 status/pitch），无提案回退旧 finding 布局（老报告兼容） | 调发现/提案逻辑 / 评分权重 / 提案数(`_PROPOSAL_TARGET`) / 深挖字段 / 图布局 |
-| `scientific/schemas.py` `parsers.py` `evaluation.py` `prompts.py` `engine.py` | **科研证据图谱**：JATS/TEI/GROBID 结构与坐标；类型化实体/Claim/Experiment/Metric/Condition/Evidence 和受约束 N 元关系；中文优先抽取、证据门、跨论文矩阵/R&D 决策；verified-only gold 正式评测 | 调科研本体 / 结构解析 / N 元关系 / gold 指标 / 跨论文决策 |
+| `scientific/schemas.py` `parsers.py` `evaluation.py` `prompts.py` `engine.py` | **科研证据图谱**：JATS/TEI/GROBID 结构与坐标；类型化实体/Claim/Experiment/Metric/Condition/Evidence 和受约束 N 元关系；中文优先抽取、证据门、跨论文矩阵/R&D 决策；`ai_verified` proxy 与人工 `verified` 分轨评测 | 调科研本体 / 结构解析 / N 元关系 / gold 指标 / 跨论文决策 |
 | `export/renderer.py` | 导出 md/tex/txt（纯 Python）+ pdf（惰性 wkhtmltopdf→xhtml2pdf，`[export]` extra）+ render_chat_markdown | 加导出格式 |
 | `eval/metrics.py` `harness.py` `schemas.py` `__main__.py` `data/` | **离线评估**：纯指标（抽取 F1 / 关系合法+召回 / 笔记覆盖 / 水平测试可溯源+客观题合法 / 问答 grounding）+ harness + CLI + gold fixture | 加评估指标 / 调 gold |
 | `jobs.py` | **内存 detached async 任务表**：emit/finish/subscribe + 事件重放 + 同参数复用/异参数冲突保护——notes/test 流式生成存活于「请求断开/前端导航」之外 | 调后台任务/流式 |
@@ -131,7 +131,7 @@ ruff check src tests                                  # lint
 | 路径 | 功能 |
 |------|------|
 | `scripts/corpus.sh` | 启动器：`dev`（前台）/ `start|stop|force-stop|status|logs|restart`（后台）；alias `corpus` 在 `~/.zshrc` |
-| `scripts/grobid.sh` · `collect_marl_top3.py` · `preannotate_scientific_gold.py` · `parse_scientific_corpus.py` · `evaluate_scientific_gold.py` | 本机 GROBID 生命周期 · MARL 高召回候选/PDF · 30 篇真实 API silver · GROBID TEI/locator 回填 · verified-only 正式评测 CLI |
+| `scripts/grobid.sh` · `collect_marl_top3.py` · `preannotate_scientific_gold.py` · `review_scientific_gold.py` · `parse_scientific_corpus.py` · `evaluate_scientific_gold.py` · `run_scientific_benchmark.py` | 本机 GROBID 生命周期 · MARL 高召回候选/PDF · 真实 API silver/AI blind proxy · GROBID TEI/locator 回填 · 人工 verified/AI proxy 分轨评测 |
 | `.github/workflows/ci.yml` | 最小 CI：后端 uv sync + ruff + pytest；前端 npm ci + build |
 | `tests/` | 后端测试（TestClient + 注入 seam 离线跑 LLM 路径 + `conftest` 用 tmp_path 隔离存储/重置 llm store 缓存） |
 | `web/index.html` | 零构建最小验证 UI（挂 `/ui`，含凭据配置面板） |
@@ -144,6 +144,14 @@ ruff check src tests                                  # lint
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-07-13 — 30 篇 AI blind proxy 标注 + 正式内部一致性测试
+- **独立标注**：冻结原 30 篇 silver prediction（逐文件 SHA-256），从 PDF 选页独立调用模型盲标；统一裁决 evidence ID 与 N 元必需角色，最终 30/30 `ai_verified` reference：413 entities / 260 relations / 154 Claims / 61 numeric / 120 locators。
+- **分轨准入**：审计发现 AI reference 不能占用人工双审 `verified`，新增 `ai_verified`；默认 evaluator 仍只准入人工 `verified`，内部 benchmark 显式只准入 `ai_verified`。
+- **真实基线**：Entity exact F1 0.3863；完整角色 Relation exact F1 0.0283；启发式 Claim fuzzy F1 0.4375；Claim exact/Numeric 四字段 exact F1 均为 0。页面/table locator key agreement 0.9250，GROBID-derived bbox-set agreement 0.9237。
+- **审计结论**：独立实验审计为 WARN——无 prediction 直接泄漏，当前 artifact 可重算；但 reference 复用 prompt/schema/page-selection，属于相关 AI proxy，不是 human gold。120 个 locator 中 115 个仅页级，locator 分数不得解释为句级 grounding accuracy。
+- **审计链**：prediction/reference manifest 均校验目录文件集合、bytes、SHA-256；reference 额外固化并校验 prompt 原文与 30 个源 PDF hash；结果记录 manifest/prompt digest、指标口径、locator 粒度和论文级 bootstrap 限制。完整说明见 `docs/SCIENTIFIC_BENCHMARK.md`，本机结果与审计在桌面 corpus 的 `results/`。
+- **验证**：pytest **176 passed**；ruff clean；真实 30 篇 benchmark 重跑通过；GROBID 健康。
 
 ### 2026-07-12 — JATS/TEI/GROBID + N 元实验关系 + 30 篇 MARL 科研语料
 - **结构解析**：新增统一 `ScientificDocument`、JATS/TEI parser、GROBID REST 客户端与 `/scientific/parse`/documents API；保留 section/sentence/page/bbox/table-cell/formula/citation/page dimensions。workflow 对科研 XML 自动优先解析；PDF 检测 GROBID 可用后落结构 artifact，服务离线不伪造坐标。

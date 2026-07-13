@@ -4,6 +4,7 @@
 
 - `unreviewed`：空模板，不能进入指标。
 - `silver`：模型预标注，便于人工校正，不能作为正式 gold。
+- `ai_verified`：独立盲跑的 AI proxy，经确定性 schema/evidence-id 校验；只允许用于内部可复现性测试，不能称为人工 gold。
 - `verified`：至少一名标注者完成全文核对，第二名标注者复核争议项；只有该状态进入正式指标。
 - PDF、会议、年份、标题和来源链接必须先与会议录用索引核对。相邻主题论文可保留在候选集，但不得混入 30 篇核心 MARL gold。
 
@@ -49,6 +50,8 @@ JATS 通常没有 PDF 坐标；不得为了指标填造 page/bbox。只有 JATS 
 3. 争议项逐条裁决后，填写两名 annotator 并把状态改成 `verified`。
 4. 运行 `scripts/evaluate_scientific_gold.py GOLD_DIR PREDICTION_DIR`。工具会跳过非 verified 文件；若一个 verified 都没有则直接报错，避免输出伪正式分数。
 
+AI 内部基准使用独立目录和 `ai_verified` 状态，由 `scripts/run_scientific_benchmark.py` 准入。该结果必须明确标注为 AI blind proxy；即使完成 30 篇，也不能替代上述人工双审流程。
+
 ## 5. 正式指标
 
 - 实体：类型化精确率、召回率、F1。
@@ -56,3 +59,5 @@ JATS 通常没有 PDF 坐标；不得为了指标填造 page/bbox。只有 JATS 
 - Claim：规范化完整文本精确率、召回率、F1。
 - 数值：指标、规范化数值、单位、条件联合精确率、召回率、F1。
 - Locator：section/sentence/page/table-cell 严格准确率；bbox 使用同页 IoU `>= 0.8`。
+
+若 reference 只有页级 `Pxxx` 而没有句子或 table-cell，Locator 只能报告“页级 locator 一致率”；由同一 GROBID 文档派生的整页 bbox 集只能报告“bbox 集合复现率”，不得解释为 Claim 句级定位准确率。
