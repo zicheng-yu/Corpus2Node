@@ -4,6 +4,7 @@ import asyncio
 import itertools
 import logging
 import random
+from collections.abc import Sequence
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -182,6 +183,7 @@ async def run_discovery(
     judge: DiscoveryJudge | None | object = _AUTO_JUDGE,
     titler: DiscoveryTitler | None | object = _AUTO_TITLER,
     proposer: DiscoveryProposer | None | object = _AUTO_PROPOSER,
+    history_reports: Sequence[DiscoveryReport] | None = None,
 ) -> DiscoveryReport:
     """Create a persisted-ready discovery report from selected or random sessions.
 
@@ -220,7 +222,13 @@ async def run_discovery(
     capped = findings[: request.limit]
     if proposer is _AUTO_PROPOSER:
         proposer = make_proposer_or_none()
-    proposals = await _synthesize_proposals(capped, contexts, request.intent, proposer)
+    proposals = await _synthesize_proposals(
+        capped,
+        contexts,
+        request.intent,
+        proposer,
+        history_reports=history_reports,
+    )
     title = await _title_for(capped, contexts, titler)
     return DiscoveryReport(
         title=title,
@@ -581,12 +589,21 @@ async def _synthesize_proposals(
     contexts: list[DiscoveryContext],
     intent: str,
     proposer: DiscoveryProposer | None,
+    *,
+    history_reports: Sequence[DiscoveryReport] | None = None,
 ) -> list[InnovationProposal]:
     if not findings:
         return []
     if proposer is not None:
         try:
-            draft = await proposer(_proposal_prompt(findings, contexts, intent, _avoid_titles(contexts)))
+            draft = await proposer(
+                _proposal_prompt(
+                    findings,
+                    contexts,
+                    intent,
+                    _avoid_titles(contexts, reports=history_reports),
+                )
+            )
             proposals = _proposals_from_draft(draft, findings, contexts)
             if proposals:
                 return proposals
@@ -642,15 +659,21 @@ def _proposal_prompt(
     return "\n".join(lines)
 
 
-def _avoid_titles(contexts: list[DiscoveryContext], *, cap: int = 12) -> list[str]:
+def _avoid_titles(
+    contexts: list[DiscoveryContext],
+    *,
+    reports: Sequence[DiscoveryReport] | None = None,
+    cap: int = 12,
+) -> list[str]:
     """Titles of proposals the boss already kept/discarded over any of these sets —
     fed to the proposer so reruns explore instead of repeating."""
     selected = {ctx.session.session_id for ctx in contexts}
     titles: list[str] = []
-    try:
-        reports = local.list_discovery_reports()
-    except Exception:
-        return []
+    if reports is None:
+        try:
+            reports = local.list_discovery_reports()
+        except Exception:
+            return []
     for report in reports:
         if selected.isdisjoint(set(report.session_ids)):
             continue

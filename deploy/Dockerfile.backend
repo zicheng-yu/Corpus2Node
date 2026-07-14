@@ -27,7 +27,11 @@ RUN uv sync --frozen --no-dev --extra export --no-install-project
 # 2) App source, then install the project itself into the same venv.
 COPY src ./src
 COPY web ./web
+COPY alembic.ini ./alembic.ini
+COPY alembic ./alembic
+COPY deploy/start-backend.sh ./deploy/start-backend.sh
 RUN uv sync --frozen --no-dev --extra export
+RUN chmod +x ./deploy/start-backend.sh
 
 EXPOSE 8000
-CMD ["uv", "run", "uvicorn", "corpus2node.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["./deploy/start-backend.sh"]

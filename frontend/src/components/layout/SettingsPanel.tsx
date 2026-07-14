@@ -14,6 +14,7 @@ import type { LLMSettingsView, LlmPurpose, PromptSettings, ProviderKind } from "
 import { Button } from "../primitives/Button";
 import { useToast } from "../primitives/Toast";
 import { AccessSettings } from "./AccessSettings";
+import { useAuth } from "../../auth/AuthContext";
 import "./SettingsPanel.css";
 
 type Section = "access" | "models" | "appearance" | "prompts";
@@ -39,7 +40,14 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ open, onClose, graphStyle, setGraphStyle }: SettingsPanelProps) {
-  const [section, setSection] = useState<Section>("access");
+  const [section, setSection] = useState<Section>("appearance");
+  const { mode, user } = useAuth();
+  const sections = SECTIONS.filter((value) => {
+    if (mode !== "accounts") return true;
+    if (value.id === "access") return false;
+    if (value.id === "models") return Boolean(user?.is_platform_admin);
+    return true;
+  });
   if (!open) return null;
 
   return (
@@ -55,7 +63,7 @@ export function SettingsPanel({ open, onClose, graphStyle, setGraphStyle }: Sett
         </div>
         <div className="set-main">
           <nav className="set-nav">
-            {SECTIONS.map((s) => (
+            {sections.map((s) => (
               <button
                 key={s.id}
                 type="button"

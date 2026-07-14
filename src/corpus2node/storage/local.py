@@ -207,44 +207,52 @@ def delete_graph_artifact(session_id: uuid.UUID) -> None:
     graph_path(session_id).unlink(missing_ok=True)
 
 
-def notes_path(session_id: uuid.UUID) -> Path:
-    return session_dir(session_id) / "notes.json"
+def user_state_dir(session_id: uuid.UUID, owner_key: str) -> Path:
+    safe_parts = [part for part in owner_key.split("/") if part and part not in {".", ".."}]
+    if not safe_parts or any("/" in part or "\\" in part for part in safe_parts):
+        raise ValueError("Invalid artifact owner key.")
+    return _root() / "user_state" / Path(*safe_parts) / str(session_id)
 
 
-def save_note(note: NoteDocument) -> Path:
-    return _write_model(notes_path(note.session_id), note)
+def notes_path(session_id: uuid.UUID, owner_key: str | None = None) -> Path:
+    return (user_state_dir(session_id, owner_key) if owner_key else session_dir(session_id)) / "notes.json"
 
 
-def load_note(session_id: uuid.UUID) -> NoteDocument:
-    return _read_model(notes_path(session_id), NoteDocument)
+def save_note(note: NoteDocument, owner_key: str | None = None) -> Path:
+    return _write_model(notes_path(note.session_id, owner_key), note)
 
 
-def delete_note(session_id: uuid.UUID) -> None:
-    notes_path(session_id).unlink(missing_ok=True)
+def load_note(session_id: uuid.UUID, owner_key: str | None = None) -> NoteDocument:
+    return _read_model(notes_path(session_id, owner_key), NoteDocument)
+
+
+def delete_note(session_id: uuid.UUID, owner_key: str | None = None) -> None:
+    notes_path(session_id, owner_key).unlink(missing_ok=True)
 
 
 def exam_path(session_id: uuid.UUID) -> Path:
     return session_dir(session_id) / "exam.json"
 
 
-def test_path(session_id: uuid.UUID) -> Path:
-    return session_dir(session_id) / "test.json"
+def test_path(session_id: uuid.UUID, owner_key: str | None = None) -> Path:
+    return (user_state_dir(session_id, owner_key) if owner_key else session_dir(session_id)) / "test.json"
 
 
-def save_test(test: TestDocument) -> Path:
-    return _write_model(test_path(test.session_id), test)
+def save_test(test: TestDocument, owner_key: str | None = None) -> Path:
+    return _write_model(test_path(test.session_id, owner_key), test)
 
 
-def load_test(session_id: uuid.UUID) -> TestDocument:
-    path = test_path(session_id)
-    if not path.exists():
+def load_test(session_id: uuid.UUID, owner_key: str | None = None) -> TestDocument:
+    path = test_path(session_id, owner_key)
+    if not path.exists() and owner_key is None:
         path = exam_path(session_id)
     return _read_model(path, TestDocument)
 
 
-def delete_test(session_id: uuid.UUID) -> None:
-    test_path(session_id).unlink(missing_ok=True)
-    exam_path(session_id).unlink(missing_ok=True)
+def delete_test(session_id: uuid.UUID, owner_key: str | None = None) -> None:
+    test_path(session_id, owner_key).unlink(missing_ok=True)
+    if owner_key is None:
+        exam_path(session_id).unlink(missing_ok=True)
 
 
 # Compatibility wrappers for older callers and exam.json artifacts.
@@ -260,20 +268,20 @@ def delete_exam(session_id: uuid.UUID) -> None:
     delete_test(session_id)
 
 
-def chat_path(session_id: uuid.UUID) -> Path:
-    return session_dir(session_id) / "chat.json"
+def chat_path(session_id: uuid.UUID, owner_key: str | None = None) -> Path:
+    return (user_state_dir(session_id, owner_key) if owner_key else session_dir(session_id)) / "chat.json"
 
 
-def save_chat(chat: ChatDocument) -> Path:
-    return _write_model(chat_path(chat.session_id), chat)
+def save_chat(chat: ChatDocument, owner_key: str | None = None) -> Path:
+    return _write_model(chat_path(chat.session_id, owner_key), chat)
 
 
-def load_chat(session_id: uuid.UUID) -> ChatDocument:
-    return _read_model(chat_path(session_id), ChatDocument)
+def load_chat(session_id: uuid.UUID, owner_key: str | None = None) -> ChatDocument:
+    return _read_model(chat_path(session_id, owner_key), ChatDocument)
 
 
-def delete_chat(session_id: uuid.UUID) -> None:
-    chat_path(session_id).unlink(missing_ok=True)
+def delete_chat(session_id: uuid.UUID, owner_key: str | None = None) -> None:
+    chat_path(session_id, owner_key).unlink(missing_ok=True)
 
 
 def discovery_dir() -> Path:

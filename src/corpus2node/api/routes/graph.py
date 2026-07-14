@@ -8,9 +8,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from corpus2node.accounts.database import get_db
+from corpus2node.accounts.dependencies import optional_principal, require_resource_access
+from corpus2node.accounts.models import Resource
 from corpus2node.core.types import (
     GraphArtifactView,
     SearchChunkHit,
@@ -42,13 +47,31 @@ class GlobalConceptHit(BaseModel):
 
 
 @router.get("/concepts")
-def search_concepts_global(q: str, limit: int = 20) -> list[GlobalConceptHit]:
+async def search_concepts_global(
+    q: str,
+    request: Request,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+) -> list[GlobalConceptHit]:
     """Substring-search concepts across every built graph (for the global search bars)."""
     needle = q.strip().lower()
     if not needle:
         return []
     hits: list[GlobalConceptHit] = []
-    for session_id in local.list_session_ids():
+    session_ids = local.list_session_ids()
+    principal = optional_principal(request)
+    if principal is not None:
+        keys = (
+            await db.scalars(
+                select(Resource.resource_key).where(
+                    Resource.organization_id == principal.organization_id,
+                    Resource.resource_type == "session",
+                    Resource.status == "active",
+                )
+            )
+        ).all()
+        session_ids = [UUID(value) for value in keys]
+    for session_id in session_ids:
         try:
             session = local.load_session(session_id)
             graph = local.load_graph_artifact(session_id)
@@ -75,7 +98,12 @@ def search_concepts_global(q: str, limit: int = 20) -> list[GlobalConceptHit]:
 
 
 @router.get("/{session_id}")
-def get_graph(session_id: UUID) -> GraphArtifactView:
+async def get_graph(
+    session_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> GraphArtifactView:
+    await require_resource_access(request, db, "session", str(session_id))
     try:
         return GraphArtifactView.from_artifact(local.load_graph_artifact(session_id))
     except FileNotFoundError as exc:
@@ -83,7 +111,15 @@ def get_graph(session_id: UUID) -> GraphArtifactView:
 
 
 @router.get("/{session_id}/subgraph")
-def get_subgraph(session_id: UUID, concept_id: str, depth: int = 1, max_nodes: int = 20) -> SubgraphResponse:
+async def get_subgraph(
+    session_id: UUID,
+    concept_id: str,
+    request: Request,
+    depth: int = 1,
+    max_nodes: int = 20,
+    db: AsyncSession = Depends(get_db),
+) -> SubgraphResponse:
+    await require_resource_access(request, db, "session", str(session_id))
     try:
         graph = local.load_graph_artifact(session_id)
     except FileNotFoundError as exc:
@@ -98,12 +134,17 @@ class SearchRequest(BaseModel):
 
 
 @router.post("/search")
-def search_graph(request: SearchRequest) -> SearchResponse:
+async def search_graph(
+    payload: SearchRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> SearchResponse:
+    await require_resource_access(request, db, "session", str(payload.session_id))
     try:
-        graph = local.load_graph_artifact(request.session_id)
+        graph = local.load_graph_artifact(payload.session_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Graph not found. Run the workflow first.") from exc
-    chunks = [chunk for artifact in local.list_ingest_artifacts(request.session_id) for chunk in artifact.chunks]
+    chunks = [chunk for artifact in local.list_ingest_artifacts(payload.session_id) for chunk in artifact.chunks]
     embeddings = get_embeddings()
     try:
         ensure_embedding_compatible(graph, embeddings)
@@ -112,7 +153,7 @@ def search_graph(request: SearchRequest) -> SearchResponse:
 
     concept_by_id = {concept.concept_id: concept for concept in graph.concepts}
     concept_hits: list[SearchConceptHit] = []
-    for result in search.search_concepts(request.query, graph=graph, embeddings=embeddings, limit=request.limit):
+    for result in search.search_concepts(payload.query, graph=graph, embeddings=embeddings, limit=payload.limit):
         concept = concept_by_id.get(result.ref_id)
         if concept is None:
             continue
@@ -129,7 +170,7 @@ def search_graph(request: SearchRequest) -> SearchResponse:
 
     chunk_by_id = {chunk.chunk_id: chunk for chunk in chunks}
     chunk_hits: list[SearchChunkHit] = []
-    for result in search.retrieve_chunks(request.query, chunks=chunks, embeddings=embeddings, limit=request.limit):
+    for result in search.retrieve_chunks(payload.query, chunks=chunks, embeddings=embeddings, limit=payload.limit):
         chunk = chunk_by_id.get(result.ref_id)
         if chunk is None:
             continue
@@ -148,5 +189,5 @@ def search_graph(request: SearchRequest) -> SearchResponse:
         )
 
     return SearchResponse(
-        session_id=request.session_id, query=request.query, concepts=concept_hits, chunks=chunk_hits
+        session_id=payload.session_id, query=payload.query, concepts=concept_hits, chunks=chunk_hits
     )

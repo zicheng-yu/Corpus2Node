@@ -9,7 +9,10 @@
 
 ## 当前已验证状态
 
-- **后端测试 194 passed**（`uv run pytest -q`，2026-07-13 实测；仅 1 条 Starlette/httpx 第三方弃用警告）。
+- **后端测试 204 passed**（`.venv/bin/python -m pytest -q`，2026-07-14 实测；仅 1 条 Starlette/httpx 第三方弃用警告）。
+- **账号、托管多租户与团队协作已落地**：PostgreSQL/SQLite async ORM + Alembic；邮箱邀请激活、Argon2 密码、opaque Cookie session、CSRF/Origin、固定角色；`Organization` 是租户/套餐边界，`Project` 是共享课题，所有账号模式 artifact 必须经 `resources` 登记，跨租户统一 404。
+- **项目自动修订与分享已落地**：单篇 workflow 成功后按 60 秒窗口项目级串行合并，复用单篇候选重建公共图谱；scientific 项目同时 map-reduce 更新证据/机会，成功才原子切换 latest，重复指纹不生成新版本。外链在创建时固化独立 JSON 快照，数据库仅存 token hash 与索引路径，并提供移除内部资源 ID 的白名单 DTO。
+- **套餐、用量与协作 UI 已落地**：Free/Team Beta 权益、组织级覆盖、只读降级和幂等用量；新增登录/激活、组织切换、团队设置、平台后台、项目协作、修订历史与分享页面。生产 Compose 已加入 PostgreSQL、启动迁移和双层登录限流。
 - **全离线 LLM 方案已落地并本机实测**：注册表 kind += `ollama`/`lmstudio`（免密钥、默认本地端点、`num_ctx`/`max_concurrency`）；本机 M3 用 `gemma4:e2b-it-qat` + `bge-m3`（嵌入）真 HTTP 跑通 workflow/chat/测试/models 全流程（`llama3.1:8b` 参照组同过）；PDF 无 Kimi 时 pypdf 本地解析、视频回退 whisper 音轨转写。
 - **LLM 配置已统一到注册表/UI（本轮）**：Kimi（vision）与远程 embedding 都成为注册表凭据 + 用途；`config.py` 不再有任何 LLM 凭据；`.env` 只剩基础设施 + 首次种子，`.env`/`.env.example` 格式对齐。设置面板改为「凭据=端点+密钥+模型 一体，下面单选下拉直接绑」。
 - **前端验证通过**（2026-07-13）：Vitest 2 文件 / 4 测试、TypeScript + Vite production build、`npm audit --audit-level=high` 为 0 vulnerabilities。
@@ -25,7 +28,7 @@
 - **历史知识发现可删除**：新增 `DELETE /discovery/{discovery_id}`、artifact 删除函数与首页历史条目删除确认；删除当前打开的报告会同步关闭面板，刷新后不再出现。
 - **删除失败运行态问题已解决**：根因是前端 HMR 已加载新代码、后端仍是 7 月 6 日无 reload 的旧进程，DELETE 实际返回 405；已清理未受 pidfile 管理的旧进程并用 `corpus dev` 重启。真实 API 临时 artifact 删除 + 浏览器确认框/成功 toast 均通过，用户原 4 条报告未改动；前端遇到 405 现在明确提示重启后端。
 - **“试卷”已迁移为“水平测试”**：前端不再选择题型；后端先按 `importance_score` 确定知识点测试计划，再让模型自动选题目形式并经独立求解器校验。主接口/产物为 `/generate_test`、`/test/*`、`test.json`、`test_id`；旧 `/exam`、`exam.json`、Python alias 保留读取兼容且从 OpenAPI 隐藏。
-- **多客户定制策略已定**：见 `docs/CUSTOMIZATION.md`，采用“单产品核心 + 客户配置包 + 客户适配器 + 独立部署”，不复制仓库、不维护长期客户分支；当前未提前实现缺少真实客户字段的配置框架。
+- **多客户策略已更新**：真实内测需求已取代“暂不建设单实例多租户”的旧决定；见 `docs/CUSTOMIZATION.md`。默认是一个产品核心上的托管多租户，法规级物理隔离仍可独立部署同一套代码。
 - **科研与 R&D 垂直方向已形成方案**：见 `docs/SCIENTIFIC_RD.md`；定位从通用概念图谱升级为“原始科技文献 → 科研实体/实验关系 → claim-evidence graph → 证据矩阵/矛盾/空白 → R&D 决策卡”，建议作为客户配置体系的首个 scientific profile。
 - **科研证据图谱 MVP 技术主线已落地并真实验证**：新增独立 `scientific/` 垂直包、`/scientific` API 与“科研证据”页面；单篇抽取 Paper/Entity/Relation/Claim/Experiment，所有模型证据编号经后端映射并校验到真实 `session/source/chunk/locator`；跨论文生成证据矩阵、洞察和 R&D 决策卡，供应商 JSON 方言有边界归一化、限次重试、单篇内容指纹缓存及确定性证据综合兜底。用现有 VDN/QMIX + DeepSeek 真实跑通，报告 `f1c88905-7d9f-4434-9780-978e94bcd238`：2 papers / 19 entities / 19 relations / 10 claims / 3 experiments / 27 evidence / 2 insights / 1 decision；claim 引用有效率 **11/11**。内容策略为中文叙述，英文正式名称独立保留。
 - **Scientific ingestion / N 元实验关系 / gold eval 主线已落地并真实批测**：JATS/TEI/GROBID 统一到 `ScientificDocument`，保存 section/sentence/page/bbox/table-cell/formula/citation；workflow 对 XML 优先结构解析、PDF 在 GROBID 可用时自动落 TEI，服务离线则不伪造 bbox且不阻断原摄入。Claim、Experiment、MetricResult、Condition、Evidence 与 Method/Dataset/Baseline 通过受角色约束的 N 元关系显式连接。桌面 MARL corpus 已有 131/131 PDF、30/30 GROBID TEI/JSON 和 30/30 DeepSeek silver。另完成 30 篇独立盲跑 AI proxy（`ai_verified`）：413 entities / 260 relations / 154 Claims / 61 numeric / 120 locators；内部一致性基线 Entity exact F1 0.3863、full-role Relation exact F1 0.0283、Claim fuzzy F1 0.4375、Claim/Numeric exact F1 0。Locator 0.9250 主要是页级一致率，不是句级准确率。人工 gold 继续只接纳 `verified`，详见 `docs/SCIENTIFIC_BENCHMARK.md`。
@@ -64,9 +67,9 @@ ruff check src tests                                  # lint
 ## 当前最高优先级未完成功能
 
 1. **完成 30 篇科研 gold 的人工双审**：AI blind proxy 内部基线已完成，但不能替代专家标注；需领域标注者把 silver 校正并裁决为 `verified`，才能记录 human-gold accuracy。
-2. **收集前两个真实客户的差异矩阵**（品牌 / 能力 / 限制 / 集成 / 数据边界），据此落地第一版 profile schema 与 loader；scientific profile 作为首个垂直包。
+2. **托管环境真实验收**：在带 HTTPS 的 PostgreSQL staging 按“bootstrap 管理员 -> 创建客户组织 -> 激活负责人 -> 第二成员上传 -> 项目修订 -> 外链分享”完整走一遍，并验证备份恢复；当前自动测试不等于实际部署验收。
 3. **记录真实 eval baseline 数字**（抽取 F1 / 问答 grounding / 水平测试可溯源率）。
-4. **Step 7 剩余专项**：`Course→Corpus` 契约重命名、持久化向量库。Docker 生产栈、README、契约快照和 CI 已完成。
+4. **后续 SaaS 专项**：外部任务队列/多 worker、邮件服务、支付、对象存储；当前邀请制手动套餐和单 worker 符合首版范围。
 5. （低优先）Plan-Execute-Report / FusionAgent 作为 chat 的可选 deep-research 子模式。
 
 ## 当前 blocker
@@ -84,6 +87,8 @@ ruff check src tests                                  # lint
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
 | `config.py` | 基础设施配置（**无任何 LLM 凭据**，连 Kimi/embedding 都在注册表）：API 安全开关、上传大小、`vision_timeout_seconds`、`embed_provider`、`embedding_dimensions`、`graph_critic_enabled`、whisper 等开关 | 加基础设施开关 / 调超时 |
+| `accounts/` · `admin.py` | SQLAlchemy async 元数据层；账号/组织/角色/邀请/session/CSRF；Free/Team 权益、资源登记、用量、artifact 导入；平台管理员 CLI | 改身份、租户、权限、套餐、迁移或后台引导 |
+| `projects/revisions.py` | 项目级 debounce + 串行/dirty-rerun；版本指纹、公共图谱重建、科研 map-reduce、原子 latest 切换和增删摘要 | 改团队聚合与修订策略 |
 | `core/types.py` | **数据契约脊柱**：GraphArtifact / NoteDocument / TestDocument / ChatDocument / DiscoveryReport / EvidenceChunk / ConceptNode / GraphEdge / SourceKind / WorkflowRunArtifact；旧 Exam 类型为兼容 alias | 改 wire 契约（**必须**和 `frontend/src/types/index.ts` 一起改） |
 | `core/text.py` | 文本规范化 / 结构感知分块 / canonicalize | 调分块粒度 / 归一化规则 |
 | `core/clock.py` · `core/logging_config.py` | `utcnow()`（naive UTC）· 日志配置 | 时间/日志 |
@@ -106,15 +111,16 @@ ruff check src tests                                  # lint
 | `jobs.py` | **artifact-backed detached async 任务表**：emit/finish/subscribe + 有界事件重放 + 同参数复用/异参数冲突保护；完成状态可跨重启读取，执行仍为单进程——notes/test/scientific/discovery 流式生成 | 调后台任务/流式 |
 | `prompt_store.py` | 用户自定义提示词（global + chat/notes/exam）作为「补充偏好」**追加**到内置 system prompt（不覆盖结构化/引用约束；抽取与质检不受影响） | 调自定义 prompt 接入面 |
 | `storage/local.py` · `storage/run_artifact.py` | JSON artifact IO（事实来源，原子写；含 `discoveries/` 与 `scientific/` 报告）· RunRecorder（`get_usage_metadata_callback` 抓 token）+ WorkflowRunArtifact 持久化 | 调落盘 / 运行指标 |
-| `api/app.py` + `api/routes/*` | FastAPI：开发可选、生产强制 Bearer token / 生产关闭 docs 与 traceback / CORS / URL 探测限制 · sessions · discovery/scientific durable SSE · settings · workflow · chat · notes · test · export · graph；旧 exam 路径隐藏兼容 | 加/改 HTTP 接口 |
+| `api/app.py` + `api/routes/*` | FastAPI：`disabled/legacy_token/accounts` 三模式；Cookie/CSRF/Origin、租户资源依赖与跨租户 404；auth/organizations/admin/projects/shares + 原 sessions/workflow/chat/notes/test/scientific/discovery/export/SSE；生产关闭 docs/traceback | 加/改 HTTP 接口或授权边界 |
 
 ### 前端 `frontend/src/`
 
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
-| `api/client.ts` | **所有后端调用 + 共享 SSE pump**（契约耦合集中点），统一注入本地 Bearer token；含 sessions、durable discovery/scientific、notes/test 与导出 | 加/改一个后端调用 |
+| `api/client.ts` · `auth/AuthContext.tsx` | 所有后端调用 + SSE；Cookie credentials、CSRF、活动组织 header 与旧 Bearer 兼容；登录态和组织切换 | 加/改调用、认证或租户上下文 |
 | `types/index.ts` | 前端契约（对应 `core/types.py`，含 DiscoveryReport） | 改契约（和后端一起改） |
 | `pages/HomePage.tsx` | 知识库列表 + 折叠/拖拽排序 + 资料集/知识库改名 + **知识发现 v2**（运行、提案、历史读取/**确认删除**、桥接图）+ 全局知识点搜索；通用 `ConfirmModal` | 改首页/库管理/发现交互 |
+| `pages/{Login,Activate,Projects,Project,TeamSettings,PlatformAdmin,Share}Page.tsx` | 邀请制登录激活、稳定项目首页、公共图谱/科研/机会/文献/活动/修订、团队与平台管理、安全快照分享 | 改账号或协作产品界面 |
 | `pages/ScientificPage.tsx` | **科研证据客户垂直页**：多选论文、填写研发目标、运行分析、历史报告、论文证据矩阵、跨文献洞察、决策卡与原文 locator 展开/资料集跳转 | 改科研分析交互 / 证据呈现 |
 | `components/discovery/BridgeGraphView.tsx` | **发现呈现图（双布局自适应）**：有 proposal 节点 → **部门(资料集)→桥接概念→创新提案** 三列（提案宽卡、采纳高亮 ring/搁置降透明、点击提案定位卡片）；旧报告（finding 节点）保留 发现→知识点→资料集 布局；概念节点点击溯源；懒加载独立 chunk | 改呈现图样式/布局/交互 |
 | `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
@@ -145,11 +151,18 @@ ruff check src tests                                  # lint
 
 ## 会话记录（最新在上，每轮追加一条）
 
+### 2026-07-14 — 账号、托管多租户、团队项目修订、套餐与分享
+- **身份/租户**：新增 async SQLAlchemy、PostgreSQL/SQLite、Alembic 初始迁移；邮箱邀请激活、Argon2、30 天 opaque Cookie session、CSRF/Origin、角色矩阵、平台后台和 bootstrap CLI。生产 `AUTH_MODE=accounts`，旧 Bearer 仅兼容模式保留。
+- **隔离/套餐**：所有业务路由接入组织资源登记与跨租户 404；Chat/笔记/测试/提示偏好按用户私有；Free/Team Beta、覆盖额度、只读降级、幂等用量与模型签名已接入。公开 session/graph DTO 不含内部路径或 embedding。
+- **协作/修订**：稳定 Project 取代 `course_title` 临时分组；连续上传合并为项目修订，复用单篇缓存重建公共图谱，scientific 项目最多 100 篇 map-reduce；失败保留上一稳定版本，停用来源触发排除修订。
+- **分享/界面/迁移**：固定修订/报告的 256-bit hash-token 独立 JSON 白名单快照；新增账号、组织、团队、平台、项目与分享页面，平台页含试用/额度覆盖和全局用量；artifact 导入支持 dry-run、数量/hash 核对且不移动原文件；Compose 加 PostgreSQL、Alembic 和登录限流。
+- **验证**：ruff clean；pytest **204 passed**；Vitest 4 tests；OpenAPI/TS 快照重新生成；TypeScript + Vite production build、Alembic 初始迁移和 Compose 配置解析通过。未调用真实 LLM、未运行远程服务、未 push。
+
 ### 2026-07-13 (2) — 全面项目审阅修复：正确性、安全、持久化、前端与工程化
 - **artifact / 缓存**：source SHA-256、graph schema/provenance（source/model/prompt/config/embedding）与自动失效；公开 Graph DTO 移除 embedding 但保留 evidence；旧无指纹图谱在向量检索前明确要求重建；跨图发现拒绝混用 embedding 空间。
 - **grounding / scientific**：chat 校验引用编号、只回实际使用引用并做保守证据词面重合检查，SSE 先校验后输出；科学 Claim/Metric 必须保存原文 exact quote，bbox 改严格对称一对一；修复 vendor normalizer 丢弃已实例化 Metric/Insight/DecisionCard；科研路径只摄入不建通用图。
 - **任务 / 并发 / 性能**：notes/test/scientific/discovery 长任务事件落盘并可重启后重放；session/report keyed lock 防并发覆盖且无锁表泄漏；共现边每节点封顶、前端默认隐藏；Workspace 图谱单次加载；首页发现报告拆为独立组件。
-- **安全 / 部署**：生产强制 Bearer token、关闭 docs/traceback/type 泄漏、拒绝未授权临时存储；模型探测限制与 URL 校验；上传分格式上限、magic/Office 结构/解压上限；Docker 仅 loopback 暴露 nginx，GROBID/backend 内网；Vercel 明示临时预览语义。
+- **安全 / 部署**：生产强制 accounts + PostgreSQL、Cookie/CSRF/Origin 与登录限流，关闭 docs/traceback/type 泄漏；模型探测限制与 URL 校验；上传分格式上限、magic/Office 结构/解压上限；Docker 仅 loopback 暴露 nginx，GROBID/backend/PostgreSQL 内网；Vercel 仅临时预览。
 - **契约 / 工程化**：补 README、`.env.example`、依赖声明；OpenAPI JSON + TS 自动类型快照；Vitest/Testing Library；CI 覆盖 ruff、pytest、契约漂移、前端测试/build/audit、Docker build；npm audit 修至 0。忽略无 `session.json` 的孤儿 UUID 目录，不删除用户 artifact。
 - **验证**：`pytest -q` 194 passed；ruff clean；Vitest 2 files / 4 tests；Vite production build；npm audit 0；OpenAPI/TS snapshot 无漂移；Compose config 解析通过；现有 15 sessions、4 scientific reports 新 schema 只读加载通过。未调用真实 LLM、未修改/提交用户的 `docs/demo/*.pptx`。
 

@@ -11,6 +11,8 @@ generative, user-facing purposes; graph extraction & critic are left strict on p
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -19,6 +21,7 @@ from corpus2node.config import settings
 from corpus2node.storage import local
 
 AREAS = ("chat", "notes", "exam")
+_OWNER_KEY: ContextVar[str | None] = ContextVar("prompt_owner_key", default=None)
 
 
 class PromptSettings(BaseModel):
@@ -28,25 +31,43 @@ class PromptSettings(BaseModel):
     exam: str = ""
 
 
-def _path() -> Path:
+def _path(owner_key: str | None = None) -> Path:
+    if owner_key:
+        safe_parts = [part for part in owner_key.split("/") if part and part not in {".", ".."}]
+        if not safe_parts:
+            raise ValueError("Invalid prompt owner key.")
+        return Path(settings.local_storage_path) / "user_state" / Path(*safe_parts) / "prompt_settings.json"
     return Path(settings.local_storage_path) / "prompt_settings.json"
 
 
-def load() -> PromptSettings:
+def settings_path(owner_key: str | None = None) -> Path:
+    return _path(owner_key)
+
+
+def load(owner_key: str | None = None) -> PromptSettings:
     try:
-        return PromptSettings.model_validate_json(_path().read_text(encoding="utf-8"))
+        return PromptSettings.model_validate_json(_path(owner_key).read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError):
         return PromptSettings()
 
 
-def save(value: PromptSettings) -> PromptSettings:
-    local.write_text_atomic(_path(), value.model_dump_json(indent=2))
+def save(value: PromptSettings, owner_key: str | None = None) -> PromptSettings:
+    local.write_text_atomic(_path(owner_key), value.model_dump_json(indent=2))
     return value
+
+
+@contextmanager
+def owner_context(owner_key: str | None):
+    token = _OWNER_KEY.set(owner_key)
+    try:
+        yield
+    finally:
+        _OWNER_KEY.reset(token)
 
 
 def custom_block(area: str) -> str:
     """The appended-instruction block for an area (global + area-specific), or '' if none."""
-    value = load()
+    value = load(_OWNER_KEY.get())
     parts = [value.global_instructions, getattr(value, area, "")]
     text = "\n".join(part.strip() for part in parts if part and part.strip())
     if not text:

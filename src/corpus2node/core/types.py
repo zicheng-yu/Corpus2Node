@@ -90,6 +90,62 @@ class CourseSession(BaseModel):
     error_message: str | None = None
 
 
+class SourceFileView(BaseModel):
+    """Public source metadata without server filesystem paths."""
+
+    source_id: UUID
+    kind: SourceKind
+    filename: str
+    content_type: str
+    size_bytes: int
+    content_sha256: str = ""
+    uploaded_at: datetime
+    ingested: bool = False
+
+    @classmethod
+    def from_source(cls, source: SourceFile) -> "SourceFileView":
+        return cls.model_validate(source.model_dump(exclude={"storage_path", "ingest_artifact_path"}))
+
+
+class CourseSessionView(BaseModel):
+    session_id: UUID
+    course_title: str
+    lecture_title: str
+    status: SessionStatus
+    source_files: list[SourceFileView] = Field(default_factory=list)
+    stats: SessionStats = Field(default_factory=SessionStats)
+    created_at: datetime
+    updated_at: datetime
+    error_message: str | None = None
+    project_id: str | None = None
+    created_by_user_id: str | None = None
+    published_at: datetime | None = None
+
+    @classmethod
+    def from_session(
+        cls,
+        session: CourseSession,
+        *,
+        project_id: str | None = None,
+        created_by_user_id: str | None = None,
+        published_at: datetime | None = None,
+    ) -> "CourseSessionView":
+        return cls(
+            session_id=session.session_id,
+            course_title=session.course_title,
+            lecture_title=session.lecture_title,
+            status=session.status,
+            source_files=[SourceFileView.from_source(source) for source in session.source_files],
+            stats=session.stats,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            error_message=session.error_message,
+            project_id=project_id,
+            created_by_user_id=created_by_user_id,
+            published_at=published_at,
+        )
+
+
 class EvidenceChunk(BaseModel):
     chunk_id: str
     source_id: str

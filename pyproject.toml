@@ -29,7 +29,16 @@ dependencies = [
     "faster-whisper>=1.0",
     "langchain-ollama>=1.1.0",
     "pypdf>=6.14.2",
+    "sqlalchemy[asyncio]>=2.0,<2.1",
+    "alembic>=1.16,<2",
+    "aiosqlite>=0.20",
+    "asyncpg>=0.30",
+    "pwdlib[argon2]>=0.3",
+    "email-validator>=2.2",
 ]
+
+[project.scripts]
+corpus2node-admin = "corpus2node.admin:main"
 
 [project.optional-dependencies]
 # BGE-M3 local embeddings (pulls torch — heavy)

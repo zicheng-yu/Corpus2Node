@@ -118,8 +118,12 @@ def test_upload_sanitizes_filename_and_stores_by_source_id():
     session = client.get(f"/sessions/{session_id}").json()
     source = session["source_files"][0]
     assert source["filename"] == "notes.md"
-    assert source["storage_path"].endswith(f"/uploads/{source_id}.md")
-    assert ".." not in source["storage_path"]
+    assert "storage_path" not in source
+    assert "ingest_artifact_path" not in source
+
+    stored = local.load_session(uuid.UUID(session_id)).source_files[0]
+    assert stored.storage_path.endswith(f"/uploads/{source_id}.md")
+    assert ".." not in stored.storage_path
 
 
 def test_upload_rejects_file_over_configured_limit(monkeypatch):

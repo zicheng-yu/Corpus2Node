@@ -4,7 +4,7 @@ import ipaddress
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from corpus2node.llm import factory, store
@@ -17,7 +17,19 @@ from corpus2node.llm.credentials import (
     PurposeBinding,
 )
 
-router = APIRouter(prefix="/settings/llm", tags=["settings"])
+def _platform_settings_only(request: Request) -> None:
+    if settings.auth_mode != "accounts":
+        return
+    principal = getattr(request.state, "principal", None)
+    if principal is None or not principal.is_platform_admin:
+        raise HTTPException(status_code=403, detail="Platform administrator required.")
+
+
+router = APIRouter(
+    prefix="/settings/llm",
+    tags=["settings"],
+    dependencies=[Depends(_platform_settings_only)],
+)
 
 
 def _mask(api_key: str) -> str:

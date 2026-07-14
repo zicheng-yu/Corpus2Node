@@ -63,6 +63,7 @@ async def generate_test(
     verify: bool = True,
     max_rounds: int = 2,
     on_question: OnQuestion | None = None,
+    owner_key: str | None = None,
 ) -> TestDocument:
     graph = local.load_graph_artifact(request.session_id)
     session = local.load_session(request.session_id)
@@ -160,7 +161,7 @@ async def generate_test(
         summary=summary or f"按知识点重要度生成 {len(questions)} 道水平测试题。",
         questions=questions,
     )
-    local.save_test(test)
+    local.save_test(test, owner_key)
     logger.info("test done: %d questions (%d rejected by verifier)", len(questions), rejected)
     return test
 

@@ -20,12 +20,10 @@ export interface SourceFile {
   kind: SourceKind;
   filename: string;
   content_type: string;
-  storage_path: string;
   size_bytes: number;
   content_sha256: string;
   uploaded_at: string;
   ingested: boolean;
-  ingest_artifact_path?: string | null;
 }
 
 export interface SessionStats {
@@ -47,6 +45,9 @@ export interface CourseSession {
   created_at: string;
   updated_at: string;
   error_message?: string | null;
+  project_id?: string | null;
+  created_by_user_id?: string | null;
+  published_at?: string | null;
 }
 
 export interface EvidenceRef {
@@ -630,4 +631,141 @@ export interface WorkflowRunResponse {
   concept_count: number;
   relation_count: number;
   cluster_count: number;
+}
+
+// ── Accounts, organizations, projects, plans, and sharing ───────────────────
+
+export type OrganizationRole = "owner" | "admin" | "member" | "viewer";
+
+export interface MembershipView {
+  organization_id: string;
+  organization_name: string;
+  organization_slug: string;
+  role: OrganizationRole;
+}
+
+export interface CurrentUser {
+  user_id: string;
+  email: string;
+  display_name: string;
+  is_platform_admin: boolean;
+  active_organization_id?: string | null;
+  memberships: MembershipView[];
+}
+
+export interface PlanEntitlements {
+  max_members: number;
+  max_projects: number;
+  max_active_sources: number;
+  max_storage_bytes: number;
+  max_ai_tasks_month: number;
+  max_chat_turns_month: number;
+  max_scientific_papers: number;
+  max_active_shares: number;
+  max_share_days: number;
+  team_graph: boolean;
+  auto_project_updates: boolean;
+  [key: string]: number | boolean;
+}
+
+export interface OrganizationView {
+  organization_id: string;
+  name: string;
+  slug: string;
+  plan_code: "free" | "team_beta" | string;
+  plan_status: string;
+  trial_ends_at?: string | null;
+  entitlements: PlanEntitlements;
+}
+
+export interface MemberView {
+  user_id: string;
+  email: string;
+  display_name: string;
+  role: OrganizationRole;
+  status: string;
+}
+
+export interface InvitationView {
+  invitation_id: string;
+  email: string;
+  role: OrganizationRole;
+  expires_at: string;
+  accepted_at?: string | null;
+  activation_url?: string | null;
+}
+
+export interface ProjectView {
+  project_id: string;
+  organization_id: string;
+  name: string;
+  description: string;
+  kind: "general" | "scientific";
+  latest_revision_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  session_count: number;
+}
+
+export interface RevisionDelta {
+  added: number;
+  removed: number;
+}
+
+export interface ProjectRevisionView {
+  revision_id: string;
+  project_id: string;
+  revision_number: number;
+  status: string;
+  source_session_ids: string[];
+  contributor_user_ids: string[];
+  scientific_report_id?: string | null;
+  summary: Record<string, unknown> & {
+    delta?: Record<string, RevisionDelta>;
+  };
+  model_fingerprint: Record<string, string>;
+  error?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface ActivityEventView {
+  event_id: string;
+  actor_user_id?: string | null;
+  action: string;
+  resource_type: string;
+  resource_key: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface UsageSummary {
+  plan_code: string;
+  period_start: string;
+  ai_tasks: number;
+  chat_turns: number;
+  storage_bytes: number;
+  active_sources: number;
+  limits: PlanEntitlements;
+}
+
+export interface ShareLinkView {
+  share_id: string;
+  resource_type: string;
+  resource_key: string;
+  expires_at: string;
+  revoked_at?: string | null;
+  share_url?: string | null;
+}
+
+export interface ShareSnapshot {
+  resource_type: string;
+  title: string;
+  payload: Record<string, unknown>;
+  expires_at: string;
+}
+
+export interface HealthResponse {
+  status: string;
+  auth_mode: "disabled" | "legacy_token" | "accounts";
 }

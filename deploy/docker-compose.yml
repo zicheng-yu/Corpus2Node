@@ -13,8 +13,11 @@ services:
       APP_ENV: production
       DEBUG_TRACEBACKS: "false"
       CORS_ALLOW_ORIGINS: ""             # same-origin via nginx; cross-origin calls disabled
-      API_AUTH_TOKEN: ${API_AUTH_TOKEN:?Set API_AUTH_TOKEN before starting production}
-      REQUIRE_AUTH_IN_PRODUCTION: "true"
+      AUTH_MODE: accounts
+      DATABASE_URL: postgresql+asyncpg://corpus2node:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/corpus2node
+      DATABASE_AUTO_CREATE: "false"
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set PUBLIC_APP_URL, for example https://corpus.example.com}
+      AUTH_COOKIE_SECURE: "true"
       MAX_UPLOAD_BYTES: "524288000"     # 500 MB
       EMBED_PROVIDER: hashing           # zero-dep embeddings (no torch); matches local setup
       EMBEDDING_DIMENSIONS: "1024"
@@ -34,7 +37,27 @@ services:
     security_opt:
       - no-new-privileges:true
     depends_on:
-      - grobid
+      postgres:
+        condition: service_healthy
+      grobid:
+        condition: service_started
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: corpus2node
+      POSTGRES_USER: corpus2node
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U corpus2node -d corpus2node"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
   grobid:
     image: grobid/grobid:0.9.0-crf
@@ -59,3 +82,4 @@ services:
 
 volumes:
   whisper-cache:
+  postgres-data:

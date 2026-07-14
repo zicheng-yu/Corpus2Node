@@ -54,6 +54,7 @@ MAX_CHARS_PER_PAPER = 36_000
 MIN_PAPERS_FOR_CROSS_ANALYSIS = 2
 STRUCTURED_ATTEMPTS = 2
 EXTRACTION_CACHE_SCHEMA_VERSION = "2.0"
+SYNTHESIS_BATCH_SIZE = 20
 
 
 class ScientificInputError(ValueError):
@@ -81,12 +82,13 @@ async def run_scientific_analysis(
         raise ScientificInputError("至少选择一篇已解析的科技文献。")
     paper_caller, synthesis_caller = _ensure_callers(paper_caller, synthesis_caller)
 
-    raw_extractions = await asyncio.gather(
-        *[
-            _extract_paper(item, paper_caller, request.language_mode)
-            for item in paper_inputs
-        ]
-    )
+    extraction_limit = asyncio.Semaphore(factory.concurrency_for(Purpose.graph, default=8))
+
+    async def extract_one(item):
+        async with extraction_limit:
+            return await _extract_paper(item, paper_caller, request.language_mode)
+
+    raw_extractions = await asyncio.gather(*[extract_one(item) for item in paper_inputs])
 
     papers: list[ScientificPaperProfile] = []
     entities: list[ScientificEntity] = []
@@ -113,12 +115,14 @@ async def run_scientific_analysis(
         raise ScientificInputError("模型未抽取到带有效原文证据的科研主张，请检查文献内容或模型配置。")
 
     evidence_matrix = _build_evidence_matrix(papers, entities, experiments, claims)
-    synthesis_payload = _synthesis_payload(papers, claims, experiments, evidence_matrix)
     try:
-        raw_synthesis = await _call_with_retry(
+        raw_synthesis = await _synthesize_map_reduce(
             synthesis_caller,
-            build_cross_paper_prompt(synthesis_payload, objective_zh=request.objective_zh),
-            stage="跨论文证据综合",
+            papers,
+            claims,
+            experiments,
+            evidence_matrix,
+            objective_zh=request.objective_zh,
         )
     except Exception as exc:
         logger.warning("跨论文模型综合失败，转入确定性证据综合：%s", type(exc).__name__)
@@ -164,6 +168,58 @@ async def run_scientific_analysis(
         len(papers), len(claims), len(experiments), len(insights),
     )
     return report
+
+
+async def _synthesize_map_reduce(
+    caller: SynthesisCaller,
+    papers,
+    claims,
+    experiments,
+    matrix,
+    *,
+    objective_zh: str,
+) -> LLMCrossPaperSynthesis:
+    if len(papers) <= SYNTHESIS_BATCH_SIZE:
+        payload = _synthesis_payload(papers, claims, experiments, matrix)
+        return await _call_with_retry(
+            caller,
+            build_cross_paper_prompt(payload, objective_zh=objective_zh),
+            stage="跨论文证据综合",
+        )
+
+    maps: list[LLMCrossPaperSynthesis] = []
+    for start in range(0, len(papers), SYNTHESIS_BATCH_SIZE):
+        batch_papers = papers[start : start + SYNTHESIS_BATCH_SIZE]
+        session_ids = {value.session_id for value in batch_papers}
+        batch_claims = [value for value in claims if value.session_id in session_ids]
+        batch_experiments = [value for value in experiments if value.session_id in session_ids]
+        batch_matrix = [value for value in matrix if value.session_id in session_ids]
+        payload = _synthesis_payload(batch_papers, batch_claims, batch_experiments, batch_matrix)
+        maps.append(
+            await _call_with_retry(
+                caller,
+                build_cross_paper_prompt(payload, objective_zh=objective_zh),
+                stage=f"跨论文证据综合批次 {start // SYNTHESIS_BATCH_SIZE + 1}",
+            )
+        )
+
+    reduce_payload = {
+        "paper_count": len(papers),
+        "instruction": "合并批次结论，去重并保留原有 claim/evidence/session 编号；不得创造新编号。",
+        "batch_syntheses": [value.model_dump(mode="json") for value in maps],
+    }
+    reduced = await _call_with_retry(
+        caller,
+        build_cross_paper_prompt(reduce_payload, objective_zh=objective_zh),
+        stage="跨论文证据综合归并",
+    )
+    if reduced.insights or reduced.decision_cards:
+        return reduced
+    return LLMCrossPaperSynthesis(
+        title_zh=next((value.title_zh for value in maps if value.title_zh), "科技文献研发证据分析"),
+        insights=[item for value in maps for item in value.insights],
+        decision_cards=[item for value in maps for item in value.decision_cards],
+    )
 
 
 def _build_experiment_relations(entities, claims, experiments):

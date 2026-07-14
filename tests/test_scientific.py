@@ -7,7 +7,12 @@ from fastapi.testclient import TestClient
 
 from corpus2node.api.app import app
 from corpus2node.core.types import CourseSession, EvidenceChunk, IngestArtifact, SessionStatus, SourceKind
-from corpus2node.scientific.engine import _extract_paper, _load_paper_input, run_scientific_analysis
+from corpus2node.scientific.engine import (
+    _extract_paper,
+    _load_paper_input,
+    _synthesize_map_reduce,
+    run_scientific_analysis,
+)
 from corpus2node.scientific.schemas import (
     LLMCrossPaperInsight,
     LLMCrossPaperSynthesis,
@@ -21,11 +26,48 @@ from corpus2node.scientific.schemas import (
     ScientificAnalysisRequest,
     ScientificInsightType,
     ScientificLanguageMode,
+    ScientificEvidenceMatrixRow,
+    ScientificPaperProfile,
     ScientificReport,
 )
 from corpus2node.storage import local
 
 client = TestClient(app)
+
+
+def test_scientific_large_project_uses_batched_map_reduce():
+    session_ids = [uuid.uuid4() for _ in range(41)]
+    papers = [
+        ScientificPaperProfile(
+            session_id=session_id,
+            source_title=f"Paper {index}",
+            title_zh=f"论文 {index}",
+            research_problem_zh="问题",
+            method_summary_zh="方法",
+            result_summary_zh="结果",
+        )
+        for index, session_id in enumerate(session_ids)
+    ]
+    matrix = [
+        ScientificEvidenceMatrixRow(
+            paper_title=value.title_zh,
+            session_id=value.session_id,
+            research_problem_zh=value.research_problem_zh,
+        )
+        for value in papers
+    ]
+    prompts: list[str] = []
+
+    async def caller(prompt: str) -> LLMCrossPaperSynthesis:
+        prompts.append(prompt)
+        return LLMCrossPaperSynthesis(title_zh=f"阶段 {len(prompts)}")
+
+    result = asyncio.run(
+        _synthesize_map_reduce(caller, papers, [], [], matrix, objective_zh="大规模证据综合")
+    )
+    assert len(prompts) == 4  # 3 map batches + 1 reduce
+    assert '"paper_count": 41' in prompts[-1]
+    assert result.title_zh == "阶段 1"
 
 
 def _seed_paper(title: str, text: str) -> uuid.UUID:

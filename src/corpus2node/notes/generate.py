@@ -78,6 +78,7 @@ async def generate_notes(
     embeddings=None,
     max_repair_rounds: int = 1,
     on_section: OnSection | None = None,
+    owner_key: str | None = None,
 ) -> NoteDocument:
     graph = local.load_graph_artifact(request.session_id)
     session = local.load_session(request.session_id)
@@ -161,7 +162,7 @@ async def generate_notes(
         summary=normalize_text(summary) or f"基于当前图数据库整理出 {len(sections)} 个主题段落。",
         sections=sections,
     )
-    local.save_note(note)
+    local.save_note(note, owner_key)
     session.status = SessionStatus.notes_ready
     session.error_message = None
     session.updated_at = utcnow()

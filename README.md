@@ -21,7 +21,13 @@ npm ci
 npm run dev
 ```
 
-打开 `http://localhost:5173`。首次使用时在“设置 -> 模型设置”添加凭据并绑定 `graph`、`chat`、`critic`、`exam` 等用途；本地 Ollama / LM Studio 可不填 API key。
+打开 `http://localhost:5173`。默认 `AUTH_MODE=legacy_token`，本地仍可零配置使用；也可将 `AUTH_MODE=accounts` 后用 SQLite 验证账号与团队流程。账号模式下只有平台管理员能管理模型凭据。
+
+首次启用账号模式时生成平台管理员激活链接：
+
+```bash
+uv run corpus2node-admin bootstrap-admin --email admin@example.com
+```
 
 本地 BGE-M3 embedding 需要额外安装重依赖：
 
@@ -34,6 +40,8 @@ uv sync --extra ml
 - 通用资料：上传后运行建图流程，在工作区检索、浏览图谱、对话、生成笔记与测试。
 - 科研证据：在“科研证据图谱”中可直接选择已上传论文；系统只执行所需摄入，不要求先建通用图谱。PDF 的 GROBID 结构解析只在科研路径触发。
 - 知识发现：对多个已建图资料集生成跨库联系与可追溯提案。
+- 团队协作：`Organization` 隔离客户/课题组，`Project` 汇集共享资料；成员完成单篇 workflow 后自动生成公共图谱、科研证据与研发机会的新修订版。
+- 套餐与分享：Free / Team Beta 权益、组织级覆盖、用量记录和只读降级；管理员可创建固定修订版的安全只读外链。
 - 可复现 artifact：业务事实写入 `artifacts/`；图谱保存来源 hash、模型、prompt、schema 与 embedding 指纹，输入或配置变化会自动使缓存失效。
 
 ## 验证
@@ -58,14 +66,17 @@ cd frontend && npm run generate:api
 
 ## Docker 部署
 
-生产配置强制 Bearer token，且默认只监听本机 `127.0.0.1:8080`。远程访问请在前面配置 HTTPS 反向代理。
+生产栈使用 PostgreSQL、Alembic 和 `AUTH_MODE=accounts`，默认只监听本机 `127.0.0.1:8080`。Cookie 标记为 Secure，因此远程访问必须配置 HTTPS 反向代理。
 
 ```bash
-export API_AUTH_TOKEN='replace-with-a-long-random-secret'
+export POSTGRES_PASSWORD='replace-with-a-long-random-secret'
+export PUBLIC_APP_URL='https://corpus.example.com'
 docker compose -f deploy/docker-compose.yml up -d --build
+docker compose -f deploy/docker-compose.yml exec backend \
+  corpus2node-admin bootstrap-admin --email admin@example.com
 ```
 
-浏览器端在“设置 -> 访问安全”保存同一 token。GROBID 和后端均不直接暴露宿主端口。Vercel 配置仅用于显式启用的临时预览，`/tmp` artifact 不具备持久性，不应当作生产部署。
+启动脚本会先执行数据库迁移，再启动 API。激活平台管理员后，即可在后台创建客户组织、分配套餐并复制负责人激活链接。上线已有数据前先备份 `artifacts/`，再用 `corpus2node-admin migrate-artifacts` dry-run 核对，确认后加 `--apply`；迁移只登记索引，不移动或覆盖原文件。完整流程见 `deploy/README.md`。
 
 ## 项目文档
 

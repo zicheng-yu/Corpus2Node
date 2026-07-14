@@ -57,6 +57,7 @@ const STEP_INFO = [
 export function NewSessionPage() {
   const [searchParams] = useSearchParams();
   const presetCourse = searchParams.get("course") ?? "";
+  const projectId = searchParams.get("project") ?? "";
   const [step, setStep] = useState(0);
   const [courseTitle, setCourseTitle] = useState(presetCourse);
   const [lectureTitle, setLectureTitle] = useState("");
@@ -119,6 +120,7 @@ export function NewSessionPage() {
         const session = await createSession({
           course_title: courseTitle.trim(),
           lecture_title: lectureTitle.trim(),
+          project_id: projectId || undefined,
         });
         sessionId = session.session_id;
         sessionIdRef.current = sessionId;

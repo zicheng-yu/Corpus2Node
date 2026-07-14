@@ -124,7 +124,7 @@ class ScientificInsightType(str, Enum):
 
 
 class ScientificAnalysisRequest(BaseModel):
-    session_ids: list[UUID] = Field(min_length=1, max_length=12)
+    session_ids: list[UUID] = Field(min_length=1, max_length=100)
     objective_zh: str = Field(default="", max_length=800)
     language_mode: ScientificLanguageMode = ScientificLanguageMode.zh_bilingual
 

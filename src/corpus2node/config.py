@@ -23,6 +23,19 @@ class Settings(BaseSettings):
     # --- Storage (local JSON artifacts are the source of truth) ---
     local_storage_path: str = str(ROOT_DIR / "artifacts")
 
+    # --- Accounts / metadata database ---
+    # Local development keeps the existing zero-login behavior. Hosted deployments
+    # set AUTH_MODE=accounts and use PostgreSQL; legacy_token preserves the previous
+    # single shared Bearer-token deployment while customers migrate.
+    auth_mode: str = "legacy_token"  # disabled | legacy_token | accounts
+    database_url: str = f"sqlite+aiosqlite:///{ROOT_DIR / 'artifacts' / 'metadata.db'}"
+    database_auto_create: bool = True  # tests/dev only; production runs Alembic
+    public_app_url: str = "http://localhost:5173"
+    auth_session_days: int = 30
+    invitation_expiry_days: int = 7
+    auth_cookie_secure: bool = False
+    project_refresh_debounce_seconds: float = 60.0
+
     # --- API safety ---
     app_env: str = "development"  # development | production
     debug_tracebacks: bool = True
