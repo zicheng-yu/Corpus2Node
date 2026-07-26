@@ -21,12 +21,18 @@ npm ci
 npm run dev
 ```
 
-打开 `http://localhost:5173`。默认 `AUTH_MODE=legacy_token`，本地仍可零配置使用；也可将 `AUTH_MODE=accounts` 后用 SQLite 验证账号与团队流程。账号模式下只有平台管理员能管理模型凭据。
+打开 `http://localhost:5173`。默认 `AUTH_MODE=legacy_token`，本地仍可零配置使用；也可将 `AUTH_MODE=accounts` 后用 SQLite 验证个人账号流程。账号模式默认 `ACCOUNT_PRODUCT_MODE=personal`：每个账号拥有独立资料库、提示偏好与模型 API 配置。
 
-首次启用账号模式时生成平台管理员激活链接：
+首次启用账号模式时生成首个账号激活链接：
 
 ```bash
 uv run corpus2node-admin bootstrap-admin --email admin@example.com
+```
+
+后续账号由服务器运营者生成独立激活链接，不通过团队邀请：
+
+```bash
+uv run corpus2node-admin invite-user --email user@example.com --name 'User'
 ```
 
 本地 BGE-M3 embedding 需要额外安装重依赖：
@@ -40,8 +46,8 @@ uv sync --extra ml
 - 通用资料：上传后运行建图流程，在工作区检索、浏览图谱、对话、生成笔记与测试。
 - 科研证据：在“科研证据图谱”中可直接选择已上传论文；系统只执行所需摄入，不要求先建通用图谱。PDF 的 GROBID 结构解析只在科研路径触发。
 - 知识发现：对多个已建图资料集生成跨库联系与可追溯提案。
-- 团队协作：`Organization` 隔离客户/课题组，`Project` 汇集共享资料；成员完成单篇 workflow 后自动生成公共图谱、科研证据与研发机会的新修订版。
-- 套餐与分享：Free / Team Beta 权益、组织级覆盖、用量记录和只读降级；管理员可创建固定修订版的安全只读外链。
+- 个人账号：每个账号使用不可切换的私有资料库；模型凭据按用户独立保存并只返回掩码，其他账号不可读取或调用。
+- 套餐与分享：Free / Team Beta 权益、用量记录和只读降级；可创建固定报告的安全只读外链。团队协作底层保留为后续客户版本，当前产品不展示团队、成员或平台管理界面。
 - 可复现 artifact：业务事实写入 `artifacts/`；图谱保存来源 hash、模型、prompt、schema 与 embedding 指纹，输入或配置变化会自动使缓存失效。
 
 ## 验证
@@ -76,7 +82,7 @@ docker compose -f deploy/docker-compose.yml exec backend \
   corpus2node-admin bootstrap-admin --email admin@example.com
 ```
 
-启动脚本会先执行数据库迁移，再启动 API。激活平台管理员后，即可在后台创建客户组织、分配套餐并复制负责人激活链接。上线已有数据前先备份 `artifacts/`，再用 `corpus2node-admin migrate-artifacts` dry-run 核对，确认后加 `--apply`；迁移只登记索引，不移动或覆盖原文件。完整流程见 `deploy/README.md`。
+启动脚本会先执行数据库迁移，再启动 API。激活首个账号后，可用 `corpus2node-admin invite-user` 为其他用户生成独立激活链接。上线已有数据前先备份 `artifacts/`，再用 `corpus2node-admin migrate-artifacts` dry-run 核对，确认后加 `--apply`；迁移只登记索引，不移动或覆盖原文件。完整流程见 `deploy/README.md`。
 
 ## 项目文档
 

@@ -9,13 +9,15 @@
 
 ## 当前已验证状态
 
-- **后端测试 204 passed**（`.venv/bin/python -m pytest -q`，2026-07-14 实测；仅 1 条 Starlette/httpx 第三方弃用警告）。
-- **账号、托管多租户与团队协作已落地**：PostgreSQL/SQLite async ORM + Alembic；邮箱邀请激活、Argon2 密码、opaque Cookie session、CSRF/Origin、固定角色；`Organization` 是租户/套餐边界，`Project` 是共享课题，所有账号模式 artifact 必须经 `resources` 登记，跨租户统一 404。
-- **项目自动修订与分享已落地**：单篇 workflow 成功后按 60 秒窗口项目级串行合并，复用单篇候选重建公共图谱；scientific 项目同时 map-reduce 更新证据/机会，成功才原子切换 latest，重复指纹不生成新版本。外链在创建时固化独立 JSON 快照，数据库仅存 token hash 与索引路径，并提供移除内部资源 ID 的白名单 DTO。
-- **套餐、用量与协作 UI 已落地**：Free/Team Beta 权益、组织级覆盖、只读降级和幂等用量；新增登录/激活、组织切换、团队设置、平台后台、项目协作、修订历史与分享页面。生产 Compose 已加入 PostgreSQL、启动迁移和双层登录限流。
+- **线上产品已收敛为个人账号版（2026-07-15）**：`ACCOUNT_PRODUCT_MODE=personal` 为默认和生产固定值；每个账号只绑定一个不可切换的私有资料库，底层 `Organization` 只承担资源/配额隔离，不在 UI 展示。设置弹窗只保留“账号 / 模型与 API / 外观 / 个人偏好”；团队、成员、平台管理和团队项目页不进入生产 bundle。线上 release `personal-byok-20260715-2010` 已部署。
+- **HTTPS 测试服务器已上线并完成历史迁移（2026-07-15）**：阿里云 Ubuntu 22.04（4 vCPU / 16 GiB）运行 Docker Compose 的 PostgreSQL 17、FastAPI 后端和前端 nginx；宿主 nginx 通过有效 Let's Encrypt 证书发布 `https://corpus2node.digitmasterai.com`，容器入口仅绑定 `127.0.0.1:8080`。公网 `/api/health` 为 200，未登录业务/API 与模型设置均为 401，PostgreSQL/后端/前端重启恢复已验证。116 files / 122473324 bytes / SHA-256 `e73aa1e...9284c` 与本机完全一致；平台管理员已激活，3 projects / 62 resources 已登记，幂等复跑新增 0，62/62 artifact paths 均存在；迁移后 PostgreSQL dump 已生成。DeepSeek/Kimi `/models` 均验证成功。
+- **后端测试 211 passed**（`.venv/bin/python -m pytest -q`，2026-07-15 实测；仅 1 条 Starlette/httpx 第三方弃用警告）。
+- **账号与个人隔离已落地**：PostgreSQL/SQLite async ORM + Alembic；邮箱激活、Argon2 密码、opaque Cookie session、CSRF/Origin；每个账号自动采用已有 owner 资料库或创建新的 Free 个人资料库，请求头不能切到其他 membership，所有 artifact 仍经 `resources` 做 404 隔离。
+- **团队底层延后而非删除**：项目自动修订、成员、分享与套餐后端保留在 `ACCOUNT_PRODUCT_MODE=teams`，供以后客户版复用；当前个人版不注册团队 UI 入口或团队项目页。固定 discovery/scientific 报告分享能力不受影响。
+- **套餐与用量保留为个人账号边界**：Free/Team Beta 权益、只读降级和幂等用量继续作用于每个用户的隐藏个人资料库；生产 Compose 已加入 PostgreSQL、Alembic 和双层登录限流。
 - **全离线 LLM 方案已落地并本机实测**：注册表 kind += `ollama`/`lmstudio`（免密钥、默认本地端点、`num_ctx`/`max_concurrency`）；本机 M3 用 `gemma4:e2b-it-qat` + `bge-m3`（嵌入）真 HTTP 跑通 workflow/chat/测试/models 全流程（`llama3.1:8b` 参照组同过）；PDF 无 Kimi 时 pypdf 本地解析、视频回退 whisper 音轨转写。
-- **LLM 配置已统一到注册表/UI（本轮）**：Kimi（vision）与远程 embedding 都成为注册表凭据 + 用途；`config.py` 不再有任何 LLM 凭据；`.env` 只剩基础设施 + 首次种子，`.env`/`.env.example` 格式对齐。设置面板改为「凭据=端点+密钥+模型 一体，下面单选下拉直接绑」。
-- **前端验证通过**（2026-07-13）：Vitest 2 文件 / 4 测试、TypeScript + Vite production build、`npm audit --audit-level=high` 为 0 vulnerabilities。
+- **账号模式 BYOK 已完成**：Kimi（vision）、远程 embedding 与 chat 类用途都使用当前用户自己的注册表；账号模式路径为 `artifacts/users/<user_id>/llm_settings.json`，文件权限 600，API 只返回掩码。服务器环境/旧全局密钥不会注入新账号；本地 legacy 模式继续使用原 `artifacts/llm_settings.json`。托管模式只接受公网 HTTPS 模型 API，拒绝内网、loopback 和云端不可达的 Ollama/LM Studio。已登录用户可在保存前用 POST body 中的 endpoint/API Key 枚举模型，也可用已保存的 `credential_id` 重新读取并更新默认模型。
+- **前端验证通过**（2026-07-15）：Vitest 8 文件 / 14 测试、TypeScript + Vite production build；覆盖首页携参跳转、统一历史筛选、所有账号可见的 BYOK 表单、保存后模型枚举与默认模型切换、力导向默认保留共现边、个人设置结构、TopBar 收缩和账号关闭兼容。
 - **ruff clean**（`uv run ruff check src tests scripts`，2026-07-13 实测）。分支 `feat`。
 - **离线闭环可跑**：上传 → workflow（ingest→extract→critic→build）→ GraphArtifact，离线 fixture e2e 通过；LLM 端到端（真实建图/问答/水平测试）**需用户用自己凭据在浏览器实测**（耗 token，CI 不覆盖）。
 - **在线闭环可跑**：chat agent（强制引用 + trace + SSE）、notes（map-reduce + coverage critic）、水平测试（importance plan + generator + verifier 回路）、export（md/tex/txt/pdf）路由齐全且有测试覆盖。
@@ -25,10 +27,11 @@
 - **资料集 / 知识库重命名已落地**：后端支持单个资料集 `lecture_title` 改名与知识库 `course_title` 批量改名（含虚拟总图谱 session），首页支持内联入口；已通过全量 pytest、ruff、前端 build。
 - **知识发现已落地并保存 artifact**：首页可多选资料集运行知识发现，也可随机发现；后端生成 `DiscoveryReport` 并保存到 `artifacts/discoveries/{discovery_id}.json`；支持 AI judge seam（critic 绑定可用时自动判断，失败/无凭据退回算法版）；已通过 `tests/test_discovery.py`、全量 pytest、ruff、前端 build。
 - **知识发现增强已落地（本轮）**：(1) **桥接图可视化**——bridge graph 用 ReactFlow 三列（发现→知识点→资料集）画出来（懒加载独立 chunk，首页主包 376KB→229KB）；(2) **可溯源跳转**——发现卡片的概念 chip / 证据块、桥接图概念节点点击直达 `/session/{id}?concept=`；(3) **质量增强**——judge `relation_type` 约束到 8 类枚举（含中文别名回填）、证据每侧 top-2、加结构化信号（共享邻居/标签）、大候选池分批并发 judge、novelty 重算；(4) **历史面板**——首页列出历史 `DiscoveryReport`（`list_discovery_reports` 改按 `generated_at` 倒序），可点开重载。已通过 126 passed、ruff、前端 build。
+- **知识发现中心整合已落地（2026-07-15）**：新增 `/discover` 双模式页面，统一资料选择、意图/研发目标、跨类型历史筛选和报告详情；跨资料发现仍走 `/discovery/*`，科研证据仍走 `/scientific/*`，旧 artifact/schema 不迁移。新增租户隔离的 `GET /discovery/history` 轻量索引；`/scientific` 兼容重定向到 `/discover?mode=scientific`；首页不再内嵌报告，TopBar 不再显示科研证据。随机发现只在跨资料模式可用，viewer 不能运行或修改提案，owner/admin/platform_admin 可删除历史。
 - **历史知识发现可删除**：新增 `DELETE /discovery/{discovery_id}`、artifact 删除函数与首页历史条目删除确认；删除当前打开的报告会同步关闭面板，刷新后不再出现。
 - **删除失败运行态问题已解决**：根因是前端 HMR 已加载新代码、后端仍是 7 月 6 日无 reload 的旧进程，DELETE 实际返回 405；已清理未受 pidfile 管理的旧进程并用 `corpus dev` 重启。真实 API 临时 artifact 删除 + 浏览器确认框/成功 toast 均通过，用户原 4 条报告未改动；前端遇到 405 现在明确提示重启后端。
 - **“试卷”已迁移为“水平测试”**：前端不再选择题型；后端先按 `importance_score` 确定知识点测试计划，再让模型自动选题目形式并经独立求解器校验。主接口/产物为 `/generate_test`、`/test/*`、`test.json`、`test_id`；旧 `/exam`、`exam.json`、Python alias 保留读取兼容且从 OpenAPI 隐藏。
-- **多客户策略已更新**：真实内测需求已取代“暂不建设单实例多租户”的旧决定；见 `docs/CUSTOMIZATION.md`。默认是一个产品核心上的托管多租户，法规级物理隔离仍可独立部署同一套代码。
+- **多客户策略再次收敛**：当前线上先做个人账号 + BYOK；团队协作和客户课题组作为后续独立产品模式，不再主导当前导航和账号模型。底层组织/项目实现保留，法规级物理隔离仍可独立部署同一套代码。
 - **科研与 R&D 垂直方向已形成方案**：见 `docs/SCIENTIFIC_RD.md`；定位从通用概念图谱升级为“原始科技文献 → 科研实体/实验关系 → claim-evidence graph → 证据矩阵/矛盾/空白 → R&D 决策卡”，建议作为客户配置体系的首个 scientific profile。
 - **科研证据图谱 MVP 技术主线已落地并真实验证**：新增独立 `scientific/` 垂直包、`/scientific` API 与“科研证据”页面；单篇抽取 Paper/Entity/Relation/Claim/Experiment，所有模型证据编号经后端映射并校验到真实 `session/source/chunk/locator`；跨论文生成证据矩阵、洞察和 R&D 决策卡，供应商 JSON 方言有边界归一化、限次重试、单篇内容指纹缓存及确定性证据综合兜底。用现有 VDN/QMIX + DeepSeek 真实跑通，报告 `f1c88905-7d9f-4434-9780-978e94bcd238`：2 papers / 19 entities / 19 relations / 10 claims / 3 experiments / 27 evidence / 2 insights / 1 decision；claim 引用有效率 **11/11**。内容策略为中文叙述，英文正式名称独立保留。
 - **Scientific ingestion / N 元实验关系 / gold eval 主线已落地并真实批测**：JATS/TEI/GROBID 统一到 `ScientificDocument`，保存 section/sentence/page/bbox/table-cell/formula/citation；workflow 对 XML 优先结构解析、PDF 在 GROBID 可用时自动落 TEI，服务离线则不伪造 bbox且不阻断原摄入。Claim、Experiment、MetricResult、Condition、Evidence 与 Method/Dataset/Baseline 通过受角色约束的 N 元关系显式连接。桌面 MARL corpus 已有 131/131 PDF、30/30 GROBID TEI/JSON 和 30/30 DeepSeek silver。另完成 30 篇独立盲跑 AI proxy（`ai_verified`）：413 entities / 260 relations / 154 Claims / 61 numeric / 120 locators；内部一致性基线 Entity exact F1 0.3863、full-role Relation exact F1 0.0283、Claim fuzzy F1 0.4375、Claim/Numeric exact F1 0。Locator 0.9250 主要是页级一致率，不是句级准确率。人工 gold 继续只接纳 `verified`，详见 `docs/SCIENTIFIC_BENCHMARK.md`。
@@ -67,9 +70,9 @@ ruff check src tests                                  # lint
 ## 当前最高优先级未完成功能
 
 1. **完成 30 篇科研 gold 的人工双审**：AI blind proxy 内部基线已完成，但不能替代专家标注；需领域标注者把 silver 校正并裁决为 `verified`，才能记录 human-gold accuracy。
-2. **托管环境真实验收**：在带 HTTPS 的 PostgreSQL staging 按“bootstrap 管理员 -> 创建客户组织 -> 激活负责人 -> 第二成员上传 -> 项目修订 -> 外链分享”完整走一遍，并验证备份恢复；当前自动测试不等于实际部署验收。
+2. **完成个人账号真实浏览器验收**：管理员确认历史资料和原 3 凭据 / 6 bindings 可用；演示账号确认空个人资料库、独立配置 API、上传和发现流程，且不能看到管理员的 15 个历史 session。
 3. **记录真实 eval baseline 数字**（抽取 F1 / 问答 grounding / 水平测试可溯源率）。
-4. **后续 SaaS 专项**：外部任务队列/多 worker、邮件服务、支付、对象存储；当前邀请制手动套餐和单 worker 符合首版范围。
+4. **后续 SaaS 专项**：自助注册/邮件服务、支付、对象存储和外部任务队列；当前由 `corpus2node-admin invite-user` 生成个人激活链接，单 worker 符合首版范围。团队客户版另行规划。
 5. （低优先）Plan-Execute-Report / FusionAgent 作为 chat 的可选 deep-research 子模式。
 
 ## 当前 blocker
@@ -87,12 +90,12 @@ ruff check src tests                                  # lint
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
 | `config.py` | 基础设施配置（**无任何 LLM 凭据**，连 Kimi/embedding 都在注册表）：API 安全开关、上传大小、`vision_timeout_seconds`、`embed_provider`、`embedding_dimensions`、`graph_critic_enabled`、whisper 等开关 | 加基础设施开关 / 调超时 |
-| `accounts/` · `admin.py` | SQLAlchemy async 元数据层；账号/组织/角色/邀请/session/CSRF；Free/Team 权益、资源登记、用量、artifact 导入；平台管理员 CLI | 改身份、租户、权限、套餐、迁移或后台引导 |
+| `accounts/` · `admin.py` | SQLAlchemy async 元数据层；个人账号隐藏资料库、session/CSRF、Free/Team 权益、资源登记、用量、artifact 导入；`invite-user` 与个人工作区迁移 CLI；teams 模式底层保留 | 改身份、个人隔离、套餐、迁移或后续团队模式 |
 | `projects/revisions.py` | 项目级 debounce + 串行/dirty-rerun；版本指纹、公共图谱重建、科研 map-reduce、原子 latest 切换和增删摘要 | 改团队聚合与修订策略 |
-| `core/types.py` | **数据契约脊柱**：GraphArtifact / NoteDocument / TestDocument / ChatDocument / DiscoveryReport / EvidenceChunk / ConceptNode / GraphEdge / SourceKind / WorkflowRunArtifact；旧 Exam 类型为兼容 alias | 改 wire 契约（**必须**和 `frontend/src/types/index.ts` 一起改） |
+| `core/types.py` | **数据契约脊柱**：GraphArtifact / NoteDocument / TestDocument / ChatDocument / DiscoveryReport / DiscoveryHistoryItem / EvidenceChunk / ConceptNode / GraphEdge / SourceKind / WorkflowRunArtifact；旧 Exam 类型为兼容 alias | 改 wire 契约（**必须**和 `frontend/src/types/index.ts` 一起改） |
 | `core/text.py` | 文本规范化 / 结构感知分块 / canonicalize | 调分块粒度 / 归一化规则 |
 | `core/clock.py` · `core/logging_config.py` | `utcnow()`（naive UTC）· 日志配置 | 时间/日志 |
-| `llm/credentials.py` `store.py` `factory.py` `structured.py` | **多凭据注册表 + 按 purpose 工厂**：登记凭据→绑定用途。**kind 全集** = `openai`/`anthropic`/**`ollama`/`lmstudio`（本地离线，无需密钥，默认 127.0.0.1:11434 / :1234/v1，凭据可设 `num_ctx`/`max_concurrency`）**；**purpose 全集** = chat 类 `graph/critic/chat/exam`（`build_chat_model`）+ `vision` + `embedding`（`credential_params(purpose)` 取原始参数，本地 kind 自动补 /v1 + dummy key）。Ollama 走原生 ChatOllama：显式 `num_ctx`（默认 8192；服务端默认 4096 会静默截断抽取 prompt）+ `reasoning=False`（实测 gemma4 思考关闭快 ~5×，质量相同）；`concurrency_for(purpose, default)` 批量阶段按凭据限并发（本地默认 4）；`structured_output_method`：openai/**ollama**=json_mode（实测 gemma4 在 json_schema 语法锁定下 relations 塌缩为 []）/ anthropic=function_calling / **lmstudio=json_schema** | 加新 LLM kind/purpose / 改结构化输出 / 改回退链 / 调本地并发与上下文 |
+| `llm/credentials.py` `store.py` `factory.py` `structured.py` | **每用户多凭据注册表 + 按 purpose 工厂**：账号模式由 request/background context 绑定 `user_id` 并保存 600 文件；本地/legacy 保持单注册表。**kind** = `openai`/`anthropic`/`ollama`/`lmstudio`，**purpose** = `graph/critic/chat/exam/vision/embedding`；Ollama 原生客户端、结构化输出方言、并发与上下文策略保持不变 | 加新 LLM kind/purpose / 改 BYOK 隔离、结构化输出、回退链或并发 |
 | `index/embeddings.py` · `index/search.py` | LangChain Embeddings（hashing / 本地 BGE-M3 / **注册表 `embedding` 用途：ollama kind→OllamaEmbeddings 原生批量，其余→OpenAIEmbeddings 且非官方端点自动 `check_embedding_ctx_length=False`**——否则发 tiktoken token 数组，本地/DeepSeek 端点 400）· chunk/concept cosine 检索 + bounded subgraph | 换 embedding / 调检索 |
 | `ingest/kimi_client.py` | **vision 客户端**：从注册表 `vision` 用途解析 (base_url/api_key/model) 建 openai SDK client（本地 VLM 同样走这条）；`vision_is_moonshot()` 门控 Moonshot 专属能力（Files API file-extract、`ms://` 视频上传、K2.6 关思考 extra_body） | 改 vision 凭据解析 / 多模态超时 / moonshot 判定 |
 | `ingest/adapters.py` | **摄入适配器注册表** + kind 路由（md/txt/docx/pptx/csv/json/yaml/JATS/TEI + 各类型扩展名表）；科研 XML 优先结构解析；**PDF 双路**：vision 绑 Kimi→file-extract（含 OCR），否则→`pdf_local.py`（pypdf 全离线，扫描件报错指向 Kimi） | **加新文件类型** / 改 PDF 路由 |
@@ -117,16 +120,18 @@ ruff check src tests                                  # lint
 
 | 路径 | 实现的功能 | 改这里当你想… |
 |------|-----------|--------------|
-| `api/client.ts` · `auth/AuthContext.tsx` | 所有后端调用 + SSE；Cookie credentials、CSRF、活动组织 header 与旧 Bearer 兼容；登录态和组织切换 | 加/改调用、认证或租户上下文 |
+| `api/client.ts` · `auth/AuthContext.tsx` | 所有后端调用 + SSE；Cookie credentials、CSRF、个人资料库内部 header 与旧 Bearer 兼容；前端不提供组织切换 | 加/改调用、认证或个人账号上下文 |
 | `types/index.ts` | 前端契约（对应 `core/types.py`，含 DiscoveryReport） | 改契约（和后端一起改） |
-| `pages/HomePage.tsx` | 知识库列表 + 折叠/拖拽排序 + 资料集/知识库改名 + **知识发现 v2**（运行、提案、历史读取/**确认删除**、桥接图）+ 全局知识点搜索；通用 `ConfirmModal` | 改首页/库管理/发现交互 |
-| `pages/{Login,Activate,Projects,Project,TeamSettings,PlatformAdmin,Share}Page.tsx` | 邀请制登录激活、稳定项目首页、公共图谱/科研/机会/文献/活动/修订、团队与平台管理、安全快照分享 | 改账号或协作产品界面 |
-| `pages/ScientificPage.tsx` | **科研证据客户垂直页**：多选论文、填写研发目标、运行分析、历史报告、论文证据矩阵、跨文献洞察、决策卡与原文 locator 展开/资料集跳转 | 改科研分析交互 / 证据呈现 |
+| `pages/HomePage.tsx` | 纯知识库/资料管理：列表、折叠/拖拽、改名、筛选与全局知识点搜索；资料多选只负责携带重复 `session` 参数进入 `/discover` | 改首页/库管理/发现入口 |
+| `pages/{Login,Activate,Share}Page.tsx` | 个人账号激活/登录与安全快照分享；Projects/Project/TeamSettings/PlatformAdmin 源码暂留给后续 teams 模式，但当前 App 不引用、不打包 | 改当前账号/分享体验或后续协作产品 |
+| `pages/DiscoverPage.tsx` · `components/scientific/ScientificReportView.tsx` | **知识发现中心**：跨资料/科研证据双模式，共用资料选择和轻量历史时间线；按模式调用独立 SSE/schema，按角色限制运行、删除与提案操作；科研报告视图可复用 | 改发现中心信息架构 / 科研证据呈现 |
+| `pages/ScientificPage.tsx` | 旧科研页面实现保留作组件兼容；公开路由 `/scientific` 已重定向到 `/discover?mode=scientific` | 清理旧实现或排查历史兼容 |
 | `components/discovery/BridgeGraphView.tsx` | **发现呈现图（双布局自适应）**：有 proposal 节点 → **部门(资料集)→桥接概念→创新提案** 三列（提案宽卡、采纳高亮 ring/搁置降透明、点击提案定位卡片）；旧报告（finding 节点）保留 发现→知识点→资料集 布局；概念节点点击溯源；懒加载独立 chunk | 改呈现图样式/布局/交互 |
 | `pages/NewSessionPage.tsx` | 上传建库（统一上传入口；全部失败不进入流水线） | 改上传流程 |
 | `pages/PipelinePage.tsx` | 流水线可视化（4 阶段一行：解析/切分/抽取/构建，**质检 critic 折叠进「构建图谱」**）+ per-node **run-metrics 面板**（耗时/token/repair，仍单列 `critic` 节点） | 改流水线展示 |
 | `pages/WorkspacePage.tsx` | 图谱 + 右栏**对话/笔记/测试**标签页（选区可转对话 + ExportMenu）；测试只选题数，覆盖按知识点重要度自动规划 | 改主工作区 |
 | `components/layout/SettingsPanel.tsx` | **统一设置**：模型（凭据=端点+密钥+模型 一体；用途 graph/chat/critic/exam/**vision/embedding** 各一个单选下拉「凭据·模型」直接绑）/ 外观 / 提示词（真实编辑器） | 改设置面板 |
+| `components/graph/ConceptGraph.tsx` `layoutUtils.ts` | ReactFlow 概念图与力导向/径向/聚类布局；共现边默认参与显示和布局计算，避免节点被误判为孤立节点 | 改图谱节点、边样式或布局参数 |
 | `components/layout/CommandPalette.tsx` | ⌘K 命令面板 + **全局知识点搜索** + 按 session 状态跳转 | 改全局搜索/快捷入口 |
 | `components/layout/{AppShell,TopBar}.tsx` | 外壳 / 顶栏 | 改全局布局 |
 | `components/{chat,graph,notes,search,upload,primitives}/` | 各功能 UI 块（ReactFlow 图、引用卡、检索面板、上传等） | 改某块 UI |
@@ -144,12 +149,55 @@ ruff check src tests                                  # lint
 | `docs/PROGRESS.md` · `docs/SESSION.md` | 本进度真相 · 会话交接摘要 |
 | `docs/demo/` | **产品演示套件**：`DEMO.md`（六幕图文 + 3–5min 现场台本 + runbook）· `assets/`（10 张实拍截图）· `Corpus2Node-演示.pptx`（11 页，deck.js 可重建）；演示数据 = 主秀库「Python 程序设计」(b4f59dff) + 发现「Reinforcement Learning · 4 提案」 |
 | `docs/DEPLOYMENT_MODELS.md` | 生产开源模型三档推荐（vLLM 参数 + 注册表绑定表 + 显存速查） |
+| `deploy/docker-compose.cn.yml` | 国内网络部署覆盖：DaoCloud 基础镜像、阿里 Debian 镜像、清华 PyPI artifact 镜像；默认关闭不可拉取的 GROBID profile |
 | `CLAUDE.md` | 操作手册（定位/架构/原则/约定）；`AGENTS.md` 是其旧副本（已 stale，两者均 gitignore） |
 | `README.md` | 本地启动、主要能力、验证命令、OpenAPI 契约生成与安全 Docker 部署说明 |
 
 ---
 
 ## 会话记录（最新在上，每轮追加一条）
+
+### 2026-07-27 — 本地改动按功能整理提交
+- **提交边界**：将 7 月 15 日遗留工作树拆为部署可移植性、个人资料库/每用户 BYOK 与统一发现中心、力导向图共现边回归、文档交接四组 Conventional Commits；未执行 push。
+- **验证**：`.venv/bin/python -m pytest -q` → **211 passed**（1 条第三方弃用警告）；`.venv/bin/ruff check src tests` clean；前端 Vitest **8 files / 14 tests**；`npm run build` 通过。
+- **保留项**：`frontend/src/pages/SettingsPage.tsx` 与 `SettingsPage.test.tsx` 是设置恢复为 modal 前留下、且未被应用入口引用的未跟踪中间文件；按文件删除确认规则未擅自清理，也未纳入提交。
+
+### 2026-07-15 (6) — 个人账号 + 每用户 BYOK 上线
+- **产品边界**：新增 `ACCOUNT_PRODUCT_MODE=personal|teams`，默认及生产固定 personal。每个用户通过 `users.personal_organization_id` 固定到一个隐藏个人资料库；已有 owner 工作区原地采用，只有 shared member membership 的账号新建空 Free 资料库。个人模式忽略组织切换 header，`/auth/me` 和 `/organizations` 只返回个人资料库，成员/邀请/组织修改端点关闭。
+- **BYOK**：`llm.store` 用 ContextVar 把 HTTP、SSE、后台任务和用量记录绑定到当前 `user_id`，注册表落 `artifacts/users/<user_id>/llm_settings.json` 并强制 600；普通账号可完整管理 provider / `base_url` / `api_key` / model / purpose，响应仍只回掩码。托管环境拒绝本地 kind、HTTP、loopback 和私网 IP；local/legacy 不受影响。
+- **界面与运维**：设置 modal 只保留账号、模型与 API、外观、个人偏好；账号页移除角色、工作区切换和平台标记；`/team`、`/admin`、`/projects/:id` 回首页，团队/平台页面不进 bundle。新增 `invite-user` 与幂等 `migrate-personal-accounts` CLI。
+- **验证/上线**：后端 **210 passed**、ruff clean、SQLite/PostgreSQL Alembic `20260715_0002`、前端 7 files / **12 tests**、production build、OpenAPI/TS 生成和 `git diff --check` 通过。线上 release `personal-byok-20260715-2010` 健康；2 users 均已迁移，管理员采用 Imported Workspace，demo 用户得到 `member 的资料库`；管理员 3 credentials / 6 bindings 已无明文输出地复制到个人 600 文件。原删除目标现已 archived，并形成 ready 项目修订，因此资源数为 63。
+
+### 2026-07-15 (5) — member 资料归档修复与设置弹窗恢复
+- **线上根因**：目标 session `8ac66ee6-34a5-4c0e-917f-009b028fe8f0` 的 DELETE 实际返回 403；演示账号是 `member`，旧接口却要求 `admin`。现允许 `member` 归档团队资料，`viewer` 仍只读；删除只把 session/source 资源标为 archived 并触发项目修订，不物理删除 JSON artifact。
+- **设置体验**：TopBar 设置入口从全屏 `/settings` 页面恢复为 modal；账号、团队、外观、个人提示词继续在弹窗内，platform_admin 额外看到原有“模型与 API”和平台管理。模型表单保留 provider、`base_url`、`api_key`、模型读取及 purpose 绑定；旧 `/settings`、`/team`、`/admin` 深链接继续打开对应弹窗区段。
+- **验证/部署**：后端 **208 passed**、ruff clean、`git diff --check`；前端 7 files / **12 tests**、production build。线上 release `settings-modal-delete-20260715-1945` 健康，首页与设置链接 200，数据库仍为 2 users / 62 resources，目标 session 仍为 active，未替用户自动重试删除。
+
+### 2026-07-15 (4) — 知识发现中心整合与线上发布
+- **统一入口**：新增 `/discover`，常驻“跨资料发现 / 科研证据分析”模式切换；首页任何有源文件的非虚拟 session 均可勾选并以重复 `session` 参数进入。跨资料要求图谱就绪且后端继续校验 embedding 指纹，空选走随机；科研只要求源文件且空选禁用。
+- **统一历史**：新增 `DiscoveryHistoryItem` 与 `GET /discovery/history`，在账号模式只读取当前组织已登记且 active 的两类报告资源，按生成时间倒序返回轻量计数；详情、删除、SSE 和 JSON artifact 仍分别走原 discovery/scientific 契约。
+- **界面/权限/兼容**：发现中心采用左侧配置与历史、右侧报告；历史支持全部/跨资料/科研证据筛选和按需加载，通用提案采纳/搁置/深挖、桥接图和科研 locator 保留。TopBar 删除科研证据，首页移除内嵌报告；`/scientific` 兼容重定向。member 可运行但不可删历史，viewer 不能运行或修改提案，账号关闭模式保持可写。
+- **验证/部署**：后端 **207 passed**、ruff clean；前端 6 files / **11 tests**、production build、OpenAPI/TS 契约重生成、`git diff --check`。线上 release `discovery-center-20260715-1920` 健康，`/discover` 200、未登录 `/api/discovery/history` 401；PostgreSQL 仍为 2 users / 62 resources / 2 organizations。Chrome 页面控制超时，未消耗待激活的 demo member 邀请；普通角色行为由自动化测试覆盖。
+
+### 2026-07-15 (3) — 项目首页体验回退与 TopBar 再收缩
+- **首页回退**：账号模式 `/` 不再渲染 `ProjectsPage` 的团队项目卡片，恢复原 `HomePage`；重新提供知识库/资料集分组、全局搜索、状态筛选、拖拽排序、知识发现和历史报告。团队 Project、自动修订、权限与 `/projects/{id}` 深链接未删除，后续以原首页交互为基线重新设计协作入口。
+- **TopBar 收缩**：删除工作区下拉、用户名与“成员”角色，只保留产品导航、搜索和设置齿轮；账号/角色仍在“设置 → 账号”，工作区切换也移入“我的工作区”。
+- **验证与部署**：Vitest 4 files / **7 tests**；TypeScript + Vite production build；`git diff --check`；主 bundle 约 271.2KB -> 267.7KB。线上 release `ui-personal-projects-20260715` 健康，`/`、`/settings?section=account`、`/api/health` 均 200，线上 bundle 含“我的知识库”且不含“团队项目”。
+
+### 2026-07-15 (2) — 设置中心重构与普通 member 演示视角
+- **信息架构**：顶部导航删除“团队”“平台管理”，只保留日常工作；齿轮和用户信息均进入独立 `/settings`。旧 `/team`、`/admin` 链接保留重定向兼容。
+- **统一设置**：新增账号、团队与成员、外观、个人偏好；仅 platform_admin 额外看到模型与密钥、平台管理。账号页支持查看工作区/角色、修改密码与退出；平台维护权限只在账号设置内轻提示。
+- **普通用户体验**：`platform` 内部组织不再出现在工作区选择器；有客户工作区时默认选客户工作区。Team/Platform 页面改 lazy chunk，普通成员不下载管理员页面代码；主 bundle 约 280.9KB -> 271.2KB。
+- **真实演示账号**：为 `Imported Workspace` 创建 `yuzichengyzc+demo@gmail.com` 的 member 邀请，待用户通过一次性链接设置密码。该账号能查看/上传/分析团队资料，但无平台运营、模型密钥、套餐和成员管理权限。
+- **验证与部署**：Vitest 4 files / **7 tests**；TypeScript + Vite production build；React 最佳实践复核通过（named exports、语义 nav/link、权限派生、lazy loading）；线上新 release `dac3dea-settings-ui-20260715` 健康，PostgreSQL 仍为 1 active user / 62 resources，公网 `/settings` 与 `/api/health` 均 200。
+
+### 2026-07-15 — 阿里云 HTTPS 部署、历史 artifact 预迁移与国内镜像适配
+- **服务器**：Ubuntu 22.04 / 4 vCPU / 16 GiB 安装 Docker 29.1.3 + Compose 2.40.3；版本化目录 `/opt/corpus2node/releases/dac3dea`、共享 artifact/环境/备份目录与 `current` symlink 已建立。PostgreSQL、backend、frontend nginx 容器均运行，8080 仅 loopback；外层 nginx 的域名、HTTP→HTTPS 与 Let's Encrypt TLS 均验证。
+- **国内构建**：Dockerfile 的 registry/Debian/PyPI artifact host 参数化，新增 `docker-compose.cn.yml`；解决 frozen `uv.lock` 仍直连 files.pythonhosted.org 的慢下载。生产启动改为直接调用 `.venv/bin/alembic`/`uvicorn`，避免容器重启联网检查依赖。
+- **迁移兼容**：`load_session` 对从其他机器复制来的绝对 source 路径按当前 `session/uploads` 读取时重定位，不改写 JSON；inventory 排除 `.DS_Store`/AppleDouble。服务器与本机 dry-run 完全一致：116 files / 122473324 bytes / SHA-256 `e73aa1e...9284c`，15 sessions / 3 projects / 17 sources / 15 graphs / 4 scientific / 2 discovery / 9 private artifacts。
+- **安全/模型验证**：生产 `AUTH_MODE=accounts`；未登录 `/auth/me`、`/sessions`、`/settings/llm` 均 401；`llm_settings.json` 权限 600，DeepSeek/Kimi 密钥只做 `/models` 可用性探测且均成功。公网 8080 不可达，容器和 PostgreSQL 重启后健康与管理员邀请均保留。
+- **测试**：账号、会话、迁移相关 **24 passed**；新增迁移兼容测试 2 passed；`git diff --check`、Compose config 与远端 Alembic `20260714_0001` 通过。
+- **正式迁移**：平台管理员 `yuzichengyzc@gmail.com` 已激活；创建 `Imported Workspace`（Team Beta）和 3 个项目，登记 62 个资源，幂等复跑新增 0；数据库中旧 Mac path 为 0，62/62 artifact paths 存在。迁移后 dump 位于服务器 `shared/backups/post-migration-20260715-175257/`（SHA-256 `2c60e921...e0ced9b`）。GROBID 在该国内镜像返回 403，当前云 API 演示栈默认不启用其 profile。
 
 ### 2026-07-14 — 账号、托管多租户、团队项目修订、套餐与分享
 - **身份/租户**：新增 async SQLAlchemy、PostgreSQL/SQLite、Alembic 初始迁移；邮箱邀请激活、Argon2、30 天 opaque Cookie session、CSRF/Origin、角色矩阵、平台后台和 bootstrap CLI。生产 `AUTH_MODE=accounts`，旧 Bearer 仅兼容模式保留。

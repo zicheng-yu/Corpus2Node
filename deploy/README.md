@@ -25,14 +25,19 @@ docker compose -f deploy/docker-compose.yml ps
 curl -fsS http://127.0.0.1:8080/api/health
 ```
 
-随后生成首个平台管理员激活链接：
+随后生成首个账号激活链接：
 
 ```bash
 docker compose -f deploy/docker-compose.yml exec backend \
   corpus2node-admin bootstrap-admin --email admin@example.com
 ```
 
-复制输出链接完成激活。平台管理员登录后可创建客户组织、选择 Free / Team Beta、设置试用期并生成负责人激活链接。
+复制输出链接完成激活。后续用户通过运维 CLI 获得各自独立的账号和私有资料库：
+
+```bash
+docker compose -f deploy/docker-compose.yml exec backend \
+  corpus2node-admin invite-user --email user@example.com --name 'User'
+```
 
 ## 导入已有 artifact
 
@@ -72,6 +77,7 @@ docker compose -f deploy/docker-compose.yml down
 
 - 生产固定 `AUTH_MODE=accounts`、`DATABASE_AUTO_CREATE=false`、Secure HttpOnly Cookie，并校验 CSRF 与 Origin。
 - 登录和激活由应用与 nginx 双层限流；后端、PostgreSQL、GROBID 均不直接暴露公网。
-- LLM/embedding 凭据仍保存在平台私有注册表中，普通组织成员不能查看或修改。
+- LLM/embedding 凭据按 `artifacts/users/<user_id>/llm_settings.json` 独立保存，文件权限为 600；API 只允许当前登录用户管理自己的凭据并只返回掩码。
+- 当前生产产品固定 `ACCOUNT_PRODUCT_MODE=personal`，组织表只作为不可见的数据隔离实现；团队/成员管理留给后续单独版本。
 - 当前后台任务保持单 worker；不要直接把 Uvicorn 扩为多 worker。项目修订调度需要先升级为外部队列后再横向扩容。
 - 首次音频摄入会下载 faster-whisper `base` 模型到 `whisper-cache` 卷。
