@@ -11,7 +11,14 @@ from corpus2node.accounts.migrate_artifacts import migrate_existing_artifacts
 from corpus2node.accounts.entitlements import PLAN_CATALOG
 from corpus2node.accounts.models import Organization, User
 from corpus2node.accounts.security import normalize_email
-from corpus2node.accounts.service import create_invitation, create_organization, ensure_personal_organization
+from corpus2node.accounts.service import (
+    DEFAULT_PERSONA,
+    PERSONAS,
+    create_invitation,
+    create_organization,
+    ensure_personal_organization,
+    normalize_persona,
+)
 from corpus2node.config import settings
 
 
@@ -38,12 +45,18 @@ async def bootstrap_admin(email: str) -> str:
     return f"{settings.public_app_url.rstrip('/')}/activate#token={token}"
 
 
-async def invite_user(email: str, name: str = "", plan_code: str = "free") -> str:
+async def invite_user(
+    email: str,
+    name: str = "",
+    plan_code: str = "free",
+    persona: str = DEFAULT_PERSONA,
+) -> str:
     """Create an activation link backed by a private owner workspace."""
     await init_db()
     clean_email = normalize_email(email)
     if plan_code not in PLAN_CATALOG:
         raise ValueError(f"Unknown plan code: {plan_code}")
+    clean_persona = normalize_persona(persona)
     async with session_factory()() as db:
         if await db.scalar(select(User.user_id).where(User.email == clean_email)):
             raise ValueError("An account with this email already exists.")
@@ -59,6 +72,7 @@ async def invite_user(email: str, name: str = "", plan_code: str = "free") -> st
             email=clean_email,
             role="owner",
             invited_by_user_id=None,
+            persona=clean_persona,
         )
         await db.commit()
     return f"{settings.public_app_url.rstrip('/')}/activate#token={token}"
@@ -88,6 +102,12 @@ def parser() -> argparse.ArgumentParser:
     invite.add_argument("--email", required=True)
     invite.add_argument("--name", default="")
     invite.add_argument("--plan", choices=sorted(PLAN_CATALOG), default="free")
+    invite.add_argument(
+        "--persona",
+        choices=sorted(PERSONAS),
+        default=DEFAULT_PERSONA,
+        help="Product persona: executive | researcher | operator",
+    )
     commands.add_parser("migrate-personal-accounts", help="Assign private workspaces to existing accounts")
     migrate = commands.add_parser("migrate-artifacts", help="Register existing JSON artifacts without moving them")
     migrate.add_argument("--apply", action="store_true", help="Write metadata rows; default is dry-run")
@@ -102,7 +122,7 @@ async def _run(args: argparse.Namespace) -> None:
         print(await bootstrap_admin(args.email))
         return
     if args.command == "invite-user":
-        print(await invite_user(args.email, args.name, args.plan))
+        print(await invite_user(args.email, args.name, args.plan, args.persona))
         return
     if args.command == "migrate-personal-accounts":
         print(json.dumps(await migrate_personal_accounts(), ensure_ascii=False))

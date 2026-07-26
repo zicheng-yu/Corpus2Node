@@ -11,12 +11,14 @@ import {
   activateAccount,
   getActiveOrganizationId,
   getCurrentUser,
+  getCustomerProfile,
   getHealth,
   login,
   logout,
   setActiveOrganizationId,
 } from "../api/client";
-import type { CurrentUser, HealthResponse } from "../types";
+import type { CurrentUser, CustomerProfile, HealthResponse, PersonaNavItem, ProductPersona } from "../types";
+import { FALLBACK_PROFILE, coercePersona, homePathFor, navFor } from "./persona";
 
 type AuthMode = HealthResponse["auth_mode"] | "loading";
 
@@ -25,8 +27,12 @@ interface AuthContextValue {
   user: CurrentUser | null;
   activeOrganizationId: string;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  activate: (token: string, displayName: string, password: string) => Promise<void>;
+  profile: CustomerProfile;
+  persona: ProductPersona;
+  homePath: string;
+  navItems: PersonaNavItem[];
+  signIn: (email: string, password: string) => Promise<CurrentUser>;
+  activate: (token: string, displayName: string, password: string) => Promise<CurrentUser>;
   signOut: () => Promise<void>;
   selectOrganization: (organizationId: string) => void;
   refreshUser: () => Promise<void>;
@@ -49,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<AuthMode>("loading");
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [activeOrganizationId, setActiveOrganization] = useState("");
+  const [profile, setProfile] = useState<CustomerProfile>(FALLBACK_PROFILE);
 
   const applyUser = useCallback((value: CurrentUser) => {
     const organizationId = initialOrganization(value);
@@ -64,9 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    getHealth()
-      .then(async (health) => {
+    Promise.all([getHealth(), getCustomerProfile().catch(() => FALLBACK_PROFILE)])
+      .then(async ([health, customerProfile]) => {
         if (!active) return;
+        setProfile(customerProfile);
         setMode(health.auth_mode);
         if (health.auth_mode !== "accounts") return;
         try {
@@ -86,14 +94,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (email: string, password: string) => {
-      applyUser(await login({ email, password }));
+      const value = await login({ email, password });
+      applyUser(value);
+      return value;
     },
     [applyUser],
   );
 
   const activate = useCallback(
     async (token: string, displayName: string, password: string) => {
-      applyUser(await activateAccount({ token, display_name: displayName, password }));
+      const value = await activateAccount({ token, display_name: displayName, password });
+      applyUser(value);
+      return value;
     },
     [applyUser],
   );
@@ -108,8 +120,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const selectOrganization = useCallback((organizationId: string) => {
     setActiveOrganization(organizationId);
     setActiveOrganizationId(organizationId);
-    setUser((current) => current ? { ...current, active_organization_id: organizationId } : current);
+    setUser((current) => (current ? { ...current, active_organization_id: organizationId } : current));
   }, []);
+
+  const persona = coercePersona(user?.persona);
+  const homePath = homePathFor(persona, profile);
+  const navItems = navFor(persona, profile);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -117,13 +133,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       activeOrganizationId,
       loading: mode === "loading",
+      profile,
+      persona,
+      homePath,
+      navItems,
       signIn,
       activate,
       signOut,
       selectOrganization,
       refreshUser,
     }),
-    [mode, user, activeOrganizationId, signIn, activate, signOut, selectOrganization, refreshUser],
+    [
+      mode,
+      user,
+      activeOrganizationId,
+      profile,
+      persona,
+      homePath,
+      navItems,
+      signIn,
+      activate,
+      signOut,
+      selectOrganization,
+      refreshUser,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

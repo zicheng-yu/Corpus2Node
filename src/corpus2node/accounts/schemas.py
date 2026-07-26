@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, EmailStr, Field
 
 Role = Literal["owner", "admin", "member", "viewer"]
+Persona = Literal["executive", "researcher", "operator"]
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class Principal:
     organization_id: str | None
     role: str | None
     is_platform_admin: bool = False
+    persona: str = "operator"
 
 
 class MembershipView(BaseModel):
@@ -31,6 +33,7 @@ class CurrentUser(BaseModel):
     email: EmailStr
     display_name: str
     is_platform_admin: bool = False
+    persona: Persona = "operator"
     active_organization_id: str | None = None
     memberships: list[MembershipView] = Field(default_factory=list)
 

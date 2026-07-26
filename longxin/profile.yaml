@@ -1,0 +1,31 @@
+schema_version: 1
+customer_id: longxin
+brand:
+  product_name: 龙芯知识工作台
+  tagline: 按角色进入工作台
+personas:
+  executive:
+    label: 决策层
+    description: 看总结卡片、评估风险/ROI
+    landing: /discover?mode=scientific
+    nav:
+      - discover
+      - home
+  researcher:
+    label: 研发
+    description: 看证据链、深度探针、论文对比
+    landing: /discover?mode=scientific&focus=evidence
+    nav:
+      - discover
+      - home
+  operator:
+    label: 执行
+    description: 上传资料、看笔记、SOP 出题自测
+    landing: /new
+    nav:
+      - new
+      - home
+features:
+  discovery: true
+  notes: true
+  level_test: true

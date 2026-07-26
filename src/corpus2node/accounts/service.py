@@ -27,6 +27,20 @@ from corpus2node.config import settings
 from corpus2node.core.clock import utcnow
 
 ROLE_RANK = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
+PERSONAS = frozenset({"executive", "researcher", "operator"})
+DEFAULT_PERSONA = "operator"
+
+
+def coerce_persona(persona: str | None) -> str:
+    value = (persona or DEFAULT_PERSONA).strip().casefold()
+    return value if value in PERSONAS else DEFAULT_PERSONA
+
+
+def normalize_persona(persona: str | None) -> str:
+    value = (persona or DEFAULT_PERSONA).strip().casefold()
+    if value not in PERSONAS:
+        raise AccountError(f"Invalid persona: {persona}")
+    return value
 
 
 class AccountError(ValueError):
@@ -112,9 +126,11 @@ async def create_invitation(
     make_platform_admin: bool = False,
     kind: str = "invite",
     target_user_id: str | None = None,
+    persona: str = DEFAULT_PERSONA,
 ) -> tuple[Invitation, str]:
     if role not in ROLE_RANK:
         raise AccountError("Invalid organization role.")
+    clean_persona = normalize_persona(persona)
     organization = await db.get(Organization, organization_id)
     if organization is None:
         raise AccountError("Organization not found.")
@@ -151,6 +167,7 @@ async def create_invitation(
         organization_id=organization_id,
         email=email,
         role=role,
+        persona=clean_persona,
         kind=kind,
         token_hash=hash_token(raw_token),
         invited_by_user_id=invited_by_user_id,
@@ -175,12 +192,14 @@ async def activate_invitation(
         if user is None or (invitation.target_user_id and user.user_id != invitation.target_user_id):
             raise AuthenticationError("Password reset link is invalid.")
     elif user is None:
-        user = User(email=invitation.email)
+        user = User(email=invitation.email, persona=normalize_persona(invitation.persona))
         db.add(user)
         await db.flush()
     user.display_name = " ".join(display_name.split()).strip()[:120]
     user.password_hash = hash_password(password)
     user.status = "active"
+    if invitation.kind == "invite":
+        user.persona = normalize_persona(getattr(invitation, "persona", None) or DEFAULT_PERSONA)
     await db.execute(
         update(AuthSession)
         .where(AuthSession.user_id == user.user_id, AuthSession.revoked_at.is_(None))
@@ -263,6 +282,7 @@ async def resolve_principal(db: AsyncSession, token: str, requested_org_id: str 
             organization_id=selected.organization_id,
             role="owner",
             is_platform_admin=user.is_platform_admin,
+            persona=coerce_persona(getattr(user, "persona", None)),
         )
     memberships = (
         await db.execute(
@@ -288,6 +308,7 @@ async def resolve_principal(db: AsyncSession, token: str, requested_org_id: str 
         ),
         role=selected.role if selected else None,
         is_platform_admin=user.is_platform_admin,
+        persona=coerce_persona(getattr(user, "persona", None)),
     )
 
 
@@ -301,11 +322,13 @@ async def current_user_view(db: AsyncSession, principal: Principal) -> CurrentUs
     if settings.account_product_mode == "personal":
         query = query.where(Membership.organization_id == principal.organization_id)
     rows = (await db.execute(query)).all()
+    persona = coerce_persona(principal.persona)
     return CurrentUser(
         user_id=principal.user_id,
         email=principal.email,
         display_name=principal.display_name,
         is_platform_admin=principal.is_platform_admin,
+        persona=persona,  # type: ignore[arg-type]
         active_organization_id=principal.organization_id,
         memberships=[
             MembershipView(

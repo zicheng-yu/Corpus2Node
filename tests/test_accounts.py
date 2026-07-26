@@ -137,6 +137,7 @@ def test_activation_login_csrf_logout_and_password_hash(account_env):
     client = TestClient(app)
     current = _activate(client, token, "Platform Admin")
     assert current["is_platform_admin"] is True
+    assert current["persona"] == "operator"
     assert client.cookies.get("c2n_session")
     assert client.cookies.get("c2n_csrf")
 
@@ -201,6 +202,31 @@ def test_activation_login_csrf_logout_and_password_hash(account_env):
     )
     assert logout.status_code == 200
     assert login_client.get("/auth/me").status_code == 401
+
+
+def test_invite_persona_is_returned_on_activate_login_and_me(account_env, tmp_path, monkeypatch):
+    _ = account_env
+    monkeypatch.setattr(settings, "database_url", f"sqlite+aiosqlite:///{tmp_path / 'persona.db'}")
+    monkeypatch.setattr(settings, "auth_mode", "accounts")
+    monkeypatch.setattr(settings, "account_product_mode", "personal")
+    monkeypatch.setattr(settings, "database_auto_create", True)
+    asyncio.run(dispose_db())
+
+    activation_url = asyncio.run(invite_user("boss@example.com", "Boss", "free", "executive"))
+    token = _token_from_url(activation_url)
+    client = TestClient(app)
+    activated = _activate(client, token, "Boss")
+    assert activated["persona"] == "executive"
+    assert client.get("/auth/me").json()["persona"] == "executive"
+
+    login_client = TestClient(app)
+    logged_in = login_client.post(
+        "/auth/login",
+        json={"email": "boss@example.com", "password": PASSWORD},
+    )
+    assert logged_in.status_code == 200
+    assert logged_in.json()["persona"] == "executive"
+    asyncio.run(dispose_db())
 
 
 def test_production_session_cookie_can_be_secure(account_env, monkeypatch):
