@@ -1,12 +1,14 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FALLBACK_PROFILE } from "../../auth/persona";
 import { useAuth } from "../../auth/AuthContext";
 import type { CurrentUser } from "../../types";
 import { TopBar } from "./TopBar";
 
 vi.mock("../../auth/AuthContext", () => ({ useAuth: vi.fn() }));
+
+afterEach(cleanup);
 
 const user: CurrentUser = {
   user_id: "admin-1",
