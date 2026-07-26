@@ -5,7 +5,7 @@ import re
 from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from corpus2node.accounts.entitlements import resolve_entitlements
@@ -78,6 +78,7 @@ async def create_organization(
     slug: str = "",
     trial_ends_at=None,
     entitlement_overrides: dict | None = None,
+    personal_owner_user_id: str | None = None,
 ) -> Organization:
     clean_name = " ".join(name.split()).strip()
     if not clean_name:
@@ -94,6 +95,7 @@ async def create_organization(
         plan_code=plan_code,
         trial_ends_at=trial_ends_at,
         entitlement_overrides=entitlement_overrides or {},
+        personal_owner_user_id=personal_owner_user_id,
     )
     db.add(organization)
     await db.flush()
@@ -251,6 +253,17 @@ async def resolve_principal(db: AsyncSession, token: str, requested_org_id: str 
     if row is None:
         return None
     auth_session, user = row
+    if settings.account_product_mode == "personal":
+        selected, _ = await ensure_personal_organization(db, user)
+        auth_session.last_seen_at = now
+        return Principal(
+            user_id=user.user_id,
+            email=user.email,
+            display_name=user.display_name,
+            organization_id=selected.organization_id,
+            role="owner",
+            is_platform_admin=user.is_platform_admin,
+        )
     memberships = (
         await db.execute(
             select(Membership)
@@ -279,14 +292,15 @@ async def resolve_principal(db: AsyncSession, token: str, requested_org_id: str 
 
 
 async def current_user_view(db: AsyncSession, principal: Principal) -> CurrentUser:
-    rows = (
-        await db.execute(
-            select(Membership, Organization)
-            .join(Organization, Organization.organization_id == Membership.organization_id)
-            .where(Membership.user_id == principal.user_id, Membership.status == "active")
-            .order_by(Membership.joined_at)
-        )
-    ).all()
+    query = (
+        select(Membership, Organization)
+        .join(Organization, Organization.organization_id == Membership.organization_id)
+        .where(Membership.user_id == principal.user_id, Membership.status == "active")
+        .order_by(Membership.joined_at)
+    )
+    if settings.account_product_mode == "personal":
+        query = query.where(Membership.organization_id == principal.organization_id)
+    rows = (await db.execute(query)).all()
     return CurrentUser(
         user_id=principal.user_id,
         email=principal.email,
@@ -303,6 +317,70 @@ async def current_user_view(db: AsyncSession, principal: Principal) -> CurrentUs
             for membership, organization in rows
         ],
     )
+
+
+async def ensure_personal_organization(
+    db: AsyncSession,
+    user: User,
+) -> tuple[Membership, Organization]:
+    """Return the account's private workspace, creating one when necessary.
+
+    Existing owner workspaces are adopted so migrated artifacts stay with their
+    original owner. Shared memberships are never selected as a personal workspace.
+    """
+    organization = None
+    if user.personal_organization_id:
+        candidate = await db.get(Organization, user.personal_organization_id)
+        if (
+            candidate is not None
+            and candidate.slug != "platform"
+            and candidate.personal_owner_user_id in {None, user.user_id}
+        ):
+            organization = candidate
+
+    if organization is None:
+        organization = await db.scalar(
+            select(Organization)
+            .join(Membership, Membership.organization_id == Organization.organization_id)
+            .where(
+                Membership.user_id == user.user_id,
+                Membership.status == "active",
+                Membership.role == "owner",
+                Organization.slug != "platform",
+                or_(
+                    Organization.personal_owner_user_id.is_(None),
+                    Organization.personal_owner_user_id == user.user_id,
+                ),
+            )
+            .order_by(Membership.joined_at)
+        )
+
+    if organization is None:
+        owner_label = (user.display_name or user.email.split("@", 1)[0]).strip()
+        organization = await create_organization(
+            db,
+            name=f"{owner_label} 的资料库",
+            slug=f"personal-{user.user_id}",
+            plan_code="free",
+            personal_owner_user_id=user.user_id,
+        )
+    else:
+        organization.personal_owner_user_id = user.user_id
+
+    membership = await db.get(Membership, (organization.organization_id, user.user_id))
+    if membership is None:
+        membership = Membership(
+            organization_id=organization.organization_id,
+            user_id=user.user_id,
+            role="owner",
+        )
+        db.add(membership)
+    else:
+        membership.role = "owner"
+        membership.status = "active"
+    user.personal_organization_id = organization.organization_id
+    await db.flush()
+    return membership, organization
 
 
 def require_role(principal: Principal, minimum: str) -> None:
@@ -579,10 +657,15 @@ async def record_usage(
     }
     model_purpose = purpose_map.get(purpose)
     if model_purpose:
-        from corpus2node.llm import factory
+        from corpus2node.llm import factory, store
         from corpus2node.llm.credentials import Purpose
 
-        usage_detail.setdefault("model_signature", factory.purpose_signature(Purpose(model_purpose)))
+        if store.active_user_id() == principal.user_id:
+            signature = factory.purpose_signature(Purpose(model_purpose))
+        else:
+            with store.user_scope(principal.user_id):
+                signature = factory.purpose_signature(Purpose(model_purpose))
+        usage_detail.setdefault("model_signature", signature)
     if "input_chars" in usage_detail and "input_tokens" not in usage_detail:
         usage_detail["input_tokens"] = max(1, int(usage_detail["input_chars"]) // 4)
         usage_detail["tokens_estimated"] = True

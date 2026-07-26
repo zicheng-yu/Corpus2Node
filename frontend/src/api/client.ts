@@ -7,6 +7,7 @@ import type {
   CourseSession,
   CurrentUser,
   CredentialUpsert,
+  DiscoveryHistoryItem,
   DiscoveryReport,
   GlobalConceptHit,
   GraphArtifact,
@@ -326,6 +327,10 @@ export function deepenProposal(discoveryId: string, proposalId: string): Promise
 
 export async function listDiscoveries(): Promise<DiscoveryReport[]> {
   return readJson<DiscoveryReport[]>(await fetch(`${BASE}/discovery`));
+}
+
+export async function listDiscoveryHistory(): Promise<DiscoveryHistoryItem[]> {
+  return readJson<DiscoveryHistoryItem[]>(await fetch(`${BASE}/discovery/history`));
 }
 
 export async function getDiscovery(discoveryId: string): Promise<DiscoveryReport> {

@@ -62,6 +62,7 @@ export function DiscoveryHistoryBar({
 
 export function DiscoveryReportPanel({
   report,
+  editable = true,
   showBridgeGraph,
   onToggleBridge,
   onOpenConcept,
@@ -72,6 +73,7 @@ export function DiscoveryReportPanel({
   onClose,
 }: {
   report: DiscoveryReport;
+  editable?: boolean;
   showBridgeGraph: boolean;
   onToggleBridge: () => void;
   onOpenConcept: (sessionId: string, conceptId: string) => void;
@@ -127,6 +129,7 @@ export function DiscoveryReportPanel({
               <ProposalCard
                 key={proposal.proposal_id}
                 proposal={proposal}
+                editable={editable}
                 deepening={deepeningId === proposal.proposal_id}
                 onOpenConcept={onOpenConcept}
                 onStatus={onProposalStatus}
@@ -182,12 +185,14 @@ function DeepDiveLine({ line }: { line: string }) {
 
 function ProposalCard({
   proposal,
+  editable,
   deepening,
   onOpenConcept,
   onStatus,
   onDeepen,
 }: {
   proposal: InnovationProposal;
+  editable: boolean;
   deepening: boolean;
   onOpenConcept: (sessionId: string, conceptId: string) => void;
   onStatus: (proposalId: string, status: ProposalStatus) => void;
@@ -255,28 +260,32 @@ function ProposalCard({
         </div>
       )}
       <div className="proposal-actions">
-        <button
-          className={clsx("discovery-mini-btn", { "proposal-btn-active": kept })}
-          type="button"
-          onClick={() => onStatus(proposal.proposal_id, kept ? "new" : "kept")}
-        >
-          {kept ? "取消采纳" : "采纳"}
-        </button>
-        <button
-          className={clsx("discovery-mini-btn", { "proposal-btn-active": discarded })}
-          type="button"
-          onClick={() => onStatus(proposal.proposal_id, discarded ? "new" : "discarded")}
-        >
-          {discarded ? "恢复" : "搁置"}
-        </button>
-        <button
-          className="discovery-mini-btn"
-          type="button"
-          disabled={deepening}
-          onClick={() => onDeepen(proposal.proposal_id)}
-        >
-          {deepening ? "深挖中…" : proposal.deep_dive ? "重新深挖" : "深挖"}
-        </button>
+        {editable && (
+          <>
+            <button
+              className={clsx("discovery-mini-btn", { "proposal-btn-active": kept })}
+              type="button"
+              onClick={() => onStatus(proposal.proposal_id, kept ? "new" : "kept")}
+            >
+              {kept ? "取消采纳" : "采纳"}
+            </button>
+            <button
+              className={clsx("discovery-mini-btn", { "proposal-btn-active": discarded })}
+              type="button"
+              onClick={() => onStatus(proposal.proposal_id, discarded ? "new" : "discarded")}
+            >
+              {discarded ? "恢复" : "搁置"}
+            </button>
+            <button
+              className="discovery-mini-btn"
+              type="button"
+              disabled={deepening}
+              onClick={() => onDeepen(proposal.proposal_id)}
+            >
+              {deepening ? "深挖中…" : proposal.deep_dive ? "重新深挖" : "深挖"}
+            </button>
+          </>
+        )}
         <span className="proposal-confidence">{Math.round(proposal.confidence * 100)}%</span>
       </div>
     </article>

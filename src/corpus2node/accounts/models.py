@@ -26,12 +26,14 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="active")
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    personal_organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class Organization(Base):
     __tablename__ = "organizations"
+    __table_args__ = (UniqueConstraint("personal_owner_user_id", name="uq_organization_personal_owner"),)
 
     organization_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(120))
@@ -40,6 +42,7 @@ class Organization(Base):
     plan_status: Mapped[str] = mapped_column(String(20), default="active")
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     entitlement_overrides: Mapped[dict] = mapped_column(JSON, default=dict)
+    personal_owner_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

@@ -24,6 +24,7 @@ from corpus2node.api.app import app
 from corpus2node.api.routes.shares import _public_discovery_report, _public_scientific_report
 from corpus2node.api.routes.auth import _ATTEMPTS
 from corpus2node.config import settings
+from corpus2node.admin import invite_user
 from corpus2node.core.clock import utcnow
 from corpus2node.core.types import (
     ChatDocument,
@@ -38,6 +39,7 @@ from corpus2node.core.types import (
     SourceKind,
     TestDocument as GeneratedTestDocument,
 )
+from corpus2node.llm import store
 from corpus2node.scientific.schemas import (
     RDDecisionCard,
     ScientificClaim,
@@ -70,6 +72,7 @@ async def _bootstrap() -> tuple[str, str]:
 @pytest.fixture
 def account_env(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "auth_mode", "accounts")
+    monkeypatch.setattr(settings, "account_product_mode", "teams")
     monkeypatch.setattr(settings, "database_url", f"sqlite+aiosqlite:///{tmp_path / 'accounts.db'}")
     monkeypatch.setattr(settings, "database_auto_create", True)
     monkeypatch.setattr(settings, "public_app_url", "http://testserver")
@@ -215,6 +218,105 @@ def test_production_session_cookie_can_be_secure(account_env, monkeypatch):
     assert "HttpOnly" in session_cookie
     assert "Secure" in session_cookie
     assert "SameSite=lax" in session_cookie
+
+
+def test_invite_user_cli_creates_one_private_workspace(account_env, monkeypatch):
+    monkeypatch.setattr(settings, "account_product_mode", "personal")
+    activation_url = asyncio.run(invite_user("private@example.com", "Private User"))
+    client = TestClient(app)
+    current = _activate(client, _token_from_url(activation_url), "Private User")
+    assert len(current["memberships"]) == 1
+    assert current["memberships"][0]["role"] == "owner"
+    assert current["memberships"][0]["organization_name"] == "Private User 的资料库"
+
+
+def test_personal_mode_isolates_workspace_content_and_byok(account_env, monkeypatch):
+    platform_org_id, token = account_env
+    platform = TestClient(app)
+    _activate(platform, token, "Platform")
+    owner_org_id, owner_token = _provision(
+        platform,
+        platform_org_id,
+        "Personal Owner Workspace",
+        "personal-owner@example.com",
+    )
+    owner = TestClient(app)
+    owner_user = _activate(owner, owner_token, "Personal Owner")
+    member_invite = owner.post(
+        f"/organizations/{owner_org_id}/invitations",
+        json={"email": "personal-member@example.com", "role": "member"},
+        headers=_headers(owner, owner_org_id),
+    )
+    assert member_invite.status_code == 200
+
+    monkeypatch.setattr(settings, "account_product_mode", "personal")
+    owner_me = owner.get("/auth/me")
+    assert owner_me.status_code == 200
+    assert [value["organization_id"] for value in owner_me.json()["memberships"]] == [owner_org_id]
+
+    member = TestClient(app)
+    member_user = _activate(
+        member,
+        _token_from_url(member_invite.json()["activation_url"]),
+        "Personal Member",
+    )
+    member_org_id = member_user["active_organization_id"]
+    assert member_org_id != owner_org_id
+    assert len(member_user["memberships"]) == 1
+    assert member_user["memberships"][0]["role"] == "owner"
+
+    assert owner.get("/organizations").json()[0]["organization_id"] == owner_org_id
+    assert member.get("/organizations").json()[0]["organization_id"] == member_org_id
+    assert owner.get(f"/organizations/{owner_org_id}/members").status_code == 404
+
+    project = owner.post(
+        "/projects",
+        json={"name": "Private Research"},
+        headers=_headers(owner, owner_org_id),
+    )
+    session = owner.post(
+        "/sessions",
+        json={
+            "course_title": "Private Research",
+            "lecture_title": "Owner only",
+            "project_id": project.json()["project_id"],
+        },
+        headers=_headers(owner, owner_org_id),
+    )
+    assert session.status_code == 200
+    assert member.get("/sessions", headers={"X-Organization-ID": owner_org_id}).json() == []
+
+    owner_settings = owner.post(
+        "/settings/llm/credentials",
+        json={
+            "label": "Owner API",
+            "kind": "openai",
+            "base_url": "https://api.owner.example/v1",
+            "api_key": "owner-secret-key",
+            "default_model": "owner-model",
+        },
+        headers=_headers(owner, owner_org_id),
+    )
+    assert owner_settings.status_code == 200
+    assert member.get("/settings/llm").json()["credentials"] == []
+
+    member_settings = member.post(
+        "/settings/llm/credentials",
+        json={
+            "label": "Member API",
+            "kind": "openai",
+            "base_url": "https://api.member.example/v1",
+            "api_key": "member-secret-key",
+            "default_model": "member-model",
+        },
+        headers=_headers(member, member_org_id),
+    )
+    assert member_settings.status_code == 200
+    assert [value["label"] for value in owner.get("/settings/llm").json()["credentials"]] == ["Owner API"]
+    assert [value["label"] for value in member.get("/settings/llm").json()["credentials"]] == ["Member API"]
+    assert "owner-secret-key" in store.path_for_user(owner_user["user_id"]).read_text(encoding="utf-8")
+    assert "member-secret-key" in store.path_for_user(member_user["user_id"]).read_text(encoding="utf-8")
+    assert store.path_for_user(owner_user["user_id"]).stat().st_mode & 0o777 == 0o600
 
 
 def test_cross_tenant_role_matrix_and_private_chat(account_env):
@@ -393,6 +495,65 @@ def test_cross_tenant_role_matrix_and_private_chat(account_env):
     ).status_code == 400
 
 
+def test_member_can_archive_team_session_but_viewer_cannot(account_env, monkeypatch):
+    monkeypatch.setattr(
+        "corpus2node.api.routes.sessions.schedule_project_refresh",
+        lambda *_args, **_kwargs: None,
+    )
+    platform_org_id, token = account_env
+    platform = TestClient(app)
+    _activate(platform, token, "Platform")
+    org_id, owner_token = _provision(
+        platform,
+        platform_org_id,
+        "Archive Lab",
+        "archive-owner@example.com",
+    )
+    owner = TestClient(app)
+    _activate(owner, owner_token, "Owner")
+    project = owner.post(
+        "/projects",
+        json={"name": "Archive Project"},
+        headers=_headers(owner, org_id),
+    )
+    session = owner.post(
+        "/sessions",
+        json={
+            "course_title": "Archive Project",
+            "lecture_title": "Shared material",
+            "project_id": project.json()["project_id"],
+        },
+        headers=_headers(owner, org_id),
+    )
+    session_id = session.json()["session_id"]
+
+    member_invite = owner.post(
+        f"/organizations/{org_id}/invitations",
+        json={"email": "archive-member@example.com", "role": "member"},
+        headers=_headers(owner, org_id),
+    )
+    viewer_invite = owner.post(
+        f"/organizations/{org_id}/invitations",
+        json={"email": "archive-viewer@example.com", "role": "viewer"},
+        headers=_headers(owner, org_id),
+    )
+    member = TestClient(app)
+    viewer = TestClient(app)
+    _activate(member, _token_from_url(member_invite.json()["activation_url"]), "Member")
+    _activate(viewer, _token_from_url(viewer_invite.json()["activation_url"]), "Viewer")
+
+    assert viewer.delete(
+        f"/sessions/{session_id}",
+        headers=_headers(viewer, org_id),
+    ).status_code == 403
+    assert member.delete(
+        f"/sessions/{session_id}",
+        headers=_headers(member, org_id),
+    ).status_code == 200
+    assert member.get("/sessions", headers={"X-Organization-ID": org_id}).json() == []
+    assert local.load_session(UUID(session_id)).lecture_title == "Shared material"
+
+
 async def _install_revision(org_id: str, project_id: str, creator_id: str) -> str:
     await init_db()
     graph = GraphArtifact(session_id=uuid4())
@@ -432,6 +593,49 @@ async def _stored_share_hash(share_id: str) -> str:
         value = await db.get(ShareLink, share_id)
         assert value is not None
         return value.token_hash
+
+
+async def _install_report_resource(organization_id: str, resource_type: str, resource_key: str, path: Path) -> None:
+    await init_db()
+    async with session_factory()() as db:
+        db.add(
+            Resource(
+                resource_type=resource_type,
+                resource_key=resource_key,
+                organization_id=organization_id,
+                artifact_path=str(path),
+            )
+        )
+        await db.commit()
+
+
+def test_unified_discovery_history_is_tenant_scoped(account_env):
+    platform_org_id, token = account_env
+    platform = TestClient(app)
+    _activate(platform, token, "Platform")
+    org_a, token_a = _provision(platform, platform_org_id, "History A", "history-a@example.com")
+    org_b, token_b = _provision(platform, platform_org_id, "History B", "history-b@example.com")
+    owner_a = TestClient(app)
+    owner_b = TestClient(app)
+    _activate(owner_a, token_a, "Owner A")
+    _activate(owner_b, token_b, "Owner B")
+
+    discovery = DiscoveryReport(title="A 的跨资料发现")
+    scientific = ScientificReport(title_zh="B 的科研证据", session_ids=[uuid4()])
+    discovery_path = local.save_discovery_report(discovery)
+    scientific_path = local.save_scientific_report(scientific)
+    asyncio.run(
+        _install_report_resource(org_a, "discovery_report", discovery.discovery_id, discovery_path)
+    )
+    asyncio.run(
+        _install_report_resource(org_b, "scientific_report", scientific.report_id, scientific_path)
+    )
+
+    history_a = owner_a.get("/discovery/history", headers={"X-Organization-ID": org_a})
+    history_b = owner_b.get("/discovery/history", headers={"X-Organization-ID": org_b})
+
+    assert [item["title"] for item in history_a.json()] == ["A 的跨资料发现"]
+    assert [item["title"] for item in history_b.json()] == ["B 的科研证据"]
 
 
 def test_share_snapshot_hash_revocation_and_archive(account_env):

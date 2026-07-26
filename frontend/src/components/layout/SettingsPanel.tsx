@@ -10,18 +10,33 @@ import {
   savePromptSettings,
   upsertCredential,
 } from "../../api/client";
-import type { LLMSettingsView, LlmPurpose, PromptSettings, ProviderKind } from "../../types";
+import type { CredentialView, LLMSettingsView, LlmPurpose, PromptSettings, ProviderKind } from "../../types";
 import { Button } from "../primitives/Button";
 import { useToast } from "../primitives/Toast";
 import { AccessSettings } from "./AccessSettings";
 import { useAuth } from "../../auth/AuthContext";
+import { AccountSettings } from "../settings/AccountSettings";
+import "../../pages/AccountPage.css";
+import "../../pages/SettingsPage.css";
 import "./SettingsPanel.css";
 
-type Section = "access" | "models" | "appearance" | "prompts";
+export type SettingsPanelSection =
+  | "account"
+  | "access"
+  | "models"
+  | "appearance"
+  | "prompts";
 
-const SECTIONS: Array<{ id: Section; label: string }> = [
+const ACCOUNT_SECTIONS: Array<{ id: SettingsPanelSection; label: string }> = [
+  { id: "account", label: "账号" },
+  { id: "models", label: "模型与 API" },
+  { id: "appearance", label: "外观设置" },
+  { id: "prompts", label: "个人偏好" },
+];
+
+const LEGACY_SECTIONS: Array<{ id: SettingsPanelSection; label: string }> = [
   { id: "access", label: "访问安全" },
-  { id: "models", label: "模型设置" },
+  { id: "models", label: "模型与 API" },
   { id: "appearance", label: "外观设置" },
   { id: "prompts", label: "提示词设置" },
 ];
@@ -35,23 +50,36 @@ const GRAPH_STYLES = [
 interface SettingsPanelProps {
   open: boolean;
   onClose: () => void;
+  initialSection?: SettingsPanelSection;
   graphStyle: string;
   setGraphStyle: (g: string) => void;
 }
 
-export function SettingsPanel({ open, onClose, graphStyle, setGraphStyle }: SettingsPanelProps) {
-  const [section, setSection] = useState<Section>("appearance");
-  const { mode, user } = useAuth();
-  const sections = SECTIONS.filter((value) => {
-    if (mode !== "accounts") return true;
-    if (value.id === "access") return false;
-    if (value.id === "models") return Boolean(user?.is_platform_admin);
-    return true;
-  });
+export function SettingsPanel({ open, onClose, initialSection, graphStyle, setGraphStyle }: SettingsPanelProps) {
+  const { mode } = useAuth();
+  const sections = mode === "accounts" ? ACCOUNT_SECTIONS : LEGACY_SECTIONS;
+  const fallbackSection: SettingsPanelSection = mode === "accounts" ? "account" : "appearance";
+  const [section, setSection] = useState<SettingsPanelSection>(initialSection ?? fallbackSection);
+
+  useEffect(() => {
+    if (!open) return;
+    const requested = initialSection ?? fallbackSection;
+    setSection(sections.some((value) => value.id === requested) ? requested : sections[0].id);
+  }, [open, initialSection, fallbackSection, sections]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
-    <div className="set-overlay" onClick={onClose} role="dialog" aria-label="设置">
+    <div className="set-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="设置">
       <div className="set-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="set-head">
           <span className="set-head-title">设置</span>
@@ -75,6 +103,7 @@ export function SettingsPanel({ open, onClose, graphStyle, setGraphStyle }: Sett
             ))}
           </nav>
           <div className="set-content">
+            {section === "account" && <AccountSettings />}
             {section === "access" && <AccessSettings />}
             {section === "models" && <ModelSettings />}
             {section === "appearance" && (
@@ -89,7 +118,7 @@ export function SettingsPanel({ open, onClose, graphStyle, setGraphStyle }: Sett
 }
 
 // ── Appearance ──────────────────────────────────────────────────────────────
-function AppearanceSettings({ graphStyle, setGraphStyle }: { graphStyle: string; setGraphStyle: (g: string) => void }) {
+export function AppearanceSettings({ graphStyle, setGraphStyle }: { graphStyle: string; setGraphStyle: (g: string) => void }) {
   return (
     <section className="set-section">
       <h3 className="set-section-title">图谱布局</h3>
@@ -118,7 +147,7 @@ const PROMPT_FIELDS: Array<{ key: keyof PromptSettings; label: string; placehold
   { key: "exam", label: "测试生成", placeholder: "例：偏应用与理解，少考死记硬背…" },
 ];
 
-function PromptsSettings() {
+export function PromptsSettings() {
   const [value, setValue] = useState<PromptSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
@@ -201,7 +230,7 @@ const KIND_BASE_PLACEHOLDER: Record<ProviderKind, string> = {
   lmstudio: "http://127.0.0.1:1234/v1（默认，可留空）",
 };
 
-function ModelSettings() {
+export function ModelSettings() {
   const [settings, setSettings] = useState<LLMSettingsView | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -217,6 +246,12 @@ function ModelSettings() {
   const [maxConcurrency, setMaxConcurrency] = useState("");
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [modelEditor, setModelEditor] = useState<{
+    credentialId: string;
+    options: string[];
+    selected: string;
+  } | null>(null);
+  const [loadingCredentialId, setLoadingCredentialId] = useState<string | null>(null);
   const isLocal = LOCAL_KINDS.has(kind);
 
   function switchKind(next: ProviderKind) {
@@ -286,6 +321,51 @@ function ModelSettings() {
     }
   }
 
+  async function fetchSavedModels(credential: CredentialView) {
+    setLoadingCredentialId(credential.credential_id);
+    try {
+      const result = await listProviderModels({ credential_id: credential.credential_id });
+      if (result.error) {
+        toast(result.error, "error");
+      } else if (result.models.length === 0) {
+        toast("端点没有返回模型", "error");
+      } else {
+        setModelEditor({
+          credentialId: credential.credential_id,
+          options: result.models,
+          selected: result.models.includes(credential.default_model)
+            ? credential.default_model
+            : result.models[0],
+        });
+        toast(`发现 ${result.models.length} 个模型`, "success");
+      }
+    } catch (e) {
+      toast(`读取模型失败：${String(e)}`, "error");
+    } finally {
+      setLoadingCredentialId(null);
+    }
+  }
+
+  async function saveDefaultModel(credential: CredentialView) {
+    if (!modelEditor?.selected.trim()) return;
+    try {
+      setSettings(await upsertCredential({
+        credential_id: credential.credential_id,
+        label: credential.label,
+        kind: credential.kind,
+        base_url: credential.base_url,
+        api_key: "",
+        default_model: modelEditor.selected.trim(),
+        num_ctx: credential.num_ctx,
+        max_concurrency: credential.max_concurrency,
+      }));
+      setModelEditor(null);
+      toast("默认模型已更新", "success");
+    } catch (e) {
+      toast(`保存模型失败：${String(e)}`, "error");
+    }
+  }
+
   async function applyBinding(purpose: LlmPurpose, credentialId: string) {
     try {
       setSettings(
@@ -306,17 +386,42 @@ function ModelSettings() {
   return (
     <section className="set-section">
       <h3 className="set-section-title">模型凭据</h3>
-      <p className="set-section-desc">添加凭据（端点 + 密钥 + 模型），下面把每个用途绑定到一条；密钥仅掩码回显。选 Ollama / LM Studio 可全离线运行（无需密钥，模型可一键读取）；本地 bge_m3 嵌入与语音转写仍在 .env 里开关。</p>
+      <p className="set-section-desc">每个账号独立保存“端点 + 密钥 + 模型”，密钥仅掩码回显；再在下方为各用途选择凭据。托管站点请使用公网 HTTPS API；Ollama / LM Studio 仅适用于本机部署。</p>
 
       <div className="set-cred-list">
         {credentials.length === 0 && <div className="set-empty-line">暂无凭据，请新增。</div>}
         {credentials.map((c) => (
-          <div className="set-cred-row" key={c.credential_id}>
-            <div className="set-cred-main">
-              <span className="set-cred-label">{c.label}<em>{c.kind}</em></span>
-              <span className="set-cred-meta">{c.default_model || "无默认模型"} · {c.api_key_preview || "—"}</span>
+          <div className="set-cred-entry" key={c.credential_id}>
+            <div className="set-cred-row">
+              <div className="set-cred-main">
+                <span className="set-cred-label">{c.label}<em>{c.kind}</em></span>
+                <span className="set-cred-meta">{c.default_model || "无默认模型"} · {c.api_key_preview || "—"}</span>
+              </div>
+              <div className="set-cred-actions">
+                <button
+                  className="set-mini-btn"
+                  type="button"
+                  disabled={loadingCredentialId === c.credential_id}
+                  onClick={() => fetchSavedModels(c)}
+                >
+                  {loadingCredentialId === c.credential_id ? "读取中…" : "读取模型"}
+                </button>
+                <button className="set-mini-btn" type="button" onClick={() => removeCredential(c.credential_id)}>删除</button>
+              </div>
             </div>
-            <button className="set-mini-btn" type="button" onClick={() => removeCredential(c.credential_id)}>删除</button>
+            {modelEditor?.credentialId === c.credential_id && (
+              <div className="set-saved-model-editor">
+                <select
+                  aria-label={`${c.label} 默认模型`}
+                  value={modelEditor.selected}
+                  onChange={(e) => setModelEditor({ ...modelEditor, selected: e.target.value })}
+                >
+                  {modelEditor.options.map((model) => <option key={model} value={model}>{model}</option>)}
+                </select>
+                <button className="set-mini-btn" type="button" onClick={() => setModelEditor(null)}>取消</button>
+                <Button size="sm" onClick={() => saveDefaultModel(c)}>设为默认</Button>
+              </div>
+            )}
           </div>
         ))}
       </div>

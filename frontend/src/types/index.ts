@@ -397,6 +397,21 @@ export interface DiscoveryReport {
   generated_at: string;
 }
 
+export type DiscoveryHistoryType = "cross_corpus" | "scientific_evidence";
+
+export interface DiscoveryHistoryItem {
+  report_id: string;
+  report_type: DiscoveryHistoryType;
+  title: string;
+  generated_at: string;
+  session_count: number;
+  finding_count: number;
+  proposal_count: number;
+  claim_count: number;
+  insight_count: number;
+  decision_count: number;
+}
+
 // ── Scientific R&D evidence vertical ────────────────────────────────────────
 
 export type ScientificLanguageMode = "zh" | "zh_bilingual";

@@ -35,11 +35,14 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function initialOrganization(user: CurrentUser): string {
+  const customerMemberships = user.memberships.filter((item) => item.organization_slug !== "platform");
+  const availableMemberships = customerMemberships.length > 0 ? customerMemberships : user.memberships;
   const saved = getActiveOrganizationId();
-  if (saved && (user.is_platform_admin || user.memberships.some((item) => item.organization_id === saved))) {
+  if (saved && availableMemberships.some((item) => item.organization_id === saved)) {
     return saved;
   }
-  return user.active_organization_id ?? user.memberships[0]?.organization_id ?? "";
+  const active = availableMemberships.find((item) => item.organization_id === user.active_organization_id);
+  return active?.organization_id ?? availableMemberships[0]?.organization_id ?? "";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

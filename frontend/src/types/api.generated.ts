@@ -262,6 +262,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/discovery/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Discovery History */
+        get: operations["list_discovery_history_api_discovery_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/discovery/run": {
         parameters: {
             query?: never;
@@ -1491,6 +1508,23 @@ export interface paths {
         };
         /** List Discoveries */
         get: operations["list_discoveries_discovery_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/discovery/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Discovery History */
+        get: operations["list_discovery_history_discovery_history_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3097,6 +3131,54 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** DiscoveryHistoryItem */
+        DiscoveryHistoryItem: {
+            /**
+             * Claim Count
+             * @default 0
+             */
+            claim_count: number;
+            /**
+             * Decision Count
+             * @default 0
+             */
+            decision_count: number;
+            /**
+             * Finding Count
+             * @default 0
+             */
+            finding_count: number;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /**
+             * Insight Count
+             * @default 0
+             */
+            insight_count: number;
+            /**
+             * Proposal Count
+             * @default 0
+             */
+            proposal_count: number;
+            /** Report Id */
+            report_id: string;
+            report_type: components["schemas"]["DiscoveryHistoryType"];
+            /**
+             * Session Count
+             * @default 0
+             */
+            session_count: number;
+            /** Title */
+            title: string;
+        };
+        /**
+         * DiscoveryHistoryType
+         * @enum {string}
+         */
+        DiscoveryHistoryType: "cross_corpus" | "scientific_evidence";
         /**
          * DiscoveryMode
          * @enum {string}
@@ -5344,6 +5426,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiscoveryReport"][];
+                };
+            };
+        };
+    };
+    list_discovery_history_api_discovery_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoveryHistoryItem"][];
                 };
             };
         };
@@ -8046,6 +8148,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiscoveryReport"][];
+                };
+            };
+        };
+    };
+    list_discovery_history_discovery_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoveryHistoryItem"][];
                 };
             };
         };

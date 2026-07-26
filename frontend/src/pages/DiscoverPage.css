@@ -1,0 +1,192 @@
+.discover-page {
+  min-height: calc(100vh - 56px);
+  display: grid;
+  grid-template-columns: 350px minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.discover-sidebar {
+  position: sticky;
+  top: 56px;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+  padding: 24px 22px 36px;
+  border-right: 1px solid var(--rule);
+  background: var(--panel);
+}
+
+.discover-sidebar-head h1 {
+  margin: 8px 0 6px;
+  font: 500 28px/1.2 var(--font-serif);
+}
+
+.discover-sidebar-head p {
+  margin: 0;
+  color: var(--ink-3);
+  font: 12.5px/1.65 var(--font-ui);
+}
+
+.discover-back {
+  display: block;
+  margin: 0 0 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.discover-back:hover { color: var(--accent); }
+
+.discover-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-top: 20px;
+}
+
+.discover-mode-tabs button {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--ink-3);
+  text-align: left;
+  cursor: pointer;
+}
+
+.discover-mode-tabs button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.discover-mode-tabs strong { font: 600 12px var(--font-ui); }
+.discover-mode-tabs span { font: 10px/1.35 var(--font-ui); }
+
+.discover-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+  color: var(--ink-3);
+  font: 600 10px var(--font-mono);
+  letter-spacing: .08em;
+}
+
+.discover-field textarea,
+.discover-search {
+  width: 100%;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--ink);
+  font: 12px/1.55 var(--font-ui);
+  outline: none;
+}
+
+.discover-field textarea { padding: 9px 10px; resize: vertical; }
+.discover-search { margin-bottom: 7px; padding: 8px 9px; }
+.discover-field textarea:focus, .discover-search:focus { border-color: var(--accent); }
+
+.discover-picker-head,
+.discover-history-head {
+  display: flex;
+  justify-content: space-between;
+  margin: 18px 0 7px;
+  color: var(--ink-3);
+  font: 600 10px var(--font-mono);
+  letter-spacing: .08em;
+}
+
+.discover-picker-head b,
+.discover-history-head b { color: var(--accent); }
+
+.discover-session-list {
+  display: grid;
+  gap: 5px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.discover-session {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.discover-session.selected { border-color: var(--accent); background: var(--accent-ghost); }
+.discover-session input { margin-top: 2px; accent-color: var(--accent); }
+.discover-session strong, .discover-session small { display: block; }
+.discover-session strong { overflow: hidden; color: var(--ink); font: 600 12px var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
+.discover-session small { margin-top: 2px; color: var(--ink-4); font: 10px var(--font-ui); }
+.discover-session em { padding: 2px 5px; border-radius: var(--radius-pill); font: normal 9px var(--font-ui); white-space: nowrap; }
+.discover-session em.ready { background: var(--accent-soft); color: var(--accent); }
+.discover-session em.source-only { background: var(--panel-2); color: var(--ink-4); }
+
+.discover-warning,
+.discover-muted {
+  margin: 8px 0 0;
+  color: var(--ink-3);
+  font: 10.5px/1.5 var(--font-ui);
+}
+
+.discover-warning { color: var(--warn); }
+.discover-run { width: 100%; justify-content: center; margin-top: 12px; }
+
+.discover-history {
+  margin-top: 24px;
+  padding-top: 1px;
+  border-top: 1px solid var(--rule);
+}
+
+.discover-history-filters { display: flex; gap: 4px; margin-bottom: 8px; }
+.discover-history-filters button {
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-3);
+  font: 10px var(--font-ui);
+  cursor: pointer;
+}
+.discover-history-filters button.active { border-color: var(--rule); background: var(--bg); color: var(--ink); }
+.discover-history-list { display: grid; gap: 5px; }
+
+.discover-history-item {
+  position: relative;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+}
+
+.discover-history-item.active { border-left-color: var(--accent); background: var(--accent-ghost); }
+.discover-history-item > button:first-child { width: 100%; display: grid; gap: 3px; padding: 8px 26px 8px 9px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.discover-history-item strong { overflow: hidden; color: var(--ink-2); font: 600 11.5px var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
+.discover-history-item small, .discover-history-item time { color: var(--ink-4); font: 9.5px var(--font-ui); }
+.discover-kind { width: fit-content; padding: 2px 5px; border-radius: var(--radius-pill); font: 9px var(--font-ui); }
+.discover-kind.cross_corpus { background: var(--panel-2); color: var(--ink-3); }
+.discover-kind.scientific_evidence { background: var(--accent-soft); color: var(--accent); }
+.discover-history-delete { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; border: 0; background: transparent; color: var(--ink-4); cursor: pointer; }
+.discover-history-delete:hover { color: var(--err); }
+
+.discover-main { min-width: 0; padding: 32px 38px 80px; }
+.discover-main .discovery-panel { max-width: 1220px; margin: 0 auto; }
+.discover-blank { max-width: 560px; margin: 18vh auto 0; text-align: center; }
+.discover-blank > span { font: 600 52px/1 var(--font-mono); color: var(--rule-strong); }
+.discover-blank h2 { margin: 14px 0 8px; font: 500 27px/1.25 var(--font-serif); }
+.discover-blank p { color: var(--ink-3); font: 13px/1.7 var(--font-ui); }
+
+@media (max-width: 900px) {
+  .discover-page { grid-template-columns: 1fr; }
+  .discover-sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--rule); }
+  .discover-main { padding: 26px 18px 60px; }
+}

@@ -9,7 +9,11 @@ import { Button } from "../components/primitives/Button";
 import type { OrganizationView, UsageSummary } from "../types";
 import "./AccountPage.css";
 
-export function PlatformAdminPage() {
+interface PlatformAdminPageProps {
+  embedded?: boolean;
+}
+
+export function PlatformAdminPage({ embedded = false }: PlatformAdminPageProps) {
   const [organizations, setOrganizations] = useState<OrganizationView[]>([]);
   const [name, setName] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
@@ -111,7 +115,7 @@ export function PlatformAdminPage() {
 
   return (
     <div className="collection-page">
-      <header className="collection-head"><div><h1>平台管理</h1><p className="account-muted">创建客户课题组、生成负责人激活链接并手工分配内测套餐。</p></div></header>
+      {!embedded && <header className="collection-head"><div><h1>平台管理</h1><p className="account-muted">创建客户课题组、生成负责人激活链接并手工分配内测套餐。</p></div></header>}
       {error && <div className="account-error" role="alert">{error}</div>}
       <section className="content-card">
         <h2>创建客户组织</h2>

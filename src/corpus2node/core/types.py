@@ -56,6 +56,11 @@ class DiscoveryMode(str, Enum):
     random = "random"
 
 
+class DiscoveryHistoryType(str, Enum):
+    cross_corpus = "cross_corpus"
+    scientific_evidence = "scientific_evidence"
+
+
 class SourceFile(BaseModel):
     source_id: UUID = Field(default_factory=uuid4)
     kind: SourceKind
@@ -616,6 +621,19 @@ class DiscoveryReport(BaseModel):
     proposals: list[InnovationProposal] = Field(default_factory=list)
     bridge_graph: DiscoveryBridgeGraph = Field(default_factory=DiscoveryBridgeGraph)
     generated_at: datetime = Field(default_factory=utcnow)
+
+
+class DiscoveryHistoryItem(BaseModel):
+    report_id: str
+    report_type: DiscoveryHistoryType
+    title: str
+    generated_at: datetime
+    session_count: int = 0
+    finding_count: int = 0
+    proposal_count: int = 0
+    claim_count: int = 0
+    insight_count: int = 0
+    decision_count: int = 0
 
 
 class DiscoveryRequest(BaseModel):

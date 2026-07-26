@@ -12,6 +12,7 @@ from corpus2node.core.types import (
     ConceptNode,
     CourseSession,
     DiscoveryMode,
+    DiscoveryReport,
     DiscoveryRequest,
     EvidenceChunk,
     GraphArtifact,
@@ -30,6 +31,7 @@ from corpus2node.discovery.engine import (
     _avoid_titles,
     run_discovery,
 )
+from corpus2node.scientific.schemas import ScientificReport
 from corpus2node.storage import local
 
 client = TestClient(app)
@@ -223,6 +225,23 @@ def test_discovery_route_saves_and_loads_artifact():
     assert deleted.json() == {"ok": True}
     assert client.get(f"/discovery/{discovery_id}").status_code == 404
     assert all(item["discovery_id"] != discovery_id for item in client.get("/discovery").json())
+
+
+def test_unified_discovery_history_summarizes_both_report_types():
+    session_id = uuid.uuid4()
+    discovery = DiscoveryReport(title="跨资料提案", session_ids=[session_id])
+    scientific = ScientificReport(title_zh="科研证据报告", session_ids=[session_id])
+    local.save_discovery_report(discovery)
+    local.save_scientific_report(scientific)
+
+    response = client.get("/discovery/history")
+
+    assert response.status_code == 200
+    items = {item["report_type"]: item for item in response.json()}
+    assert items["cross_corpus"]["report_id"] == discovery.discovery_id
+    assert items["cross_corpus"]["title"] == "跨资料提案"
+    assert items["scientific_evidence"]["report_id"] == scientific.report_id
+    assert items["scientific_evidence"]["title"] == "科研证据报告"
 
 
 def test_delete_missing_discovery_is_404():

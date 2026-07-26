@@ -16,7 +16,11 @@ import "./AccountPage.css";
 
 const ADMIN_ROLES = new Set(["owner", "admin"]);
 
-export function TeamSettingsPage() {
+interface TeamSettingsPageProps {
+  embedded?: boolean;
+}
+
+export function TeamSettingsPage({ embedded = false }: TeamSettingsPageProps) {
   const { user, activeOrganizationId } = useAuth();
   const [organization, setOrganization] = useState<OrganizationView | null>(null);
   const [members, setMembers] = useState<MemberView[]>([]);
@@ -104,12 +108,19 @@ export function TeamSettingsPage() {
 
   return (
     <div className="collection-page">
-      <header className="collection-head">
-        <div>
-          <h1>{organization?.name ?? "团队设置"}</h1>
-          <p className="account-muted">{organization?.plan_code === "team_beta" ? "Team Beta" : "Free"} · {organization?.plan_status ?? ""}</p>
-        </div>
-      </header>
+      {!embedded && (
+        <header className="collection-head">
+          <div>
+            <h1>{organization?.name ?? "团队设置"}</h1>
+            <p className="account-muted">{organization?.plan_code === "team_beta" ? "Team Beta" : "Free"} · {organization?.plan_status ?? ""}</p>
+          </div>
+        </header>
+      )}
+      {embedded && (
+        <p className="account-muted">
+          {organization?.name ?? "当前工作区"} · {organization?.plan_code === "team_beta" ? "Team Beta" : "Free"} · {organization?.plan_status ?? ""}
+        </p>
+      )}
       {error && <div className="account-error" role="alert">{error}</div>}
 
       <div className="metric-grid">

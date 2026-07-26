@@ -27,8 +27,15 @@ from corpus2node.accounts.service import (
     require_role,
 )
 from corpus2node.core.concurrency import keyed_lock
-from corpus2node.core.types import DiscoveryMode, DiscoveryReport, DiscoveryRequest
+from corpus2node.core.types import (
+    DiscoveryHistoryItem,
+    DiscoveryHistoryType,
+    DiscoveryMode,
+    DiscoveryReport,
+    DiscoveryRequest,
+)
 from corpus2node.discovery import DiscoveryInputError, deepen_proposal, make_deepener_or_none, run_discovery
+from corpus2node.scientific.schemas import ScientificReport
 from corpus2node.storage import local
 
 router = APIRouter(prefix="/discovery", tags=["discovery"])
@@ -53,6 +60,8 @@ async def _scoped_request(
         for session_id in payload.session_ids:
             await require_resource_access(request, db, "session", str(session_id))
         return payload, principal
+    if payload.mode == DiscoveryMode.selected:
+        return payload, principal
     keys = (
         await db.scalars(
             select(Resource.resource_key).where(
@@ -62,7 +71,7 @@ async def _scoped_request(
             )
         )
     ).all()
-    return payload.model_copy(update={"session_ids": [UUID(value) for value in keys], "mode": DiscoveryMode.selected}), principal
+    return payload.model_copy(update={"session_ids": [UUID(value) for value in keys]}), principal
 
 
 async def _record_report(principal: Principal, report: DiscoveryReport) -> None:
@@ -192,6 +201,62 @@ async def list_discoveries(
         )
     ).all()
     return sorted([local.load_discovery_report(value) for value in keys], key=lambda value: value.generated_at, reverse=True)
+
+
+def _discovery_history_item(report: DiscoveryReport) -> DiscoveryHistoryItem:
+    return DiscoveryHistoryItem(
+        report_id=report.discovery_id,
+        report_type=DiscoveryHistoryType.cross_corpus,
+        title=report.title or "知识发现",
+        generated_at=report.generated_at,
+        session_count=len(report.session_ids),
+        finding_count=len(report.findings),
+        proposal_count=len(report.proposals),
+    )
+
+
+def _scientific_history_item(report: ScientificReport) -> DiscoveryHistoryItem:
+    return DiscoveryHistoryItem(
+        report_id=report.report_id,
+        report_type=DiscoveryHistoryType.scientific_evidence,
+        title=report.title_zh or "科研证据分析",
+        generated_at=report.generated_at,
+        session_count=len(report.session_ids),
+        claim_count=len(report.claims),
+        insight_count=len(report.insights),
+        decision_count=len(report.decision_cards),
+    )
+
+
+@router.get("/history", response_model=list[DiscoveryHistoryItem])
+async def list_discovery_history(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> list[DiscoveryHistoryItem]:
+    principal = optional_principal(request)
+    items: list[DiscoveryHistoryItem] = []
+    if principal is None:
+        items.extend(_discovery_history_item(value) for value in local.list_discovery_reports())
+        items.extend(_scientific_history_item(value) for value in local.list_scientific_reports())
+    else:
+        rows = (
+            await db.execute(
+                select(Resource.resource_key, Resource.resource_type).where(
+                    Resource.organization_id == principal.organization_id,
+                    Resource.resource_type.in_(("discovery_report", "scientific_report")),
+                    Resource.status == "active",
+                )
+            )
+        ).all()
+        for resource_key, resource_type in rows:
+            try:
+                if resource_type == "discovery_report":
+                    items.append(_discovery_history_item(local.load_discovery_report(resource_key)))
+                else:
+                    items.append(_scientific_history_item(local.load_scientific_report(resource_key)))
+            except FileNotFoundError:
+                continue
+    return sorted(items, key=lambda value: value.generated_at, reverse=True)
 
 
 @router.get("/{discovery_id}")

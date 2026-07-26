@@ -17,18 +17,18 @@ from corpus2node.llm.credentials import (
     PurposeBinding,
 )
 
-def _platform_settings_only(request: Request) -> None:
+def _authenticated_user_settings(request: Request) -> None:
     if settings.auth_mode != "accounts":
         return
     principal = getattr(request.state, "principal", None)
-    if principal is None or not principal.is_platform_admin:
-        raise HTTPException(status_code=403, detail="Platform administrator required.")
+    if principal is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
 
 
 router = APIRouter(
     prefix="/settings/llm",
     tags=["settings"],
-    dependencies=[Depends(_platform_settings_only)],
+    dependencies=[Depends(_authenticated_user_settings)],
 )
 
 
@@ -236,11 +236,6 @@ def list_models(payload: ModelListRequest) -> ModelListView:
         if credential is None:
             raise HTTPException(status_code=404, detail=f"Credential '{payload.credential_id}' not found.")
     elif payload.kind is not None:
-        if settings.app_env.lower() == "production":
-            raise HTTPException(
-                status_code=403,
-                detail="生产环境只允许探测已保存的凭据，禁止任意 endpoint 探测。",
-            )
         _validate_base_url(payload.base_url, payload.kind)
         credential = ProviderCredential(
             label="probe", kind=payload.kind, base_url=payload.base_url, api_key=payload.api_key
@@ -257,6 +252,11 @@ def list_models(payload: ModelListRequest) -> ModelListView:
 
 
 def _validate_base_url(value: str, kind: ProviderKind) -> None:
+    if settings.app_env.lower() == "production" and kind in {ProviderKind.ollama, ProviderKind.lmstudio}:
+        raise HTTPException(
+            status_code=400,
+            detail="托管环境无法连接用户电脑上的本地模型；请使用公网 HTTPS 的 API 端点。",
+        )
     if not value.strip():
         return
     parsed = urlsplit(value)
@@ -271,6 +271,8 @@ def _validate_base_url(value: str, kind: ProviderKind) -> None:
         raise HTTPException(status_code=400, detail="base_url 必须是无内嵌凭据的 http(s) URL。")
     hostname = parsed.hostname.lower().rstrip(".")
     remote_provider = kind not in {ProviderKind.ollama, ProviderKind.lmstudio}
+    if settings.app_env.lower() == "production" and remote_provider and parsed.scheme != "https":
+        raise HTTPException(status_code=400, detail="托管环境的模型 API 必须使用 HTTPS。")
     if (
         settings.app_env.lower() == "production"
         and remote_provider
@@ -285,7 +287,7 @@ def _validate_base_url(value: str, kind: ProviderKind) -> None:
         raise HTTPException(status_code=400, detail="base_url 指向不允许的网络地址。")
     if (
         settings.app_env.lower() == "production"
-        and address.is_loopback
+        and (address.is_loopback or address.is_private)
         and remote_provider
     ):
-        raise HTTPException(status_code=400, detail="生产环境的远程提供商不能指向 loopback 地址。")
+        raise HTTPException(status_code=400, detail="生产环境的远程提供商不能指向本机或内网地址。")

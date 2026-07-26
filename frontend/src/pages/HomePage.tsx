@@ -3,29 +3,17 @@ import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import {
   ApiError,
-  deepenProposal,
-  deleteDiscovery,
   deleteSession,
-  getDiscovery,
-  listDiscoveries,
   listSessions,
   renameCourse,
   renameSession,
-  streamDiscovery,
   searchConceptsGlobal,
-  updateProposalStatus,
 } from "../api/client";
 import type {
   CourseSession,
-  DiscoveryReport,
   GlobalConceptHit,
-  ProposalStatus,
   SessionStatus,
 } from "../types";
-import {
-  DiscoveryHistoryBar,
-  DiscoveryReportPanel,
-} from "../components/discovery/DiscoveryReportPanel";
 import { useToast } from "../components/primitives/Toast";
 import "./HomePage.css";
 
@@ -133,10 +121,10 @@ function sortSessions(data: CourseSession[]): CourseSession[] {
   return [...data].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
 
-function isDiscoverable(session: CourseSession): boolean {
+function isDiscoverySelectable(session: CourseSession): boolean {
   return (
     !session.lecture_title.startsWith("[总图谱] ") &&
-    (session.status === "graph_ready" || session.status === "notes_ready")
+    session.source_files.length > 0
   );
 }
 
@@ -177,52 +165,6 @@ function ConfirmModal({
             type="button"
           >
             {loading ? loadingLabel : confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DiscoveryLaunchModal({
-  mode,
-  selectedCount,
-  loading,
-  onConfirm,
-  onCancel,
-}: {
-  mode: "selected" | "random";
-  selectedCount: number;
-  loading: boolean;
-  onConfirm: (intent: string) => void;
-  onCancel: () => void;
-}) {
-  const [intent, setIntent] = useState("");
-  return (
-    <div className="confirm-overlay" onClick={() => !loading && onCancel()}>
-      <div className="confirm-dialog discovery-launch" onClick={(e) => e.stopPropagation()}>
-        <p className="confirm-message">
-          {mode === "selected"
-            ? `将对选中的 ${selectedCount} 个资料集做知识发现，并生成跨库创新提案。`
-            : "未选择资料集：将随机挑选若干已建图资料集做知识发现，并生成跨库创新提案。"}
-        </p>
-        <label className="discovery-intent-field">
-          <span>意图（可选）——提案会朝这个方向靠拢</span>
-          <textarea
-            rows={2}
-            value={intent}
-            onChange={(e) => setIntent(e.target.value)}
-            placeholder="例：从各部门本季度汇报里找跨部门协作与新产品机会 / 降本增效"
-            maxLength={600}
-            disabled={loading}
-          />
-        </label>
-        <div className="confirm-actions">
-          <button className="btn btn-outline btn-sm" onClick={onCancel} disabled={loading} type="button">
-            取消
-          </button>
-          <button className="btn btn-sm btn-accent" onClick={() => onConfirm(intent)} disabled={loading} type="button">
-            {loading ? "发现中…" : "开始发现"}
           </button>
         </div>
       </div>
@@ -295,12 +237,6 @@ export function HomePage() {
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
-  const [discovering, setDiscovering] = useState(false);
-  const [discoveryLaunch, setDiscoveryLaunch] = useState<"selected" | "random" | null>(null);
-  const [deepeningId, setDeepeningId] = useState<string | null>(null);
-  const [discoveryReport, setDiscoveryReport] = useState<DiscoveryReport | null>(null);
-  const [discoveryHistory, setDiscoveryHistory] = useState<DiscoveryReport[]>([]);
-  const [showBridgeGraph, setShowBridgeGraph] = useState(true);
   const [conceptHits, setConceptHits] = useState<GlobalConceptHit[]>([]);
   const [collapsedCourses, setCollapsedCourses] = useState<Set<string>>(
     () => new Set<string>(JSON.parse(localStorage.getItem("c2n:collapsedCourses") || "[]")),
@@ -327,15 +263,9 @@ export function HomePage() {
   }, [toast]);
 
   useEffect(() => {
-    const valid = new Set(sessions.filter(isDiscoverable).map((s) => s.session_id));
+    const valid = new Set(sessions.filter(isDiscoverySelectable).map((s) => s.session_id));
     setSelectedSessionIds((prev) => new Set([...prev].filter((id) => valid.has(id))));
   }, [sessions]);
-
-  useEffect(() => {
-    listDiscoveries()
-      .then(setDiscoveryHistory)
-      .catch(() => {});
-  }, []);
 
   // global concept search (debounced) across every built graph
   useEffect(() => {
@@ -389,19 +319,6 @@ export function HomePage() {
         await Promise.all(toDelete.map((s) => deleteSession(s.session_id)));
         setSessions((prev) => prev.filter((s) => s.course_title !== courseTitle));
         toast("知识库已删除", "success");
-      },
-    });
-  };
-
-  const handleDeleteDiscovery = (report: DiscoveryReport) => {
-    const name = report.title || report.discovery_id.slice(0, 8);
-    setPending({
-      label: `确认删除历史发现「${name}」？此操作不可撤销。`,
-      onConfirm: async () => {
-        await deleteDiscovery(report.discovery_id);
-        setDiscoveryHistory((prev) => prev.filter((item) => item.discovery_id !== report.discovery_id));
-        setDiscoveryReport((current) => current?.discovery_id === report.discovery_id ? null : current);
-        toast("历史发现已删除", "success");
       },
     });
   };
@@ -472,91 +389,10 @@ export function HomePage() {
     }
   };
 
-  const handleDiscovery = async (mode: "selected" | "random", intent: string) => {
-    const ids = [...selectedSessionIds];
-    if (mode === "selected" && ids.length === 0) {
-      toast("先勾选至少一个已建图资料集", "error");
-      return;
-    }
-    setDiscovering(true);
-    try {
-      const result: { report?: DiscoveryReport } = {};
-      await streamDiscovery(
-        {
-          mode,
-          session_ids: ids,
-          intent: intent.trim(),
-          limit: 8,
-          seed: mode === "random" ? Date.now() : undefined,
-        },
-        (event) => {
-          if (event.type === "error") throw new Error(event.data.message || "知识发现失败");
-          if (event.type === "done" && event.data.report) result.report = event.data.report;
-        },
-      );
-      const report = result.report;
-      if (!report) throw new Error("知识发现未返回报告");
-      setDiscoveryReport(report);
-      setShowBridgeGraph(true);
-      setDiscoveryHistory((prev) => [report, ...prev.filter((r) => r.discovery_id !== report.discovery_id)]);
-      setDiscoveryLaunch(null);
-      toast(`知识发现已保存：${report.title || report.discovery_id.slice(0, 8)}`, "success");
-    } catch {
-      toast("知识发现失败，请确认资料集已完成建图", "error");
-    } finally {
-      setDiscovering(false);
-    }
-  };
-
-  // One entry point: the launch modal collects an optional steering intent, for
-  // both "discover the selected sets" and "pick sets at random".
   const startDiscovery = () => {
-    setDiscoveryLaunch(selectedSessionIds.size > 0 ? "selected" : "random");
-  };
-
-  // Proposal feedback: keep the open report AND its history entry in sync.
-  const applyReportUpdate = (report: DiscoveryReport) => {
-    setDiscoveryReport(report);
-    setDiscoveryHistory((prev) => prev.map((r) => (r.discovery_id === report.discovery_id ? report : r)));
-  };
-
-  const handleProposalStatus = async (proposalId: string, status: ProposalStatus) => {
-    if (!discoveryReport) return;
-    try {
-      applyReportUpdate(await updateProposalStatus(discoveryReport.discovery_id, proposalId, status));
-    } catch {
-      toast("更新提案状态失败", "error");
-    }
-  };
-
-  const handleDeepen = async (proposalId: string) => {
-    if (!discoveryReport || deepeningId) return;
-    setDeepeningId(proposalId);
-    try {
-      applyReportUpdate(await deepenProposal(discoveryReport.discovery_id, proposalId));
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "深挖失败", "error");
-    } finally {
-      setDeepeningId(null);
-    }
-  };
-
-  const scrollToProposal = (proposalId: string) => {
-    document.getElementById(`proposal-${proposalId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-
-  const openConcept = (sessionId: string, conceptId: string) =>
-    navigate(`/session/${sessionId}?concept=${encodeURIComponent(conceptId)}`);
-
-  const loadDiscovery = async (id: string) => {
-    try {
-      const report = await getDiscovery(id);
-      setDiscoveryReport(report);
-      setShowBridgeGraph(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch {
-      toast("无法加载历史发现", "error");
-    }
+    const params = new URLSearchParams({ mode: "cross" });
+    for (const sessionId of selectedSessionIds) params.append("session", sessionId);
+    navigate(`/discover?${params.toString()}`);
   };
 
   const courses = useMemo(() => {
@@ -593,7 +429,7 @@ export function HomePage() {
 
   const totalConcepts = sessions.reduce((a, s) => a + (s.stats?.concept_count ?? 0), 0);
   const totalRelations = sessions.reduce((a, s) => a + (s.stats?.relation_count ?? 0), 0);
-  const discoverableCount = sessions.filter(isDiscoverable).length;
+  const selectableCount = sessions.filter(isDiscoverySelectable).length;
 
   function persistCourseOrder(next: string[]) {
     setCourseOrder(next);
@@ -654,11 +490,11 @@ export function HomePage() {
           <button
             className="btn btn-outline"
             onClick={startDiscovery}
-            disabled={discovering || discoverableCount === 0}
-            title={selectedSessionIds.size > 0 ? "对选中的资料集进行知识发现" : "未选择则随机挑选资料集"}
+            disabled={selectableCount === 0}
+            title={selectedSessionIds.size > 0 ? "带着所选资料进入知识发现中心" : "进入知识发现中心选择分析模式"}
             type="button"
           >
-            {discovering ? "发现中…" : `知识发现${selectedSessionIds.size > 0 ? ` · ${selectedSessionIds.size}` : ""}`}
+            {`知识发现${selectedSessionIds.size > 0 ? ` · ${selectedSessionIds.size}` : ""}`}
           </button>
         </div>
       </div>
@@ -723,29 +559,6 @@ export function HomePage() {
             ))}
           </div>
         </div>
-      )}
-
-      {discoveryHistory.length > 0 && (
-        <DiscoveryHistoryBar
-          history={discoveryHistory}
-          activeId={discoveryReport?.discovery_id}
-          onPick={loadDiscovery}
-          onDelete={handleDeleteDiscovery}
-        />
-      )}
-
-      {discoveryReport && (
-        <DiscoveryReportPanel
-          report={discoveryReport}
-          showBridgeGraph={showBridgeGraph}
-          onToggleBridge={() => setShowBridgeGraph((v) => !v)}
-          onOpenConcept={openConcept}
-          onProposalStatus={handleProposalStatus}
-          onDeepen={handleDeepen}
-          deepeningId={deepeningId}
-          onProposalLocate={scrollToProposal}
-          onClose={() => setDiscoveryReport(null)}
-        />
       )}
 
       {/* Content */}
@@ -821,7 +634,7 @@ export function HomePage() {
                     key={s.session_id}
                     session={s}
                     selected={selectedSessionIds.has(s.session_id)}
-                    discoverable={isDiscoverable(s)}
+                    selectable={isDiscoverySelectable(s)}
                     dragOver={dragOverSession === s.session_id}
                     onClick={() => navigate(sessionHref(s))}
                     onSelect={() => toggleDiscoverySelection(s.session_id)}
@@ -851,16 +664,6 @@ export function HomePage() {
         />
       )}
 
-      {discoveryLaunch && (
-        <DiscoveryLaunchModal
-          mode={discoveryLaunch}
-          selectedCount={selectedSessionIds.size}
-          loading={discovering}
-          onConfirm={(intent) => void handleDiscovery(discoveryLaunch, intent)}
-          onCancel={() => !discovering && setDiscoveryLaunch(null)}
-        />
-      )}
-
       {renameTarget && (
         <RenameModal
           title={renameTarget.type === "course" ? "重命名知识库" : "重命名资料集"}
@@ -879,7 +682,7 @@ export function HomePage() {
 function SessionRow({
   session: s,
   selected,
-  discoverable,
+  selectable,
   dragOver,
   onClick,
   onSelect,
@@ -892,7 +695,7 @@ function SessionRow({
 }: {
   session: CourseSession;
   selected: boolean;
-  discoverable: boolean;
+  selectable: boolean;
   dragOver: boolean;
   onClick: () => void;
   onSelect: () => void;
@@ -934,8 +737,8 @@ function SessionRow({
         className="session-select-box"
         type="checkbox"
         checked={selected}
-        disabled={!discoverable}
-        title={discoverable ? "选择用于知识发现" : "需先完成图谱构建"}
+        disabled={!selectable}
+        title={selectable ? "选择用于知识发现" : "该资料暂无可分析的源文件"}
         aria-label={`选择 ${s.lecture_title} 用于知识发现`}
         onClick={(e) => e.stopPropagation()}
         onChange={(e) => { e.stopPropagation(); onSelect(); }}

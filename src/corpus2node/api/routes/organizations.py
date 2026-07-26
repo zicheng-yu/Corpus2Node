@@ -57,11 +57,19 @@ def _organization_view(value: Organization) -> OrganizationView:
     )
 
 
+def _require_teams_enabled() -> None:
+    if settings.account_product_mode != "teams":
+        raise HTTPException(status_code=404, detail="Team management is not available in personal mode.")
+
+
 @router.get("", response_model=list[OrganizationView])
 async def list_organizations(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> list[OrganizationView]:
+    if settings.account_product_mode == "personal":
+        organization = await db.get(Organization, principal.organization_id)
+        return [_organization_view(organization)] if organization is not None else []
     organization_ids = select(Membership.organization_id).where(
         Membership.user_id == principal.user_id, Membership.status == "active"
     )
@@ -75,6 +83,7 @@ async def list_members(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> list[MemberView]:
+    _require_teams_enabled()
     if principal.organization_id != organization_id and not principal.is_platform_admin:
         raise HTTPException(status_code=404, detail="Organization not found.")
     rows = (
@@ -104,6 +113,7 @@ async def invite_member(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> InvitationView:
+    _require_teams_enabled()
     if principal.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Organization not found.")
     try:
@@ -148,6 +158,7 @@ async def list_invitations(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> list[InvitationView]:
+    _require_teams_enabled()
     if principal.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Organization not found.")
     try:
@@ -180,6 +191,7 @@ async def revoke_invitation(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
+    _require_teams_enabled()
     if principal.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Organization not found.")
     try:
@@ -202,6 +214,7 @@ async def update_member(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> MemberView:
+    _require_teams_enabled()
     if principal.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Organization not found.")
     try:
@@ -246,6 +259,7 @@ async def deactivate_member(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
+    _require_teams_enabled()
     if principal.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Organization not found.")
     try:
@@ -282,6 +296,7 @@ async def update_organization(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> OrganizationView:
+    _require_teams_enabled()
     if principal.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Organization not found.")
     try:

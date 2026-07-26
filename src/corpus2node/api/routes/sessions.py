@@ -347,7 +347,7 @@ async def delete_session(
         local.delete_session(session_id)
     else:
         try:
-            require_role(principal, "admin")
+            require_role(principal, "member")
             await ensure_writable(db, principal)
         except AuthorizationError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc

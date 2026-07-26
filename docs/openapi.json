@@ -1162,6 +1162,72 @@
         "title": "DiscoveryFinding",
         "type": "object"
       },
+      "DiscoveryHistoryItem": {
+        "properties": {
+          "claim_count": {
+            "default": 0,
+            "title": "Claim Count",
+            "type": "integer"
+          },
+          "decision_count": {
+            "default": 0,
+            "title": "Decision Count",
+            "type": "integer"
+          },
+          "finding_count": {
+            "default": 0,
+            "title": "Finding Count",
+            "type": "integer"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "insight_count": {
+            "default": 0,
+            "title": "Insight Count",
+            "type": "integer"
+          },
+          "proposal_count": {
+            "default": 0,
+            "title": "Proposal Count",
+            "type": "integer"
+          },
+          "report_id": {
+            "title": "Report Id",
+            "type": "string"
+          },
+          "report_type": {
+            "$ref": "#/components/schemas/DiscoveryHistoryType"
+          },
+          "session_count": {
+            "default": 0,
+            "title": "Session Count",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_id",
+          "report_type",
+          "title",
+          "generated_at"
+        ],
+        "title": "DiscoveryHistoryItem",
+        "type": "object"
+      },
+      "DiscoveryHistoryType": {
+        "enum": [
+          "cross_corpus",
+          "scientific_evidence"
+        ],
+        "title": "DiscoveryHistoryType",
+        "type": "string"
+      },
       "DiscoveryMode": {
         "enum": [
           "selected",
@@ -5498,6 +5564,31 @@
         ]
       }
     },
+    "/api/discovery/history": {
+      "get": {
+        "operationId": "list_discovery_history_api_discovery_history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DiscoveryHistoryItem"
+                  },
+                  "title": "Response List Discovery History Api Discovery History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Discovery History",
+        "tags": [
+          "discovery"
+        ]
+      }
+    },
     "/api/discovery/run": {
       "post": {
         "operationId": "run_discovery_route_api_discovery_run_post",
@@ -9178,6 +9269,31 @@
           }
         },
         "summary": "List Discoveries",
+        "tags": [
+          "discovery"
+        ]
+      }
+    },
+    "/discovery/history": {
+      "get": {
+        "operationId": "list_discovery_history_discovery_history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DiscoveryHistoryItem"
+                  },
+                  "title": "Response List Discovery History Discovery History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Discovery History",
         "tags": [
           "discovery"
         ]

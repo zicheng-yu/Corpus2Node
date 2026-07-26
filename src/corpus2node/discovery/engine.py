@@ -265,6 +265,8 @@ def _load_contexts(request: DiscoveryRequest, rng: random.Random) -> list[Discov
     session_ids = list(dict.fromkeys(request.session_ids))
     if request.mode == DiscoveryMode.random and not session_ids:
         session_ids = _random_session_ids(rng)
+    elif request.mode == DiscoveryMode.random:
+        rng.shuffle(session_ids)
     if request.mode == DiscoveryMode.selected and not session_ids:
         raise DiscoveryInputError("Select at least one built session for knowledge discovery.")
     if not session_ids:
@@ -276,12 +278,16 @@ def _load_contexts(request: DiscoveryRequest, rng: random.Random) -> list[Discov
             session = local.load_session(session_id)
             graph = local.load_graph_artifact(session_id)
         except FileNotFoundError as exc:
+            if request.mode == DiscoveryMode.random:
+                continue
             raise DiscoveryInputError(f"Session {session_id} has no built graph.") from exc
         if session.lecture_title.startswith(local.COURSE_GRAPH_LECTURE_PREFIX):
             continue
         chunks = [chunk for artifact in local.list_ingest_artifacts(session_id) for chunk in artifact.chunks]
         if graph.concepts:
             contexts.append(DiscoveryContext(session=session, graph=graph, chunks=chunks))
+            if request.mode == DiscoveryMode.random and len(contexts) >= 5:
+                break
 
     if not contexts:
         raise DiscoveryInputError("No selectable sessions with graph concepts were found.")

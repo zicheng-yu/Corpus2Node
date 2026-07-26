@@ -113,6 +113,7 @@ async def _principal_for_new_session(db: AsyncSession, token: str) -> Principal:
     principal = await resolve_principal(db, token, None)
     if principal is None:
         raise HTTPException(status_code=500, detail="Unable to create authenticated session.")
+    await db.commit()
     return principal
 
 

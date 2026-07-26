@@ -1,8 +1,8 @@
 # Corpus2Node — production stack: private backend + public nginx.
 #   docker compose -f deploy/docker-compose.yml up -d --build
 #
-# Model credentials are NOT here — they live in artifacts/llm_settings.json, mounted
-# as a volume below. Everything in `environment:` is non-secret infrastructure config
+# Model credentials are NOT here — account mode stores them under
+# artifacts/users/<user_id>/llm_settings.json. Everything in `environment:` is non-secret infrastructure config
 # (read by pydantic-settings from the container environment; see src/corpus2node/config.py).
 services:
   backend:
@@ -14,6 +14,7 @@ services:
       DEBUG_TRACEBACKS: "false"
       CORS_ALLOW_ORIGINS: ""             # same-origin via nginx; cross-origin calls disabled
       AUTH_MODE: accounts
+      ACCOUNT_PRODUCT_MODE: personal
       DATABASE_URL: postgresql+asyncpg://corpus2node:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/corpus2node
       DATABASE_AUTO_CREATE: "false"
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set PUBLIC_APP_URL, for example https://corpus.example.com}
@@ -29,7 +30,7 @@ services:
       HF_ENDPOINT: "https://hf-mirror.com"   # China-friendly faster-whisper model download
       LANGCHAIN_TRACING: "false"
     volumes:
-      - ../artifacts:/app/artifacts                 # data + llm_settings.json persist on host
+      - ../artifacts:/app/artifacts                 # data + per-user model settings persist on host
       - whisper-cache:/root/.cache/huggingface      # whisper model cache (downloaded on 1st audio)
     expose:
       - "8000"                                       # internal only — reachable from nginx, not the host

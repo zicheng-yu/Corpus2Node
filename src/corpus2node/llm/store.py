@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
-from corpus2node.core.clock import utcnow
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from corpus2node.config import settings
+from corpus2node.core.clock import utcnow
 from corpus2node.llm.credentials import (
     LLMSettings,
     ProviderCredential,
@@ -16,51 +20,89 @@ from corpus2node.llm.credentials import (
 from corpus2node.storage import local
 
 _LOCK = threading.RLock()
-_CACHE: LLMSettings | None = None
+_GLOBAL_SCOPE = "__global__"
+_ACTIVE_USER_ID: ContextVar[str | None] = ContextVar("corpus2node_llm_user_id", default=None)
+_CACHE: dict[str, LLMSettings] = {}
 
 
-def _path() -> Path:
-    return Path(settings.local_storage_path) / "llm_settings.json"
+def _safe_user_id(user_id: str) -> str:
+    value = user_id.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value):
+        raise ValueError("Invalid user id for model-settings storage.")
+    return value
+
+
+def path_for_user(user_id: str | None) -> Path:
+    root = Path(settings.local_storage_path)
+    if user_id is None:
+        return root / "llm_settings.json"
+    return root / "users" / _safe_user_id(user_id) / "llm_settings.json"
+
+
+def active_user_id() -> str | None:
+    return _ACTIVE_USER_ID.get()
+
+
+@contextmanager
+def user_scope(user_id: str) -> Iterator[None]:
+    """Bind model resolution to one authenticated user for this async context."""
+    token = _ACTIVE_USER_ID.set(_safe_user_id(user_id))
+    try:
+        yield
+    finally:
+        _ACTIVE_USER_ID.reset(token)
+
+
+def _scope() -> tuple[str, str | None]:
+    user_id = active_user_id()
+    if settings.auth_mode == "accounts" and user_id is None:
+        raise RuntimeError("Authenticated model settings require an active user scope.")
+    return (user_id or _GLOBAL_SCOPE), user_id
 
 
 def load() -> LLMSettings:
-    """Load the registry (cached). Bootstraps from env + persists on first run."""
-    global _CACHE
+    """Load the current user's registry, or the legacy local registry outside account mode."""
+    scope, user_id = _scope()
     with _LOCK:
-        if _CACHE is None:
-            path = _path()
+        value = _CACHE.get(scope)
+        if value is None:
+            path = path_for_user(user_id)
             if path.exists():
-                _CACHE = LLMSettings.model_validate_json(path.read_text(encoding="utf-8"))
+                value = LLMSettings.model_validate_json(path.read_text(encoding="utf-8"))
             else:
-                _CACHE = _bootstrap_from_env()
-                _write(_CACHE)
+                # Hosted accounts start empty: ambient server keys must never become
+                # every user's credential. Legacy/local mode keeps env bootstrapping.
+                value = LLMSettings() if user_id is not None else _bootstrap_from_env()
+                _write(value, user_id)
             # One-time migration: Kimi used to live in .env; if an old registry already
             # has a Kimi-looking credential but no `vision` binding, bind it so image/
             # PDF/video ingest keeps working without manual re-config.
-            if _ensure_vision_binding(_CACHE):
-                _write(_CACHE)
-        return _CACHE
+            if _ensure_vision_binding(value):
+                _write(value, user_id)
+            _CACHE[scope] = value
+        return value
 
 
 def save(value: LLMSettings) -> LLMSettings:
+    _, user_id = _scope()
     with _LOCK:
         value.updated_at = utcnow()
-        _write(value)
+        _write(value, user_id)
         return value
 
 
 def reset_cache() -> None:
-    """Drop the in-memory cache (used by tests and after external edits)."""
-    global _CACHE
+    """Drop every in-memory registry (used by tests and after external edits)."""
     with _LOCK:
-        _CACHE = None
+        _CACHE.clear()
 
 
-def _write(value: LLMSettings) -> None:
-    global _CACHE
-    path = _path()
+def _write(value: LLMSettings, user_id: str | None) -> None:
+    scope = user_id or _GLOBAL_SCOPE
+    path = path_for_user(user_id)
     local.write_text_atomic(path, value.model_dump_json(indent=2))
-    _CACHE = value
+    path.chmod(0o600)
+    _CACHE[scope] = value
 
 
 def _bootstrap_from_env() -> LLMSettings:

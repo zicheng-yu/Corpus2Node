@@ -117,6 +117,30 @@ def test_list_models_openai_compat_uses_models_route(monkeypatch):
     assert seen["headers"].get("Authorization") == "Bearer local"  # dummy key for keyless local
 
 
+def test_production_can_list_models_before_saving_public_credential(monkeypatch):
+    seen = {}
+
+    def fake_get(url, headers=None, **kwargs):
+        seen["url"] = url
+        seen["headers"] = headers or {}
+        return _FakeResponse({"data": [{"id": "deepseek-v4-flash"}]})
+
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr("httpx.get", fake_get)
+    result = settings_routes.list_models(
+        settings_routes.ModelListRequest(
+            kind=ProviderKind.openai,
+            base_url="https://api.deepseek.com",
+            api_key="sk-unsaved-test",
+        )
+    )
+
+    assert result.model_dump() == {"models": ["deepseek-v4-flash"], "error": None}
+    assert seen["url"] == "https://api.deepseek.com/models"
+    assert seen["headers"] == {"Authorization": "Bearer sk-unsaved-test"}
+    assert settings_routes.store.load().credentials == []
+
+
 def test_list_models_reports_connection_failure_as_hint(monkeypatch):
     import httpx
 
@@ -193,3 +217,10 @@ def test_production_remote_provider_rejects_localhost_name(monkeypatch):
         settings_routes._validate_base_url("http://localhost:8001/v1", ProviderKind.openai)
 
     assert exc_info.value.status_code == 400
+
+    with pytest.raises(HTTPException):
+        settings_routes._validate_base_url("https://10.0.0.8/v1", ProviderKind.openai)
+    with pytest.raises(HTTPException):
+        settings_routes._validate_base_url("http://public.example/v1", ProviderKind.openai)
+    with pytest.raises(HTTPException):
+        settings_routes._validate_base_url("http://127.0.0.1:11434", ProviderKind.ollama)

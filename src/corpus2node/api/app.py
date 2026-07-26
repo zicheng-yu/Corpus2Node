@@ -32,6 +32,7 @@ from corpus2node.api.routes import settings as settings_routes
 from corpus2node.api.routes import workflow as workflow_routes
 from corpus2node.config import ROOT_DIR, settings
 from corpus2node.core.logging_config import configure_logging
+from corpus2node.llm import store as llm_store
 
 configure_logging()
 logger = logging.getLogger("corpus2node.api")
@@ -105,6 +106,8 @@ async def authentication(request: Request, call_next):
         and not _is_public_path(request.url.path)
     )
     if mode == "accounts":
+        if settings.account_product_mode not in {"personal", "teams"}:
+            return JSONResponse(status_code=503, content={"detail": "Invalid ACCOUNT_PRODUCT_MODE configuration."})
         if settings.app_env.lower() == "production" and settings.database_url.startswith("sqlite"):
             return JSONResponse(status_code=503, content={"detail": "Accounts mode requires PostgreSQL in production."})
         await init_db()
@@ -126,7 +129,8 @@ async def authentication(request: Request, call_next):
                     return JSONResponse(status_code=403, content={"detail": "Origin is not allowed."})
             request.state.principal = principal
             await db.commit()
-        return await call_next(request)
+        with llm_store.user_scope(principal.user_id):
+            return await call_next(request)
 
     # legacy_token mode preserves the previous deployment contract.
     if (

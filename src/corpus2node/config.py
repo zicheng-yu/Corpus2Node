@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     # set AUTH_MODE=accounts and use PostgreSQL; legacy_token preserves the previous
     # single shared Bearer-token deployment while customers migrate.
     auth_mode: str = "legacy_token"  # disabled | legacy_token | accounts
+    account_product_mode: str = "personal"  # personal | teams (team mode is deferred)
     database_url: str = f"sqlite+aiosqlite:///{ROOT_DIR / 'artifacts' / 'metadata.db'}"
     database_auto_create: bool = True  # tests/dev only; production runs Alembic
     public_app_url: str = "http://localhost:5173"
