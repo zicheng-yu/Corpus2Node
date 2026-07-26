@@ -1,0 +1,25 @@
+services:
+  backend:
+    build:
+      args:
+        DOCKER_REGISTRY: docker.m.daocloud.io
+        DEBIAN_MIRROR: mirrors.aliyun.com
+        PYPI_FILES_BASE: https://pypi.tuna.tsinghua.edu.cn/packages
+    environment:
+      GROBID_BASE_URL: http://127.0.0.1:9
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: docker.m.daocloud.io/library/postgres:17-alpine
+
+  grobid:
+    image: docker.m.daocloud.io/grobid/grobid:0.9.0-crf
+    profiles:
+      - grobid
+
+  nginx:
+    build:
+      args:
+        DOCKER_REGISTRY: docker.m.daocloud.io

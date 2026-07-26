@@ -82,7 +82,21 @@ def save_session(session: CourseSession) -> Path:
 
 
 def load_session(session_id: uuid.UUID) -> CourseSession:
-    return _read_model(session_path(session_id), CourseSession)
+    session = _read_model(session_path(session_id), CourseSession)
+    # Historical artifacts may have been copied from another machine while the
+    # serialized SourceFile still contains that machine's absolute path. Resolve
+    # the copied upload by its stored basename without rewriting session.json;
+    # subsequent migration rows and workflow runs then use the active artifact
+    # root, while inventory hashes remain unchanged.
+    uploads = _root() / str(session_id) / "uploads"
+    for source in session.source_files:
+        stored = Path(source.storage_path)
+        if stored.is_file() or not stored.name:
+            continue
+        relocated = uploads / stored.name
+        if relocated.is_file():
+            source.storage_path = str(relocated)
+    return session
 
 
 def delete_session(session_id: uuid.UUID) -> None:

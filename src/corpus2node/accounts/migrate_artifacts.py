@@ -41,6 +41,8 @@ def inventory() -> tuple[list[Path], str, int]:
         path
         for path in root.rglob("*")
         if path.is_file()
+        and path.name != ".DS_Store"
+        and not path.name.startswith("._")
         and not path.name.startswith("metadata.db")
         and not path.name.startswith(".metadata.db")
         and not (

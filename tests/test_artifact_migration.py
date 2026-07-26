@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from sqlalchemy import func, select
 
@@ -35,6 +36,34 @@ async def _counts() -> tuple[int, int]:
         return projects, resources
 
 
+def test_load_session_relocates_copied_upload_without_rewriting_artifact(tmp_path, monkeypatch):
+    artifacts = tmp_path / "artifacts"
+    monkeypatch.setattr(settings, "local_storage_path", str(artifacts))
+    session = CourseSession(
+        course_title="Portable Topic",
+        lecture_title="Copied Paper",
+        source_files=[
+            SourceFile(
+                kind=SourceKind.document,
+                filename="paper.md",
+                content_type="text/markdown",
+                storage_path="/old/machine/artifacts/session/uploads/paper.md",
+                size_bytes=8,
+            )
+        ],
+    )
+    copied = local.upload_dir(session.session_id) / "paper.md"
+    copied.write_text("evidence", encoding="utf-8")
+    artifact = local.save_session(session)
+    before = artifact.read_bytes()
+
+    loaded = local.load_session(session.session_id)
+
+    assert loaded.source_files[0].storage_path == str(copied)
+    assert artifact.read_bytes() == before
+    assert json.loads(before)["source_files"][0]["storage_path"].startswith("/old/machine/")
+
+
 def test_artifact_migration_is_dry_run_first_idempotent_and_non_destructive(tmp_path, monkeypatch):
     artifacts = tmp_path / "artifacts"
     monkeypatch.setattr(settings, "local_storage_path", str(artifacts))
@@ -42,6 +71,7 @@ def test_artifact_migration_is_dry_run_first_idempotent_and_non_destructive(tmp_
     monkeypatch.setattr(settings, "database_auto_create", True)
     asyncio.run(dispose_db())
     asyncio.run(_seed_admin())
+    (artifacts / ".DS_Store").write_bytes(b"host metadata")
 
     upload = artifacts / "seed-paper.md"
     local.write_text_atomic(upload, "# Evidence\n\nGrounded text.")
@@ -64,6 +94,7 @@ def test_artifact_migration_is_dry_run_first_idempotent_and_non_destructive(tmp_
     _, before_hash, before_bytes = inventory()
     dry_run = asyncio.run(migrate_existing_artifacts())
     assert dry_run.dry_run is True
+    assert dry_run.artifact_file_count == 3
     assert dry_run.sessions == 2
     assert dry_run.projects == 1
 
