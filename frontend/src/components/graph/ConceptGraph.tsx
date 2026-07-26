@@ -5,7 +5,6 @@ import ReactFlow, {
   Controls,
   Handle,
   MiniMap,
-  Panel,
   Position,
   type Node,
   type Edge,
@@ -75,11 +74,10 @@ function applyLayout(nodes: Node[], edges: Edge[], graphStyle: string) {
   }
 }
 
-function artifactToFlow(
+export function artifactToFlow(
   artifact: GraphArtifact,
   graphStyle: string,
   filterNodeIds?: Set<string> | null,
-  showCooccurrence = false,
 ): { nodes: Node[]; edges: Edge[] } {
   const clusterByConcept = new Map<string, number>();
   artifact.topic_clusters.forEach((cluster, index) => {
@@ -104,12 +102,7 @@ function artifactToFlow(
   });
 
   const edges: Edge[] = artifact.edges
-    .filter(
-      (e) =>
-        shownIds.has(e.source)
-        && shownIds.has(e.target)
-        && (showCooccurrence || e.edge_type !== "CO_OCCURS_WITH"),
-    )
+    .filter((e) => shownIds.has(e.source) && shownIds.has(e.target))
     .map((e) => ({
       id: e.edge_id,
       source: e.source,
@@ -132,7 +125,6 @@ export function ConceptGraph({ artifact, graphStyle = "force", filterNodeIds, on
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
   const [loading, setLoading] = useState(true);
   const [empty, setEmpty] = useState(false);
-  const [showCooccurrence, setShowCooccurrence] = useState(false);
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
   useEffect(() => {
@@ -145,17 +137,12 @@ export function ConceptGraph({ artifact, graphStyle = "force", filterNodeIds, on
       setLoading(false);
       return;
     }
-    const { nodes, edges } = artifactToFlow(
-      artifact,
-      graphStyle,
-      filterNodeIds,
-      showCooccurrence,
-    );
+    const { nodes, edges } = artifactToFlow(artifact, graphStyle, filterNodeIds);
     setRfNodes(nodes);
     setRfEdges(edges);
     setEmpty(false);
     setLoading(false);
-  }, [artifact, graphStyle, filterNodeIds, showCooccurrence, setRfNodes, setRfEdges]);
+  }, [artifact, graphStyle, filterNodeIds, setRfNodes, setRfEdges]);
 
   // Neighbors of the selected concept (for highlight / dim).
   const neighbors = useMemo(() => {
@@ -254,16 +241,6 @@ export function ConceptGraph({ artifact, graphStyle = "force", filterNodeIds, on
           nodeColor={() => "var(--accent-soft)"}
           maskColor="rgba(250,249,245,0.6)"
         />
-        <Panel position="top-right">
-          <button
-            className="btn btn-secondary"
-            type="button"
-            aria-pressed={showCooccurrence}
-            onClick={() => setShowCooccurrence((value) => !value)}
-          >
-            {showCooccurrence ? "隐藏共现边" : "显示共现边"}
-          </button>
-        </Panel>
       </ReactFlow>
     </div>
   );
