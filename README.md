@@ -1,8 +1,55 @@
 # Corpus2Node
 
-把 PDF、文档、图片、音视频等资料转换成可探索、可溯源的知识图谱，并在图谱与原文 chunk 上完成问答、笔记、测试、跨库发现和科技文献证据分析。
+把 PDF、Word/PPT、Markdown、图片、音频、视频等资料变成一个可探索、可溯源的知识图谱，并基于这张图完成问答、笔记、测试与跨资料集知识发现。
 
-核心架构是两条分离的路径：离线 LangGraph workflow 负责 `ingest -> extract -> critic -> build`，在线 LangChain agent 通过确定性检索工具回答问题。中心性、社区发现、实体合并、共现边和布局等算法不交给 LLM。
+![Corpus2Node overview](docs/demo/readme-assets/corpus2node-demo-1.png)
+
+## 为什么做
+
+普通 RAG 很容易变成黑箱：答案看起来合理，但很难追到它到底来自哪份资料、哪个段落。Corpus2Node 的核心思路是先把资料离线结构化成图谱，再让在线 Agent 在图谱和原文 chunk 上检索回答。
+
+- 资料输入：文档、PDF、课件、图片、音频、视频统一摄入。
+- 知识图谱：抽取概念、关系、主题社区、重要度与出处。
+- 可溯源回答：答案引用图谱节点和原文片段，未命中资料时不硬编。
+- 学习产物：按知识点重要度生成笔记和水平测试。
+- 知识发现：跨多个资料集寻找桥接概念，生成带证据的创新提案。
+- 私有化：支持 OpenAI-compatible 云端模型，也支持 Ollama / LM Studio 等本地模型。
+
+## 功能预览
+
+### 资料变知识图谱
+
+![Knowledge graph features](docs/demo/readme-assets/corpus2node-demo-3.png)
+
+上传资料后，离线 workflow 会完成摄入、切块、概念/关系抽取、质量检查和图谱构建。节点大小来自中心性算法，颜色来自主题社区；点开节点可以查看定义、摘要、属性、关联关系和出处。
+
+### 知识发现
+
+![Knowledge discovery](docs/demo/readme-assets/corpus2node-demo-4.png)
+
+多个已建图资料集可以被组合分析。系统先寻找跨库桥接概念，再生成可执行提案，并要求每条提案引用两边资料中的真实概念与原文证据。
+
+### 可溯源、全模态、可本地
+
+![Differentiators](docs/demo/readme-assets/corpus2node-demo-5.png)
+
+Corpus2Node 强调三点：答案可追到图谱节点和原文段落；文档、图片、音视频走同一套能力；模型凭据可插拔，支持全本地离线运行。
+
+## 架构
+
+项目分为两条路径：
+
+- 离线 workflow：`ingest -> extract -> critic -> build`
+- 在线 agent：`search_graph` / `retrieve_chunks` / `get_subgraph` 等工具检索后回答
+
+确定性算法不交给 LLM，包括中心性、社区发现、实体合并、共现边、布局和可溯源校验。业务产物以本地 JSON artifact 保存，LangGraph checkpoint 只保存运行态引用。
+
+主要技术栈：
+
+- Backend: FastAPI, Pydantic, LangChain, LangGraph, NetworkX
+- Frontend: React 18, Vite, TypeScript, ReactFlow
+- Storage: local JSON artifacts, optional PostgreSQL for account deployment
+- Model layer: multi-provider credential registry with per-purpose bindings
 
 ## 本地启动
 
@@ -21,71 +68,55 @@ npm ci
 npm run dev
 ```
 
-打开 `http://localhost:5173`。默认 `AUTH_MODE=legacy_token`，本地仍可零配置使用；也可将 `AUTH_MODE=accounts` 后用 SQLite 验证个人账号流程。账号模式默认 `ACCOUNT_PRODUCT_MODE=personal`：每个账号拥有独立资料库、提示偏好与模型 API 配置。
+打开：
 
-首次启用账号模式时生成首个账号激活链接：
-
-```bash
-uv run corpus2node-admin bootstrap-admin --email admin@example.com
+```text
+http://localhost:5173
 ```
 
-后续账号由服务器运营者生成独立激活链接，不通过团队邀请：
-
-```bash
-uv run corpus2node-admin invite-user --email user@example.com --name 'User'
-```
-
-本地 BGE-M3 embedding 需要额外安装重依赖：
+如需本地 BGE-M3 embedding：
 
 ```bash
 uv sync --extra ml
 ```
 
-## 主要能力
+如需音频转写能力：
 
-- 通用资料：上传后运行建图流程，在工作区检索、浏览图谱、对话、生成笔记与测试。
-- 科研证据：在“科研证据图谱”中可直接选择已上传论文；系统只执行所需摄入，不要求先建通用图谱。PDF 的 GROBID 结构解析只在科研路径触发。
-- 知识发现：对多个已建图资料集生成跨库联系与可追溯提案。
-- 个人账号：每个账号使用不可切换的私有资料库；模型凭据按用户独立保存并只返回掩码，其他账号不可读取或调用。
-- 套餐与分享：Free / Team Beta 权益、用量记录和只读降级；可创建固定报告的安全只读外链。团队协作底层保留为后续客户版本，当前产品不展示团队、成员或平台管理界面。
-- 可复现 artifact：业务事实写入 `artifacts/`；图谱保存来源 hash、模型、prompt、schema 与 embedding 指纹，输入或配置变化会自动使缓存失效。
+```bash
+uv sync --extra audio
+```
 
 ## 验证
 
 ```bash
 uv run ruff check src tests scripts
 uv run pytest -q
-
-cd frontend
-npm test
-npm run generate:api
-npm run build
-npm audit --audit-level=high
 ```
 
-`docs/openapi.json` 与 `frontend/src/types/api.generated.ts` 是自动生成的契约快照。修改 API 后运行：
+前端：
+
+```bash
+cd frontend
+npm test
+npm run build
+```
+
+API 契约更新：
 
 ```bash
 uv run python scripts/export_openapi.py
-cd frontend && npm run generate:api
+cd frontend
+npm run generate:api
 ```
 
-## Docker 部署
+## 部署与演示
 
-生产栈使用 PostgreSQL、Alembic 和 `AUTH_MODE=accounts`，默认只监听本机 `127.0.0.1:8080`。Cookie 标记为 Secure，因此远程访问必须配置 HTTPS 反向代理。
-
-```bash
-export POSTGRES_PASSWORD='replace-with-a-long-random-secret'
-export PUBLIC_APP_URL='https://corpus.example.com'
-docker compose -f deploy/docker-compose.yml up -d --build
-docker compose -f deploy/docker-compose.yml exec backend \
-  corpus2node-admin bootstrap-admin --email admin@example.com
-```
-
-启动脚本会先执行数据库迁移，再启动 API。激活首个账号后，可用 `corpus2node-admin invite-user` 为其他用户生成独立激活链接。上线已有数据前先备份 `artifacts/`，再用 `corpus2node-admin migrate-artifacts` dry-run 核对，确认后加 `--apply`；迁移只登记索引，不移动或覆盖原文件。完整流程见 `deploy/README.md`。
+- Docker / PostgreSQL / 账号模式部署：见 [deploy/README.md](deploy/README.md)
+- 产品演示台本：见 [docs/demo/DEMO.md](docs/demo/DEMO.md)
+- 演示 PDF：见 [docs/demo/Corpus2Node-演示.pdf](docs/demo/Corpus2Node-演示.pdf)
 
 ## 项目文档
 
-- 稳定架构与决策：`AGENTS.md`
-- 当前进度与功能映射：`docs/PROGRESS.md`
-- 会话交接：`docs/SESSION.md`
+- 架构决策与重构策略：[AGENTS.md](AGENTS.md)
+- 当前进度与功能映射：[docs/PROGRESS.md](docs/PROGRESS.md)
+- 会话交接：[docs/SESSION.md](docs/SESSION.md)
