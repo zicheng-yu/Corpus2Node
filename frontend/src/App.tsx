@@ -120,12 +120,14 @@ function AppInner() {
 
 function RoutedApp() {
   const location = useLocation();
-  const { mode, user, loading } = useAuth();
+  const { mode, user, loading, homePath } = useAuth();
   if (location.pathname === "/share") return <SharePage />;
   if (location.pathname === "/activate") return <ActivatePage />;
   if (loading) return <main className="account-page"><div className="empty-panel">正在连接账号…</div></main>;
   if (mode === "accounts" && !user) return <LoginPage />;
-  if (mode === "accounts" && user && location.pathname === "/login") return <Navigate to="/" replace />;
+  if (mode === "accounts" && user && location.pathname === "/login") {
+    return <Navigate to={homePath} replace />;
+  }
   return <AppInner />;
 }
 

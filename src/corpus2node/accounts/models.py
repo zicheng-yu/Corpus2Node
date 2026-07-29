@@ -26,6 +26,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="active")
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Product persona (longxin et al.): executive | researcher | operator
+    persona: Mapped[str] = mapped_column(String(20), default="operator")
     personal_organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
@@ -69,6 +71,7 @@ class Invitation(Base):
     )
     email: Mapped[str] = mapped_column(String(320), index=True)
     role: Mapped[str] = mapped_column(String(20), default="member")
+    persona: Mapped[str] = mapped_column(String(20), default="operator")
     kind: Mapped[str] = mapped_column(String(20), default="invite")
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     invited_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

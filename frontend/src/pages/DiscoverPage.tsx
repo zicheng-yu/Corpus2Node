@@ -73,6 +73,7 @@ export function DiscoverPage() {
   const { mode: authMode, user, activeOrganizationId } = useAuth();
   const toast = useToast();
   const mode: DiscoverMode = searchParams.get("mode") === "scientific" ? "scientific" : "cross";
+  const reportFocus = searchParams.get("focus") === "evidence" ? "evidence" : "decision";
   const [sessions, setSessions] = useState<CourseSession[]>([]);
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(searchParams.getAll("session")),
@@ -370,7 +371,7 @@ export function DiscoverPage() {
             onClose={() => setActiveReport(null)}
           />
         ) : activeReport?.type === "scientific_evidence" ? (
-          <ScientificReportView report={activeReport.report} />
+          <ScientificReportView report={activeReport.report} focus={reportFocus} />
         ) : (
           <div className="discover-blank">
             <span>01</span>

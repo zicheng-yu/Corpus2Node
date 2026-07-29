@@ -5,13 +5,13 @@ import { Button } from "../components/primitives/Button";
 import "./AccountPage.css";
 
 export function LoginPage() {
-  const { user, signIn } = useAuth();
+  const { user, signIn, homePath, profile } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={homePath} replace />;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -26,12 +26,14 @@ export function LoginPage() {
     }
   }
 
+  const brand = profile.brand.product_name || "corpus2node";
+
   return (
     <main className="account-page">
       <section className="account-card" aria-labelledby="login-title">
-        <div className="account-brand"><span className="brand-mark" /> corpus2node</div>
+        <div className="account-brand"><span className="brand-mark" /> {brand}</div>
         <h1 id="login-title">登录内测工作区</h1>
-        <p className="account-muted">当前为邀请制内测，请使用负责人提供的账号登录。</p>
+        <p className="account-muted">当前为邀请制内测，请使用负责人提供的账号登录。登录后将按账号角色进入对应工作台。</p>
         <form className="account-form" onSubmit={submit}>
           <label>
             邮箱

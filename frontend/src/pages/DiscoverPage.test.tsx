@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDiscovery, listDiscoveryHistory, listSessions } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { FALLBACK_PROFILE } from "../auth/persona";
 import { ToastProvider } from "../components/primitives/Toast";
 import type {
   CourseSession,
@@ -109,21 +110,30 @@ const report: DiscoveryReport = {
   generated_at: "2026-07-15T10:00:00Z",
 };
 
+function authMock(overrides: Partial<ReturnType<typeof useAuth>> = {}) {
+  return {
+    mode: "accounts" as const,
+    user: member,
+    activeOrganizationId: "org-1",
+    loading: false,
+    profile: FALLBACK_PROFILE,
+    persona: "researcher" as const,
+    homePath: "/discover?mode=scientific&focus=evidence",
+    navItems: ["discover", "home"] as const,
+    signIn: vi.fn(async () => member),
+    activate: vi.fn(async () => member),
+    signOut: vi.fn(async () => undefined),
+    selectOrganization: vi.fn(),
+    refreshUser: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
 describe("DiscoverPage unified center", () => {
   afterEach(cleanup);
 
   beforeEach(() => {
-    vi.mocked(useAuth).mockReturnValue({
-      mode: "accounts",
-      user: member,
-      activeOrganizationId: "org-1",
-      loading: false,
-      signIn: vi.fn(async () => undefined),
-      activate: vi.fn(async () => undefined),
-      signOut: vi.fn(async () => undefined),
-      selectOrganization: vi.fn(),
-      refreshUser: vi.fn(async () => undefined),
-    });
+    vi.mocked(useAuth).mockReturnValue(authMock());
     vi.mocked(listSessions).mockResolvedValue([session]);
     vi.mocked(listDiscoveryHistory).mockResolvedValue(history);
     vi.mocked(getDiscovery).mockResolvedValue(report);
@@ -153,20 +163,14 @@ describe("DiscoverPage unified center", () => {
   });
 
   it("prevents viewers from starting model tasks", async () => {
-    vi.mocked(useAuth).mockReturnValue({
-      mode: "accounts",
-      user: {
-        ...member,
-        memberships: [{ ...member.memberships[0], role: "viewer" }],
-      },
-      activeOrganizationId: "org-1",
-      loading: false,
-      signIn: vi.fn(async () => undefined),
-      activate: vi.fn(async () => undefined),
-      signOut: vi.fn(async () => undefined),
-      selectOrganization: vi.fn(),
-      refreshUser: vi.fn(async () => undefined),
-    });
+    vi.mocked(useAuth).mockReturnValue(
+      authMock({
+        user: {
+          ...member,
+          memberships: [{ ...member.memberships[0], role: "viewer" }],
+        },
+      }),
+    );
 
     render(
       <MemoryRouter initialEntries={["/discover?mode=cross&session=session-1"]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -179,17 +183,16 @@ describe("DiscoverPage unified center", () => {
   });
 
   it("keeps discovery writable when account auth is disabled", async () => {
-    vi.mocked(useAuth).mockReturnValue({
-      mode: "disabled",
-      user: null,
-      activeOrganizationId: "",
-      loading: false,
-      signIn: vi.fn(async () => undefined),
-      activate: vi.fn(async () => undefined),
-      signOut: vi.fn(async () => undefined),
-      selectOrganization: vi.fn(),
-      refreshUser: vi.fn(async () => undefined),
-    });
+    vi.mocked(useAuth).mockReturnValue(
+      authMock({
+        mode: "disabled",
+        user: null,
+        activeOrganizationId: "",
+        persona: "operator",
+        homePath: "/",
+        navItems: ["home", "new"],
+      }),
+    );
 
     render(
       <MemoryRouter initialEntries={["/discover?mode=cross&session=session-1"]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>

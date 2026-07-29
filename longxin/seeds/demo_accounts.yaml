@@ -1,0 +1,11 @@
+# Demo account personas for longxin (invite via admin CLI; passwords set on activate).
+accounts:
+  - email: boss@longxin.example
+    display_name: 决策层示例
+    persona: executive
+  - email: rd@longxin.example
+    display_name: 研发示例
+    persona: researcher
+  - email: staff@longxin.example
+    display_name: 执行示例
+    persona: operator

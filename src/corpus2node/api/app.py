@@ -17,6 +17,7 @@ from corpus2node.accounts.service import resolve_principal, validate_csrf
 from corpus2node.api.routes import admin as admin_routes
 from corpus2node.api.routes import auth as auth_routes
 from corpus2node.api.routes import chat as chat_routes
+from corpus2node.api.routes import customer as customer_routes
 from corpus2node.api.routes import discovery as discovery_routes
 from corpus2node.api.routes import exam as exam_routes
 from corpus2node.api.routes import export as export_routes
@@ -70,7 +71,15 @@ def _cors_origin_regex() -> str | None:
     return r"https?://.*" if "*" in configured and not _IS_PRODUCTION else None
 
 
-_PUBLIC_PATHS = frozenset({"/health", "/ui", "/ui/", "/auth/login", "/auth/activate", "/public/shares/resolve"})
+_PUBLIC_PATHS = frozenset({
+    "/health",
+    "/ui",
+    "/ui/",
+    "/auth/login",
+    "/auth/activate",
+    "/customer-profile",
+    "/public/shares/resolve",
+})
 
 
 def _canonical_path(path: str) -> str:
@@ -188,6 +197,7 @@ async def on_unhandled_error(request: Request, exc: Exception) -> JSONResponse:
 
 _ROUTERS = (
     auth_routes.router,
+    customer_routes.router,
     organizations_routes.router,
     admin_routes.router,
     projects_routes.router,
@@ -220,6 +230,7 @@ async def health() -> dict[str, object]:
         "vector_store_provider": settings.vector_store_provider,
         "auth_configured": bool(settings.api_auth_token),
         "auth_mode": settings.auth_mode,
+        "customer_profile": settings.customer_profile,
     }
     if settings.app_env.lower() != "production":
         result["storage_path"] = settings.local_storage_path

@@ -6,6 +6,7 @@ import type {
   ChatStreamEvent,
   CourseSession,
   CurrentUser,
+  CustomerProfile,
   CredentialUpsert,
   DiscoveryHistoryItem,
   DiscoveryReport,
@@ -565,6 +566,10 @@ export async function exportChat(sessionId: string): Promise<Blob> {
 
 export async function getHealth(): Promise<HealthResponse> {
   return readJson<HealthResponse>(await fetch(`${BASE}/health`));
+}
+
+export async function getCustomerProfile(): Promise<CustomerProfile> {
+  return readJson<CustomerProfile>(await fetch(`${BASE}/customer-profile`));
 }
 
 export function login(payload: { email: string; password: string }): Promise<CurrentUser> {

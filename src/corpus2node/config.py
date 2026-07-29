@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     # single shared Bearer-token deployment while customers migrate.
     auth_mode: str = "legacy_token"  # disabled | legacy_token | accounts
     account_product_mode: str = "personal"  # personal | teams (team mode is deferred)
+    # Customer profile id: "default" uses built-in defaults; "longxin" loads repo-root longxin/profile.yaml
+    customer_profile: str = "default"
     database_url: str = f"sqlite+aiosqlite:///{ROOT_DIR / 'artifacts' / 'metadata.db'}"
     database_auto_create: bool = True  # tests/dev only; production runs Alembic
     public_app_url: str = "http://localhost:5173"

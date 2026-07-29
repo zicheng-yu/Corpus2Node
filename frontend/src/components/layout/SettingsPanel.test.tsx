@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLlmSettings, listProviderModels, upsertCredential } from "../../api/client";
+import { FALLBACK_PROFILE } from "../../auth/persona";
 import { useAuth } from "../../auth/AuthContext";
 import { ToastProvider } from "../primitives/Toast";
 import type { CurrentUser } from "../../types";
@@ -44,8 +45,12 @@ describe("SettingsPanel", () => {
       user,
       activeOrganizationId: "org-1",
       loading: false,
-      signIn: vi.fn(async () => undefined),
-      activate: vi.fn(async () => undefined),
+      profile: FALLBACK_PROFILE,
+      persona: "operator",
+      homePath: "/",
+      navItems: ["home", "new"],
+      signIn: vi.fn(async () => user),
+      activate: vi.fn(async () => user),
       signOut: vi.fn(async () => undefined),
       selectOrganization: vi.fn(),
       refreshUser: vi.fn(async () => undefined),

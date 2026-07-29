@@ -651,6 +651,8 @@ export interface WorkflowRunResponse {
 // ── Accounts, organizations, projects, plans, and sharing ───────────────────
 
 export type OrganizationRole = "owner" | "admin" | "member" | "viewer";
+export type ProductPersona = "executive" | "researcher" | "operator";
+export type PersonaNavItem = "home" | "new" | "discover" | "workspace";
 
 export interface MembershipView {
   organization_id: string;
@@ -664,8 +666,31 @@ export interface CurrentUser {
   email: string;
   display_name: string;
   is_platform_admin: boolean;
+  persona?: ProductPersona;
   active_organization_id?: string | null;
   memberships: MembershipView[];
+}
+
+export interface PersonaProfile {
+  label: string;
+  description?: string;
+  landing: string;
+  nav: PersonaNavItem[];
+}
+
+export interface CustomerProfile {
+  schema_version: number;
+  customer_id: string;
+  brand: {
+    product_name: string;
+    tagline?: string;
+  };
+  personas: Record<ProductPersona, PersonaProfile>;
+  features: {
+    discovery: boolean;
+    notes: boolean;
+    level_test: boolean;
+  };
 }
 
 export interface PlanEntitlements {
@@ -783,4 +808,5 @@ export interface ShareSnapshot {
 export interface HealthResponse {
   status: string;
   auth_mode: "disabled" | "legacy_token" | "accounts";
+  customer_profile?: string;
 }
